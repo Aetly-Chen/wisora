@@ -26,5 +26,6 @@ dist
 # pnpm / 沙箱产生的临时文件
 _tmp_*
 
-# pnpm / 沙箱产生的临时文件
-_tmp_*
+# 依赖迁移过程中的备份目录（被进程锁定无法移动，确认无用后可手动删除）
+dist_old_1/
+node_modules_broken/
