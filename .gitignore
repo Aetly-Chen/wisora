@@ -1,0 +1,30 @@
+# Wisora monorepo 根级忽略规则
+# 各子项目（backend/、frontend/）另有自己的 .gitignore
+
+# WorkBuddy 项目记忆（本地笔记，不进版本库）
+.workbuddy
+
+# 环境变量：含密钥与环境相关配置，绝不上传
+.env
+.env.*
+!.env.example
+
+# 依赖与构建产物（子项目内已各自忽略，此处兜底）
+node_modules
+dist
+
+# 本地下载/解包缓存
+.tmp-dl
+
+# 编辑器与系统
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.log
+
+# pnpm / 沙箱产生的临时文件
+_tmp_*
+
+# pnpm / 沙箱产生的临时文件
+_tmp_*

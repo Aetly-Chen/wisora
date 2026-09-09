@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wisora AI 模块逐行详解</title>
+<style>
+  :root{
+    --bg:#f7f8fa; --panel:#ffffff; --border:#e2e5ea; --text:#1f2328; --muted:#6a737d;
+    --accent:#2563eb; --accent-soft:#eff4ff; --green:#0e7a3d; --red:#c0392b;
+    --code-bg:#0f172a; --code-fg:#e2e8f0; --line-num:#64748b; --keyword:#c792ea;
+    --string:#ecc48d; --type:#7ee787; --comment:#8b949e; --purple:#8250df;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,sans-serif;
+    background:var(--bg);color:var(--text);line-height:1.7}
+  .layout{display:flex;min-height:100vh}
+  /* 侧边导航 */
+  nav{width:290px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--border);
+    padding:20px 0;position:sticky;top:0;height:100vh;overflow-y:auto}
+  nav .brand{padding:0 20px 14px;font-weight:700;font-size:16px;border-bottom:1px solid var(--border)}
+  nav .brand small{display:block;font-weight:400;color:var(--muted);font-size:11px;margin-top:2px}
+  nav a{display:block;padding:7px 20px;color:var(--text);text-decoration:none;font-size:13.5px}
+  nav a:hover{background:var(--accent-soft)}
+  nav a.dir{font-weight:700;margin-top:10px}
+  nav a.sub{padding-left:34px;color:var(--muted);font-size:12.5px}
+  /* 主体 */
+  main{flex:1;max-width:1180px;margin:0 auto;padding:36px 48px}
+  h1{font-size:28px;border-bottom:2px solid var(--accent);padding-bottom:12px;margin:0 0 8px}
+  .subtitle{color:var(--muted);margin-bottom:28px}
+  h2{font-size:22px;color:var(--accent);border-left:4px solid var(--accent);
+    padding-left:12px;margin-top:44px}
+  h3{font-size:18px;margin-top:30px;background:var(--accent-soft);padding:6px 12px;border-radius:6px}
+  h4{font-size:15px;margin-top:22px}
+  .meta{background:var(--panel);border:1px solid var(--border);border-radius:8px;
+    padding:12px 18px;font-size:13px;color:var(--muted);margin:16px 0}
+  .meta b{color:var(--text)}
+  p{font-size:15px}
+  .explain{font-size:14.5px;margin:14px 0}
+  .explain .line{display:inline-block;background:var(--accent-soft);color:var(--accent);
+    border-radius:4px;padding:0 6px;font-family:ui-monospace,Consolas,monospace;
+    font-size:12.5px;margin-right:6px;font-weight:600}
+  /* 代码块 */
+  pre{background:var(--code-bg);color:var(--code-fg);border-radius:8px;padding:16px;
+    overflow-x:auto;font-size:13px;line-height:1.55;margin:10px 0 18px}
+  code{font-family:ui-monospace,"SF Mono",Consolas,Menlo,monospace}
+  .linenos pre{display:grid;grid-template-columns:auto 1fr;column-gap:0}
+  .ln{color:var(--line-num);text-align:right;padding-right:14px;user-select:none}
+  .tok-k{color:var(--keyword)} .tok-s{color:var(--string)} .tok-t{color:var(--type)}
+  .tok-c{color:var(--comment);font-style:italic} .tok-p{color:var(--purple)}
+  /* 高亮关键行 */
+  tr.hl{background:#fffbe6}
+  table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14px}
+  th,td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
+  th{background:#eef1f6}
+  .note{background:#fff8e6;border:1px solid #f0d98c;border-radius:8px;padding:12px 16px;margin:16px 0;font-size:14px}
+  .warn{background:#fdecec;border:1px solid #f0b9b9;border-radius:8px;padding:12px 16px;margin:16px 0;font-size:14px}
+  .good{background:#e8f7ee;border:1px solid #a9dcbb;border-radius:8px;padding:12px 16px;margin:16px 0;font-size:14px}
+  .tag{display:inline-block;background:var(--accent);color:#fff;border-radius:4px;padding:1px 8px;
+    font-size:12px;font-weight:600;margin-right:8px;vertical-align:2px}
+  .arch{display:flex;flex-direction:column;gap:6px;background:var(--panel);border:1px solid var(--border);
+    border-radius:10px;padding:16px;font-family:ui-monospace,Consolas,monospace;font-size:13px;overflow-x:auto}
+  .arch .l{border-left:3px solid var(--accent);padding:3px 10px}
+  .arch .l1{border-left-color:#f0ad4e} .arch .l2{border-left-color:var(--green)} .arch .l3{border-left-color:var(--purple)}
+  .flow{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:18px;
+    font-size:14.5px;line-height:2}
+  .flow b{color:var(--accent)}
+  @media(max-width:900px){.layout{flex-direction:column}nav{width:100%;height:auto;position:static}
+    nav a{display:inline-block;margin:2px}main{padding:20px}}
+  .toc-line{margin:4px 0;font-size:13.5px}
+</style>
+</head>
+<body>
+<div class="layout">
+
+<!-- ===================== 侧边栏 ===================== -->
+<nav>
+  <div class="brand">Wisora AI 模块<small>逐目录 · 逐文件 · 逐行讲解</small></div>
+  <a class="dir" href="#overview">模块总览</a>
+  <a class="sub" href="#arch">架构分层</a>
+  <a class="sub" href="#flow">完整请求流</a>
+  <a class="sub" href="#tree">目录树</a>
+  <a class="dir" href="#module">ai.module.ts（模块根）</a>
+  <a class="dir" href="#controller">ai.controller.ts（控制器）</a>
+  <a class="dir" href="#service">ai.service.ts（Agent 核心）</a>
+  <a class="sub" href="#service-tosse">5.1 toSse</a>
+  <a class="sub" href="#service-runagent">5.2 runAgent</a>
+  <a class="sub" href="#service-misc">5.3 辅助方法</a>
+  <a class="dir" href="#types">types/stream-event.ts</a>
+  <a class="dir" href="#decorators">decorators/</a>
+  <a class="dir" href="#llm">llm/llm.provider.ts</a>
+  <a class="dir" href="#tools">tools/</a>
+  <a class="sub" href="#tool-registry">tool.registry.ts</a>
+  <a class="sub" href="#tool-user">user-info.tool.ts</a>
+  <a class="sub" href="#tool-index">index.ts</a>
+  <a class="dir" href="#memory">memory/conversation.repository.ts</a>
+  <a class="dir" href="#guards">guards/stream-ticket.guard.ts</a>
+  <a class="dir" href="#ratelimit">rate-limit.service.ts</a>
+  <a class="dir" href="#dto">dto/chat.dto.ts</a>
+  <a class="dir" href="#pitfalls">坑与关键设计</a>
+  <a class="dir" href="#external">外部协同改动</a>
+</nav>
+
+<!-- ===================== 主体 ===================== -->
+<main>
+
+<h1>Wisora AI 流式 Agent 模块 · 逐行代码详解</h1>
+<div class="subtitle">基于 <code>src/ai/</code>（共 13 个文件，约 957 行）· 数据流设计见《ai-stream-agent-方案.md》· 讲解含【为什么这么做】与【坑点】</div>
+
+<!-- ============ 总览 ============ -->
+<section id="overview">
+<h2>一、模块总览</h2>
+<p>这是 Wisora 后端实现"<b>流式 AI 对话 / Agent（能调用工具的对话）</b>"的模块。它的价值不止是调大模型，而是把 <b>SSE 推送、多轮上下文、工具调用、鉴权、限流、成本统计</b> 串成一条完整、健壮、可控的链路。</p>
+
+<h3 id="arch">架构分层</h3>
+<div class="arch">
+  <div class="l l3">前端 (React) → fetch 读 SSE → zustand 逐字渲染</div>
+  <div class="l l3">↓ GET /ai/chat/stream?ticket=xxx&q=...&conversationId=...</div>
+  <div class="l l1"><b>AiController</b>（@Sse + @SkipResponse + ticket 鉴权 + 限流）<span style="color:var(--muted)">——只负责 HTTP 协议</span></div>
+  <div class="l"><b>chatStream()</b>（控制器私有生成器）<span style="color:var(--muted)">——落库、拼接历史、包装事件</span></div>
+  <div class="l l1"><b>AiService.toSse()</b><span style="color:var(--muted)">——AsyncGenerator ⟶ Observable，心跳/中断/错误兜底</span></div>
+  <div class="l l1"><b>AiService.runAgent()</b><span style="color:var(--muted)">——Agent Loop 核心：流式生成 + 工具调度 + token 统计</span></div>
+  <div class="l l2"><b>ToolRegistry</b> + 具体工具<span style="color:var(--muted)">——AI 的"手"（model.bindTools 注入）</span></div>
+  <div class="l l2"><b>ConversationRepository</b><span style="color:var(--muted)">——Redis 短期热缓存 + Prisma 长期持久化</span></div>
+  <div class="l l2"><b>RateLimitService</b><span style="color:var(--muted)">——按 userId 限流（Redis 计数）</span></div>
+  <div class="l l3"><b>LlmProvider(chatModelProvider)</b><span style="color:var(--muted)">——ChatOpenAI(baseURL)，模型可替换</span></div>
+  <div class="l l3">↓ DeepSeek / 通义 / 豆包 / Kimi（OpenAI 兼容）</div>
+</div>
+
+<h3 id="flow">一条请求的完整旅程</h3>
+<div class="flow">
+  <b>1 换票</b>　前端带 JWT → <code>POST /ai/chat/ticket</code> → 后端验 JWT 得 userId，Redis 存一次性 ticket（30s）→ 返回 ticket。<br>
+  <b>2 开流</b>　前端拿 ticket → <code>GET /ai/chat/stream?ticket=&q=&conversationId=</code>。<br>
+  <b>3 鉴权+限流</b>　<code>StreamTicketGuard</code> 校验 ticket（取完即焚）→ 控制器按 userId 限流（10 次/分钟）。<br>
+  <b>4 取历史</b>　若带 conversationId，从 Redis 热缓存（miss 则查库回填）取最近 20 条。<br>
+  <b>5 生成</b>　<code>runAgent</code> 把「系统提示 + 历史 + 新问题」发给模型 → 流式返回 token / reasoning → 有 tool_call 就执行工具、把结果塞回消息再问一轮。<br>
+  <b>6 落库</b>　用户问题、助手回复写入 Prisma（user→assistant 成对），并写穿 Redis 缓存。<br>
+  <b>7 收尾</b>　done 事件带 usage（token 统计）→ 客户端断开时 AbortController 中断 LLM。
+</div>
+
+<h3 id="tree">目录树</h3>
+<pre><code>src/ai/
+├── ai.module.ts                 # Nest 模块定义 + 启动时注册工具
+├── ai.controller.ts             # HTTP 层：换票 / SSE 流 / 会话 CRUD
+├── ai.service.ts                # 核心：toSse + Agent Loop + 工具执行
+├── rate-limit.service.ts        # 按 userId 限流
+├── dto/chat.dto.ts              # 请求参数校验
+├── llm/llm.provider.ts          # CHAT_MODEL 提供者（模型解耦）
+├── tools/
+│   ├── tool.registry.ts         # 工具注册表（策略：超时/重试/权限）
+│   ├── user-info.tool.ts        # 示例工具：查用户
+│   └── index.ts                 # registerAllTools 统一注册
+├── memory/conversation.repository.ts  # Redis+Prisma 双层记忆
+├── guards/stream-ticket.guard.ts      # SSE 一次性票据鉴权
+├── decorators/skip-response.decorator.ts  # 让 SSE 绕过全局包装
+└── types/stream-event.ts        # SSE 事件协议（JSON 信封）
+</code></pre>
+</section>
+
+<!-- ============ ai.module.ts ============ -->
+<section id="module">
+<h2>二、ai.module.ts（模块装配 · 43 行）</h2>
+<div class="meta">作用：把该模块用到的依赖声明给 Nest 容器，并在应用启动瞬间注册所有 AI 工具。<br><b>它是模块的"总装车间"</b>——其它所有文件都在这里被装配。</div>
+
+<h3>逐行讲解</h3>
+
+<p class="explain"><span class="line">L1-2</span>导入 <code>Module</code>（模块装饰器）与 <code>OnModuleInit</code>（生命周期钩子接口）。<code>OnModuleInit</code> 让类在模块初始化完成后自动执行一次 <code>onModuleInit()</code>。</p>
+
+<p class="explain"><span class="line">L3-12</span>导入本模块及外部的各种提供者/控制器：<code>JwtModule</code>（JWT 支持，控制器换票时验 token 用）、<code>AiController</code>、<code>AiService</code>、<code>chatModelProvider</code>（模型）、<code>ToolRegistry</code>、<code>registerAllTools</code>（注册函数）、<code>ConversationRepository</code>、<code>RateLimitService</code>、<code>StreamTicketGuard</code>、<code>PrismaModule</code>、<code>PrismaService</code>。</p>
+
+<p class="explain"><span class="line">L14-20</span><code>imports</code>：引入 <code>PrismaModule</code>（提供 PrismaService）和 <code>JwtModule.register({})</code>（无配置注册，因为控制器换票时<code>用 process.env 显式传 secret</code>验签，不需要模块级固定配置）。注释强调：<code>RedisModule</code> 是 <code>@Global()</code>，全局可见，<b>无需重复 import</b>——Nest 会自动注入其导出的 RedisService。</p>
+
+<p class="explain"><span class="line">L21</span><code>controllers</code>：声明本模块提供的 HTTP 控制器，仅 <code>AiController</code>。</p>
+
+<p class="explain"><span class="line">L22-29</span><code>providers</code>：向容器注册本模块的服务，Nest 才能自动完成依赖注入（DI）：<br>
+&nbsp;&nbsp;• <code>AiService</code>：会被 <code>AiController</code> 注入；<br>
+&nbsp;&nbsp;• <code>ToolRegistry</code>：被 <code>AiService</code>、<code>AiModule</code> 注入；<br>
+&nbsp;&nbsp;• <code>ConversationRepository</code> / <code>RateLimitService</code> / <code>StreamTicketGuard</code>：控制器需要；<br>
+&nbsp;&nbsp;• <code>chatModelProvider</code>：以 token <code>CHAT_MODEL</code> 提供 ChatOpenAI 实例，被 <code>AiService</code> 用 <code>@Inject('CHAT_MODEL')</code> 注入。</p>
+
+<p class="explain"><span class="line">L30</span><code>exports: [AiService]</code>：允许其它模块（如未来其它业务模块）<code>import</code> 本模块后使用 AiService。</p>
+
+<p class="explain"><span class="line">L32-37</span>类实现 <code>OnModuleInit</code>。构造函数注入 <code>ToolRegistry</code> 与 <code>PrismaService</code>——后者在工具工厂里查库用。这里用的是<b>字段参数属性</b>语法（<code>private readonly</code> 在构造参数前），TS 自动生成并赋值同名私有字段。</p>
+
+<p class="explain"><span class="line">L39-42</span><code>onModuleInit()</code>：应用启动时调用 <code>registerAllTools(this.tools, this.prisma)</code>，把工具实例塞进 <code>ToolRegistry</code>。<b>为什么在模块而非工具文件里 new？</b>因为工具需要 Nest 管理的单例 Service（Prisma），只有在此刻能拿到容器里的实例并注入闭包。</p>
+
+<div class="note"><b>记忆点</b>：Nest 的装配三件套 = <code>controllers</code>（暴露 HTTP）+ <code>providers</code>（可被注入的 Bean）+ <code>imports</code>（依赖的模块）。缺任何一环都会启动报错 "Nest can't resolve dependencies"。 </div>
+</section>
+
+<!-- ============ ai.controller.ts ============ -->
+<section id="controller">
+<h2>三、ai.controller.ts（控制器 · 210 行）</h2>
+<div class="meta">作用：HTTP 入口。<b>只关心"协议"</b>（收到什么、返回什么格式），把具体业务交给 Service 与 Repository。包含 4 个对外接口 + 1 个私有编排生成器。</div>
+
+<h3>对外接口一览</h3>
+<table>
+  <tr><th>方法 &amp; 路径</th><th>鉴权</th><th>作用</th></tr>
+  <tr><td>POST /ai/chat/ticket</td><td>JWT (Bearer)</td><td>换 30s 一次性 ticket</td></tr>
+  <tr><td>GET /ai/chat/stream</td><td>ticket</td><td>SSE 流式对话（核心）</td></tr>
+  <tr><td>GET /ai/conversations</td><td>JWT</td><td>会话列表</td></tr>
+  <tr><td>DELETE /ai/conversations/:id</td><td>JWT</td><td>软删除会话</td></tr>
+</table>
+
+<h3>逐行讲解</h3>
+
+<p class="explain"><span class="line">L1-15</span>从 <code>@nestjs/common</code> 导入 HTTP 相关装饰器/类：<code>Controller/Delete/Get/Post</code>（路由）、<code>HttpException</code>（抛错）、<code>Injectable</code>、<code>Logger</code>（日志）、<code>Param/Query/Req</code>（取参数）、<code>Sse</code>（SSE 流接口装饰器，重要）、<code>UnauthorizedException</code>（401）、<code>UseGuards</code>（挂守卫）。</p>
+
+<p class="explain"><span class="line">L16-26</span>导入外部依赖与兄弟文件：<code>JwtService</code>（验 JWT）、<code>randomUUID</code>（生成 ticket）、<code>Request</code>（express 类型）、LangChain 的 <code>AIMessage/HumanMessage</code>、本模块的类型与各类 Service。</p>
+
+<p class="explain"><span class="line">L28-29</span><code>TICKET_TTL_SECONDS = 30</code>：ticket 仅 30 秒有效。时间太短怕用户来不及点开流，太长则易被重放，30s 是平衡点。</p>
+
+<p class="explain"><span class="line">L31-34</span><code>@Injectable() @Controller('ai')</code>：声明可注入的服务类，并把路由前缀定为 <code>/ai</code>（所有方法路径自动加上此前缀）。<code>Logger(AiController.name)</code> 用于打印带类名的日志。</p>
+
+<p class="explain"><span class="line">L36-42</span>构造函数 DI：注入 <code>AiService</code>（驱动对话）、<code>JwtService</code>（验 JWT）、<code>RedisService</code>（存取 ticket）、<code>ConversationRepository</code>（存取会话/消息）、<code>RateLimitService</code>（限流）。</p>
+
+<h4>getUserId() — JWT 解析（L45-59）</h4>
+<p class="explain"><span class="line">L45-49</span>取 <code>Authorization</code> 头，若不以 <code>Bearer </code> 开头则抛 401「缺少访问令牌」。</p>
+<p class="explain"><span class="line">L50-55</span>用 <code>verifyAsync&lt;{sub:string}&gt;</code> 校验并解析 token（去掉 <code>Bearer </code> 前缀），用 <code>process.env.JWT_ACCESS_SECRET</code> 验签。token 是注册/登录时签发的，payload 里 <code>sub</code> 就是 userId。<b>返回 <code>payload.sub</code></b>。</p>
+<p class="explain"><span class="line">L56-58</span>校验失败则抛 401「访问令牌无效或已过期」。</p>
+<div class="note"><b>为什么手写解析而不是用全局 JwtAuthGuard？</b>项目当前没有全局 JWT 守卫/中间件把 user 挂到 request，所以这里在每个需要 JWT 的方法内手动解析一次，保持一致。</div>
+
+<h4>createTicket() — POST /ai/chat/ticket（L62-80）</h4>
+<p class="explain"><span class="line">L64</span>解析出 userId。</p>
+<p class="explain"><span class="line">L67-73</span><b>顺带限流</b>：每次换票也调用 <code>rateLimit.check(userId)</code>，防止恶意刷票耗尽 Redis / 反复触发 LLM。<code>limit.allowed</code> 为 false 时抛 429。</p>
+<p class="explain"><span class="line">L75-78</span>用 <code>randomUUID()</code> 生成 ticket，写入 Redis：键 <code>ai:ticket:${ticket}</code>，值 userId，过期 30s（<code>setex</code> = SET + EXPIRE）。</p>
+<p class="explain"><span class="line">L79</span>返回 <code>{ ticket }</code> 给前端（会被全局 ResponseInterceptor 包成 <code>{code,msg,data:{ticket}}</code>）。</p>
+
+<h4>stream() — GET /ai/chat/stream（L85-122）</h4>
+<p class="explain"><span class="line">L85</span><span class="tag">关键</span><b>必须用 <code>@Sse('chat/stream')</code> 而非 <code>@Get</code></b>。@Sse 会让 Nest 正确地把返回的 Observable 逐项输出为 <code>text/event-stream</code>；若用 @Get，Nest 把 Observable 当普通响应只取最后一个值发 JSON（见文档底部"坑 1"）。</p>
+<p class="explain"><span class="line">L86</span><span class="tag">关键</span><code>@SkipResponse()</code>：让该接口绕过全局 ResponseInterceptor，不套 <code>{code,msg,data}</code> 壳，否则 SSE 数据会被包装而失效。</p>
+<p class="explain"><span class="line">L87</span><code>@UseGuards(StreamTicketGuard)</code>：进入方法前先校验 ticket，守卫会把 <code>req.userId</code> 写上去。</p>
+<p class="explain"><span class="line">L88-92</span>方法参数：<code>req</code>（断言带 userId）、<code>@Query('q') question</code>（问题）、<code>@Query('conversationId')</code>（会话，可选）。</p>
+<p class="explain"><span class="line">L93-95</span>若没有 <code>q</code> 参数，抛 400「缺少参数 q」。</p>
+<p class="explain"><span class="line">L97</span>从守卫写好的 <code>req.userId</code> 取 userId（这里不再验 JWT，ticket 已证明身份）。</p>
+<p class="explain"><span class="line">L99-106</span>再次限流：对话比换票更烧钱（每次真调 LLM），同样 10 次/分钟，超限抛 429。</p>
+<p class="explain"><span class="line">L108-110</span>若带了 conversationId，调用 <code>conversations.loadHistory</code> 取历史上下文，作为 Agent 的"记忆"；否则空数组（全新对话）。</p>
+<p class="explain"><span class="line">L112-121</span><span class="tag">关键</span>构造并返回 SSE 的 Observable。<code>aiService.toSse(...)</code> 接收一个"生成器工厂" <code>(signal) =&gt; chatStream({...})</code>。这里把 <code>signal</code> 一路传下去，目的：<b>客户端断开时由 toSse 调用 abort，中断底层 LLM 请求</b>。</p>
+
+<h4>listConversations() / deleteConversation()（L125-137）</h4>
+<p class="explain"><span class="line">L125-129</span><code>GET /ai/conversations</code>：JWT 解析 userId，返回该用户所有未删除会话（Repository 已按 updatedAt 倒序）。</p>
+<p class="explain"><span class="line">L132-137</span><code>DELETE /ai/conversations/:id</code>：软删除（不是物理删），置 <code>deletedAt</code>，并同步清掉该会话的 Redis 缓存。</p>
+
+<h4>chatStream() — 私有编排生成器（L140-209）<span style="color:var(--muted)">（本控制器真正的"导演"）</span></h4>
+<p class="explain"><span class="line">L140-146</span>定义为 <code>async *chatStream()</code>——一个<b>异步生成器</b>，逐条 <code>yield</code> 出 <code>StreamEvent</code>。它接收一个含 <code>signal</code> 的参数对象。生成器返回值类型是 <code>AsyncGenerator&lt;StreamEvent&gt;</code>。</p>
+<p class="explain"><span class="line">L147</span>解构取 userId、question、conversationId。</p>
+<p class="explain"><span class="line">L149-156</span>若没传 conversationId（新对话），创建会话：标题取问题的前 30 字，记录所用模型；否则复用既有会话。返回值结构含 <code>id</code>。</p>
+<p class="explain"><span class="line">L158-162</span><b>先把用户问题落库</b>（写入 Message，role=user），拿到 <code>userMessage.id</code>。</p>
+<p class="explain"><span class="line">L164</span><span class="tag">关键</span>立即 <code>yield {type:'start', conversationId, messageId}</code>——通知前端"会话已建立"，让前端能立刻拿到 <code>conversationId</code>（用于后续新一轮时携带）。</p>
+<p class="explain"><span class="line">L166-167</span><code>fullText</code>：累积助手回复文本；<code>persisted</code>：幂等标志，防止重复落库。</p>
+<p class="explain"><span class="line">L169-178</span>定义内部函数 <code>persistAssistant()</code>：把累积的助手文本写入 Message（role=assistant）。<b>幂等</b>——<code>persisted</code> 为 true 就直接返回，避免 done 和 finally 各写一次。写库失败只打 warn，不阻断流。</p>
+<p class="explain"><span class="line">L180-187</span>把历史转成 LangChain 需要的 <code>BaseMessage[]</code>。<b>只保留 user / assistant 且非空的轮次</b>，跳过 tool 轮次（工具轮次的语义依赖 tool_call_id 配对，简单拼接会误导模型）。<code>role==='user'</code> → <code>new HumanMessage</code>，否则 <code>new AIMessage</code>。</p>
+<p class="explain"><span class="line">L189-204</span>进入 <code>try</code>：<code>for await</code> 消费 <code>aiService.runAgent({question, history, signal})</code> 流出的每个事件。<code>runAgent</code> 内部完成"问模型 → yield token/reasoning → 执行工具 → 再问"的循环（下节详解），这里只是透传。</p>
+<p class="explain"><span class="line">L195</span>若是 <code>token</code> 事件，把文本累加到 <code>fullText</code>（供最终落库）。</p>
+<p class="explain"><span class="line">L197-201</span><span class="tag">坑点已修</span>遇到 <code>done</code> 事件时，<b>先落库助手消息，再 yield done</b>。否则客户端收到 done 后立刻发起下一轮，会读到尚未写入的历史 → 多轮记忆"随机失效"（见底部"坑 3"）。</p>
+<p class="explain"><span class="line">L203</span>把事件透传给 toSse 去推给前端。</p>
+<p class="explain"><span class="line">L205-208</span><code>finally</code>：无论正常结束、被中断还是抛异常，都再调一次 <code>persistAssistant()</code> 兜底——避免中断时助手半截回答没落库（幂等确保不会重复写）。</p>
+</section>
+
+<!-- ============ ai.service.ts ============ -->
+<section id="service">
+<h2>四、ai.service.ts（Agent 核心 · 286 行）</h2>
+<div class="meta">作用：真正的"大脑"。包含三块——①把生成器桥接成 SSE 的 <code>toSse</code>；②Agent 循环 <code>runAgent</code>；③工具执行 / token 统计等私有辅助。</div>
+
+<h3 id="service-tosse">4.1 toSse() — AsyncGenerator ⟶ SSE Observable（L42-92）</h3>
+
+<p class="explain"><span class="line">L15-19</span>两个常量：<code>MAX_ITERATIONS=8</code>（Agent 最多 8 轮，防工具死循环烧钱）、<code>HEARTBEAT_INTERVAL_MS=15000</code>（心跳间隔）。</p>
+<p class="explain"><span class="line">L21-28</span>类与构造：注入 token 为 <code>CHAT_MODEL</code> 的 ChatOpenAI（模型）与 <code>ToolRegistry</code>（工具表）。</p>
+<p class="explain"><span class="line">L42-48</span><code>toSse(genFactory)</code> 接收一个"<b>生成器工厂</b>"函数，返回 <code>Observable</code>。每次订阅时：<code>cancelled=false</code> 标记；<code>new AbortController()</code> 建立中断句柄；<b>现在才调用工厂创建生成器</b>（传入 <code>controller.signal</code>）——这样 signal 在生成器生命期内可用。用 <code>new Observable(subscriber=&gt;...)</code> 把"逐条事件"推给 Nest 的 SSE 通道。</p>
+<p class="explain"><span class="line">L50-52</span>启动 <code>setInterval</code> 心跳，每 15s 推一个 <code>:ping</code> 注释行。<b>作用</b>：很多代理/网关有"空闲超时"，若长时间没数据会掐断连接；心跳让连接保持活跃。</p>
+<p class="explain"><span class="line">L54</span><code>void (async()=&gt;{...})()</code>：立即开始一个"驱动生成器"的异步任务。用 void 忽略其 Promise，避免 unhandled rejection。</p>
+<p class="explain"><span class="line">L56-59</span>用 <code>for await</code> 逐个消费生成器产出的事件，只要没被取消就 <code>JSON.stringify</code> 后推给 subscriber。<b>为什么不直接传对象？</b>SSE 要求 payload 是字符串，前端再 parse。</p>
+<p class="explain"><span class="line">L60</span>生成器正常走完且未取消 → <code>subscriber.complete()</code> 结束流。</p>
+<p class="explain"><span class="line">L61-77</span><code>catch</code>：若生成期间抛错：<b>先判断 cancelled</b>——若是客户端断开导致的中断，属预期，直接 return（不打 error、不下发事件）；否则记 error 日志，并推一个 <code>{type:'error',code:'STREAM_FAILED'}</code> 事件给前端提示，然后 <code>complete()</code>。<span class="tag">关键</span>用 <code>complete</code> 而非 <code>error</code>——<code>error</code> 会被全局 HttpExceptionFilter 转成 JSON，反而污染已建立的 SSE 流。</p>
+<p class="explain"><span class="line">L78-80</span><code>finally</code>：无论成败都清掉心跳计时器。</p>
+<p class="explain"><span class="line">L83-90</span><b>关键：teardown（清理）回调</b>。Observable 在 <code>unsubscribe</code>（= 客户端断开）时执行：置 cancelled、清心跳、<b><code>controller.abort()</code> 中断底层 LLM</b>（停止计费）、<code>gen.return?.(undefined)</code> 让生成器走 finally 释放资源。这是"点停止按钮能真的省钱"的机制所在。</p>
+
+<h3 id="service-runagent">4.2 runAgent() — Agent Loop（L95-195）</h3>
+<div class="note">Agent Loop 思想：<b>让模型反复"想(推理)→做(调工具)→看(拿结果)→再想"</b>，直到模型认为不再需要工具、给出最终自然语言回复。这正是从"只会闲聊的 LLM"升级为"能调用系统能力的 Agent"的核心。</div>
+
+<p class="explain"><span class="line">L95-100</span>方法签名：接收 <code>{question, history?, systemPrompt?, signal?}</code>，返回 <code>AsyncGenerator&lt;StreamEvent&gt;</code>。解构并给 history/systemPrompt 默认值。</p>
+<p class="explain"><span class="line">L103-110</span>组装首轮消息数组 <code>messages</code>：先是 <code>SystemMessage</code>（系统设定：若无自定义则用默认"你是 Wisora 的智能助手…用中文回答"），然后拼历史，最后一条是当前问题的 <code>HumanMessage</code>。</p>
+<p class="explain"><span class="line">L112-118</span><span class="tag">关键</span>把注册的工具 <b>绑给模型</b>：<code>this.tools.list()</code> 拿所有工具，若非空就 <code>this.model.bindTools(tools)</code> 得到"带工具能力的模型"。<b>不做这步模型就看不到工具定义，tool_calls 恒为空、Agent 永不调工具</b>（见底部"坑 2"）。</p>
+<p class="explain"><span class="line">L120-122</span><code>startedAt</code> 记录开始时间（算耗时）；<code>usage</code> 累积 token（跨多轮工具调用要累加）。</p>
+<p class="explain"><span class="line">L124</span><code>for (iter=0; iter&lt;MAX_ITERATIONS; iter++)</code>：最多 8 轮。每轮 = 一次"问模型 + 可能执行工具"。</p>
+<p class="explain"><span class="line">L125-128</span>每轮开头检查 <code>signal?.aborted</code>，若已中断，yield <code>done(finishReason:'aborted')</code> 并 return。</p>
+<p class="explain"><span class="line">L130</span><code>full</code> 用于累积这一轮流式 chunk 拼成完整一条消息。</p>
+<p class="explain"><span class="line">L132</span><code>model.stream(messages, {signal})</code>：发起流式请求，signal 传入让请求可中断。</p>
+<p class="explain"><span class="line">L134-146</span>逐 chunk 消费：<code>concat</code> 把分片拼回 <code>full</code>；把 chunk 文本（用 <code>toText</code> 兼容不同 content 形状）yield 成 <code>token</code> 事件（打字机效果来源）；从 <code>additional_kwargs.reasoning_content</code> 读思维链（DeepSeek-R1/QwQ 的思考过程），yield 成 <code>reasoning</code> 事件。</p>
+<p class="explain"><span class="line">L148-150</span>这一轮结束：若无内容则 break；否则把完整 <code>full</code> 推入 <code>messages</code>（作为历史），并累计 token。</p>
+<p class="explain"><span class="line">L152-157</span>看这一轮模型是否要求调工具（<code>full.tool_calls</code>）。<b>若为空 → 模型给出了最终文字回答，收工</b>：打日志、yield <code>done(finishReason:'stop', usage)</code>、return。</p>
+<p class="explain"><span class="line">L159-185</span>若有工具调用：逐个执行。对每个 <code>call</code>：先 yield <code>tool_call</code> 事件（前端可展示"正在调用某工具"）；调 <code>invokeTool</code> 执行；yield <code>tool_result</code> 事件（含 ok 与结果文本）；再把结果包装成 <code>ToolMessage</code> 塞回 messages（<b>tool_call_id 必须回填</b>，模型才能把工具结果和调用对上）。处理完所有工具调用后，循环回到 L124 再问一轮。</p>
+<p class="explain"><span class="line">L188-194</span>若 8 轮都在调工具（没收敛到纯文本），打日志并 yield <code>error(MAX_ITERATIONS)</code> + <code>done(finishReason:'max_iterations')</code> 兜底退出——防止无限烧钱。</p>
+
+<h3 id="service-misc">4.3 私有辅助方法</h3>
+<p class="explain"><span class="line">L197-223 accumulateUsage</span>从 chunk 里提取 token 用量。<b>LangChain 版本不同字段位置不同</b>：新版在 <code>usage_metadata</code>，部分厂商仍在 <code>response_metadata.token_usage</code>，所以遍历两处候选，把数值字段逐项累加进 usage 对象。</p>
+<p class="explain"><span class="line">L225-237 logRun</span>打印一次请求的耗时与 token 总量（<code>usage.total_tokens</code> 或 <code>totalTokens</code>），供成本核算排查。</p>
+<p class="explain"><span class="line">L239-272 invokeTool</span>带<b>超时 + 重试</b>地执行单个工具：查注册表拿工具与策略；用 <code>Promise.race</code> 让工具调用和"超时定时器"赛跑，超时即 reject；失败按 <code>retries</code> 重试，最终仍失败则返回 <code>{ok:false, output:错误信息}</code>。<b>统一返回 {ok,output} 字符串</b>，避免异常泄漏到 Agent 流里崩掉整个连接。</p>
+<p class="explain"><span class="line">L274-285 toText</span>LLM content 可能是纯字符串，也可能是分片数组 <code>[{type:'text',text:'..'}]</code>。此函数兼容两种，只取 text 部分拼接；其它（如图片）忽略。</p>
+</section>
+
+<!-- ============ types ============ -->
+<section id="types">
+<h2>五、types/stream-event.ts（事件协议 · 22 行）</h2>
+<div class="meta">作用：SSE 推送给前端的每一种事件的<b>数据结构约定</b>。只定义类型、不含逻辑，前端依赖它做 UI 分支。</div>
+
+<p class="explain"><span class="line">L1-6</span>文档注释：SSE 事件用统一 JSON 信封；事件名固定为 <code>message</code>，靠 <code>type</code> 字段区分；另有 <code>:ping</code> 心跳注释行（不属于本协议，前端应跳过）。</p>
+<p class="explain"><span class="line">L7-22</span>用 TypeScript <b>可辨识联合（discriminated union）</b>定义 <code>StreamEvent</code>，每种都带一个字面量 <code>type</code> 作为判别字段：
+<table>
+  <tr><th>type</th><th>含义</th><th>字段</th></tr>
+  <tr><td><code>start</code></td><td>流开始，前端拿到会话 ID</td><td>conversationId, messageId</td></tr>
+  <tr><td><code>token</code></td><td>正文增量（打字机）</td><td>content</td></tr>
+  <tr><td><code>reasoning</code></td><td>思维链（R1/QwQ 思考）</td><td>content</td></tr>
+  <tr><td><code>tool_call</code></td><td>模型决定调用某工具</td><td>id, name, args(JSON 串)</td></tr>
+  <tr><td><code>tool_result</code></td><td>工具执行完毕</td><td>id, name, ok, result</td></tr>
+  <tr><td><code>error</code></td><td>出错了（可控错误）</td><td>code, message</td></tr>
+  <tr><td><code>done</code></td><td>流结束</td><td>finishReason, usage?</td></tr>
+</table>
+<b>前端靠 type 分支渲染</b>；tsc 还能在 <code>ev.type==='token'</code> 时自动收窄出 <code>content</code> 字段，写代码更安全。</div>
+</section>
+
+<!-- ============ decorators ============ -->
+<section id="decorators">
+<h2>六、decorators/skip-response.decorator.ts（12 行）</h2>
+<div class="meta">作用：提供 <code>@SkipResponse()</code> 装饰器，标记某个接口<b>不要被全局响应包装</b>。这是让 SSE 能在该项目"全局统一 JSON 壳"体系下正常工作的关键开关。</div>
+
+<p class="explain"><span class="line">L1-3</span>从 <code>@nestjs/common</code> 导入 <code>SetMetadata</code>（给处理器/类挂元数据），定义元数据键常量 <code>SKIP_RESPONSE_KEY='skipResponse'</code>——两个模块必须引用同一个 key 才能对上。</p>
+<p class="explain"><span class="line">L5-11</span>注释说明用途：用于 SSE / 文件下载 / 健康检查等需要"原样透出响应体"的场景。</p>
+<p class="explain"><span class="line">L12</span>导出装饰器工厂 <code>SkipResponse = () =&gt; SetMetadata(SKIP_RESPONSE_KEY, true)</code>——用法是在接口上写 <code>@SkipResponse()</code>，给该处理器挂上 <code>skipResponse:true</code>。</p>
+
+<div class="note"><b>它与 ResponseInterceptor 怎么协作？</b>全局 <code>ResponseInterceptor</code> 会用 <code>Reflector.getAllAndOverride(SKIP_RESPONSE_KEY, [handler, class])</code> 读取这个标记：若为 true 就 <code>return next.handle()</code> 原样放行（不做 <code>{code,msg,data}</code> 包装）；否则正常包壳。之所以用元数据而非判断 Content-Type，是因为 Nest 的 SSE 响应头在拦截器之后才写入，拦截器里看不到。</div>
+</section>
+
+<!-- ============ llm ============ -->
+<section id="llm">
+<h2>七、llm/llm.provider.ts（LLM Provider · 26 行）</h2>
+<div class="meta">作用：以 Nest 依赖注入的方式提供"当前使用的语言模型"，并<b>通过 baseURL 做到模型无关</b>——换模型只改环境变量，不改代码。</div>
+
+<p class="explain"><span class="line">L1-2</span>导入 <code>Provider</code>（自定义 provider 的类型）与 <code>ChatOpenAI</code>（LangChain 的 OpenAI 兼容客户端）。</p>
+<p class="explain"><span class="line">L4-8</span>注释点明设计：用 <code>ChatOpenAI + configuration.baseURL</code> 通吃 DeepSeek/通义/豆包/Kimi/智谱等所有 OpenAI 兼容接口。</p>
+<p class="explain"><span class="line">L9</span>定义注入令牌常量 <code>CHAT_MODEL='CHAT_MODEL'</code>——AiService 用它 <code>@Inject('CHAT_MODEL')</code> 取实例。</p>
+<p class="explain"><span class="line">L11-26</span>定义 <code>chatModelProvider: Provider</code>，用 <code>useFactory</code> 工厂函数创建模型实例：<code>new ChatOpenAI({...})</code>，各配置项均读环境变量：
+<table>
+  <tr><th>字段</th><th>来源</th><th>说明</th></tr>
+  <tr><td>model</td><td>CHAT_MODEL_NAME</td><td>默认 deepseek-chat</td></tr>
+  <tr><td>apiKey</td><td>OPENAI_API_KEY</td><td>到平台控制台申请</td></tr>
+  <tr><td>temperature</td><td>CHAT_MODEL_TEMPERATURE</td><td>默认 0.3，工具/结构化场景低些更稳</td></tr>
+  <tr><td>streaming</td><td>固定 true</td><td>必须流式</td></tr>
+  <tr><td>maxRetries</td><td>固定 1</td><td>减少重复计费</td></tr>
+  <tr><td>timeout</td><td>CHAT_STREAM_TIMEOUT_MS</td><td>默认 120s，防挂死</td></tr>
+  <tr><td>configuration.baseURL</td><td>OPENAI_BASE_URL</td><td><b>注意别加 /v1</b>，SDK 自动补 /chat/completions</td></tr>
+</table></p>
+<div class="note"><b>为什么不依赖 Nest ConfigModule？</b>项目当前没引入 @nestjs/config，全站统一直接读 <code>process.env</code>（配合根目录 .env 由 dotenv 加载），此处保持一致。</div>
+</section>
+
+<!-- ============ tools ============ -->
+<section id="tools">
+<h2>八、tools/ 目录（AI 的"手"）</h2>
+
+<h3 id="tool-registry">8.1 tool.registry.ts（注册表 · 45 行）</h3>
+<div class="meta">作用：统一存放"AI 能调用的所有工具"及其<b>执行策略（超时/重试/权限）</b>。AiService 调工具前从这里取实例和策略。</div>
+
+<p class="explain"><span class="line">L1-2</span>导入 <code>Injectable</code> 与 <code>StructuredToolInterface</code>（LangChain 结构化工具接口类型，含 name/description/schema/invoke）。</p>
+<p class="explain"><span class="line">L4-11</span>定义 <code>ToolPolicy</code> 接口：<code>timeoutMs</code>（单次执行超时）、<code>retries</code>（失败重试）、<code>roles?</code>（允许调用的角色，权限预留，暂未用）。</p>
+<p class="explain"><span class="line">L13-19</span>注释点出<b>核心设计</b>：工具用<b>工厂函数</b>创建（不是直接 new），才能在闭包里使用 Nest DI 的 Service。</p>
+<p class="explain"><span class="line">L20-23</span><code>@Injectable() class ToolRegistry</code>，内部维护两个 Map：<code>tools</code>（name→工具实例）、<code>policies</code>（name→策略）。</p>
+<p class="explain"><span class="line">L25-32</span><code>register(tool, policy?)</code>：注册工具，同时用默认值(15s 超时、1 次重试)合并传入的策略后存进 policies。</p>
+<p class="explain"><span class="line">L34-36</span><code>list()</code>：返回全部工具数组（供 model.bindTools 用）。</p>
+<p class="explain"><span class="line">L38-40</span><code>get(name)</code>：按名字取工具，未注册返回 undefined。</p>
+<p class="explain"><span class="line">L42-44</span><code>policy(name)</code>：按名字取执行策略。</p>
+
+<h3 id="tool-user">8.2 user-info.tool.ts（示例工具 · 39 行）</h3>
+<div class="meta">作用：演示"如何写一个能访问数据库的 AI 工具"。名字 <code>query_user</code>，功能是按邮箱/昵称关键词查用户。</div>
+
+<p class="explain"><span class="line">L1-3</span>导入 <code>tool</code>（LangChain 的建工具函数）、<code>z</code>（zod，参数 schema，必须 v3 兼容）、<code>PrismaService</code>。</p>
+<p class="explain"><span class="line">L5-7</span>定义参数 schema <code>queryUserArgsSchema = z.object({keyword: z.string().describe('...')})</code>——声明工具需要 <code>keyword</code> 字符串参数。LangChain 会据此生成 JSON Schema 描述给模型，并自动校验/解析模型传来的参数。</p>
+<p class="explain"><span class="line">L9-14</span>注释强调工厂函数模式：接收 <code>prisma</code> 参数，返回工具。<b>这是让工具能访问 DB 的关键</b>——闭包捕获了注入进来的 PrismaService。</p>
+<p class="explain"><span class="line">L15</span>函数 <code>createQueryUserTool(prisma)</code>。</p>
+<p class="explain"><span class="line">L16-32</span>调用 <code>tool(执行函数, {name, description, schema})</code>：
+<ul>
+  <li>执行函数接收解构后的 <code>{keyword}</code>，用 Prisma 查用户：<code>where</code> 排除已删除(<code>deletedAt:null</code>)且 <code>email 或 nickname</code> 含关键词（<code>mode:'insensitive'</code> 忽略大小写）；<code>select</code> 只取 id/email/nickname；<code>take:5</code> 限 5 条防刷屏。</li>
+  <li>无结果返回 <code>{"found":false}</code>，否则返回 <code>{"found":true, users:[...]}</code>。统一用 JSON 字符串返回，模型好解析。</li>
+</ul>
+<p class="explain"><span class="line">L33-37</span>给工具起名 <code>query_user</code>、写清楚 description（模型据此判断何时调用）与 schema。</p>
+
+<h3 id="tool-index">8.3 index.ts（统一注册 · 30 行）</h3>
+<div class="meta">作用：模块出口 + 应用启动时把所有工具实例注册进 ToolRegistry 的<b>总入口</b>。</div>
+
+<p class="explain"><span class="line">L1-4</span>导入所需类型/Service/注册表/建工具函数。</p>
+<p class="explain"><span class="line">L6-7</span><code>export * from './tool.registry'</code>、<code>export * from './user-info.tool'</code>：把注册表类与工具工厂"再导出"，其它文件可统一从 tools 目录引。</p>
+<p class="explain"><span class="line">L9-12</span>注释：新加工具就在 tools/ 下建 xxx.tool.ts，然后在这里登记即可。</p>
+<p class="explain"><span class="line">L13-25</span><code>registerAllTools(registry, prisma)</code>：定义一个数组，每项 <code>{tool, policy}</code>。当前只有一个 <code>query_user</code> 工具（policy：10s 超时、1 次重试）。用 <code>createQueryUserTool(prisma)</code> 现场创建并传入刚注入的 PrismaService。</p>
+<p class="explain"><span class="line">L27-29</span><code>for...of</code> 逐个 <code>registry.register(tool, policy)</code>。此函数由 AiModule 的 <code>onModuleInit()</code> 调用，保证应用一启动工具就绪。</p>
+</section>
+
+<!-- ============ memory ============ -->
+<section id="memory">
+<h2>九、memory/conversation.repository.ts（双层记忆 · 130 行）</h2>
+<div class="meta">作用：封装会话与消息的存取。采用<b>双层记忆</b>——Redis 做短期热缓存（快、省 DB 压力），PostgreSQL(Prisma) 做长期持久化（稳、可回看）。Repository 对外是"读历史/写消息"的统一入口。</div>
+
+<h4>类型与常量（L5-19）</h4>
+<p class="explain"><span class="line">L5-14</span>定义 <code>ChatMessage</code> 接口：一条消息的<b>统一形状</b>（无论来自内存/缓存/DB），字段含 id、role、content、toolCalls、toolCallId、name、createdAt。</p>
+<p class="explain"><span class="line">L16-19</span>常量：<code>HISTORY_LIMIT=20</code>（上下文窗口：只保留最近 20 条，防长对话爆 token，见方案"上下文窗口策略"）、<code>CACHE_TTL_SECONDS=1800</code>（Redis 缓存半小时）。</p>
+
+<h4>类与构造（L21-37）</h4>
+<p class="explain"><span class="line">L21-33</span><code>@Injectable() ConversationRepository</code>，DI 注入 <code>PrismaService</code> 与 <code>RedisService</code>；<code>logger</code> 打日志。</p>
+<p class="explain"><span class="line">L35-37</span>私有 <code>cacheKey(conversationId)</code> 返回 <code>ai:conv:${conversationId}</code>——Redis key 统一加 <code>ai:</code> 前缀，便于区分/清理。</p>
+
+<h4>createConversation / listConversations（L39-50）</h4>
+<p class="explain"><span class="line">L39-43</span>建会话：Prisma 插入 Conversation 行，userId/title/model（title 或 model 为空则写 null）。返回新记录（含 id）。</p>
+<p class="explain"><span class="line">L45-50</span>列会话：查该 userId 且未删除(<code>deletedAt:null</code>)的会话，按 <code>updatedAt</code> 倒序（新的在前）。</p>
+
+<h4>appendMessage（L52-83）</h4>
+<p class="explain"><span class="line">L52-55</span>签名：往某会话插入一条消息（入参用 <code>Omit&lt;ChatMessage,'id'&gt;</code> 排除 id，因为 id 由 DB 生成），返回完整 <code>ChatMessage</code>。</p>
+<p class="explain"><span class="line">L56-65</span><b>先写库（持久化保证）</b>：Prisma 插入 Message（role/content/toolCalls/toolCallId/name），undefined 字段不写。拿到自增 <code>saved.id</code>。</p>
+<p class="explain"><span class="line">L67-80</span><b>再写穿缓存（热数据）</b>：读现有缓存数组（<code>JSON.parse</code>，空则 []），把新消息 push 进去，<code>slice(-HISTORY_LIMIT)</code> 只留最近 20 条，<code>setex</code> 写回(带过期)。<b>整个 try/catch</b>：缓存失败只打 warn，不阻断主流程——因为 DB 已写成功，历史丢不了，顶多下次走 DB 回源。</p>
+<p class="explain"><span class="line">L82</span>返回带 id 的完整消息。</p>
+
+<h4>loadHistory（L85-121）</h4>
+<p class="explain"><span class="line">L86-87</span>先取缓存 key。</p>
+<p class="explain"><span class="line">L89-94</span><b>Cache-first</b>：读 Redis，命中直接 <code>JSON.parse</code> 返回；catch 里若 Redis 异常则静默降级到下一步（注释：降级直查数据库）。</p>
+<p class="explain"><span class="line">L96-100</span>未命中则查库：Prisma 按 <code>conversationId</code>、<code>createdAt</code> 升序取，<code>take: -HISTORY_LIMIT</code> 是 Prisma 的"<b>从末尾取 N 条</b>"语法（取最近的 20 条）。</p>
+<p class="explain"><span class="line">L102-110</span>把 DB 行映射成 <code>ChatMessage[]</code>（role 强转、可空字段转 undefined、带上 createdAt）。</p>
+<p class="explain"><span class="line">L112-118</span><b>回填缓存</b>：把查到的列表写回 Redis（setex）。同样 catch 兜底，缓存失败不阻断。</p>
+<p class="explain"><span class="line">L120</span>返回历史列表。</p>
+
+<h4>softDeleteConversation（L123-129）</h4>
+<p class="explain"><span class="line">L124-127</span>软删除：Prisma <code>updateMany</code> 把符合条件的会话(该用户 + 未删 + id 匹配)的 <code>deletedAt</code> 置为当前时间。</p>
+<p class="explain"><span class="line">L128</span>顺手 <code>del</code> 掉该会话的 Redis 缓存，避免脏数据残留。</p>
+
+<div class="note"><b>为什么软删除？</b>保留数据便于审计/恢复，删会话时不物理清 Message。且 Message 表外键是 <code>onDelete: Cascade</code>，若将来要物理删会话，消息会级联清除。</div>
+</section>
+
+<!-- ============ guards ============ -->
+<section id="guards">
+<h2>十、guards/stream-ticket.guard.ts（鉴权守卫 · 36 行）</h2>
+<div class="meta">作用：保护 SSE 流接口。<b>EventSource 不支持自定义请求头</b>，无法带 JWT，因此用"一次性 ticket"代替——前端先 JWT 换票，再用票开流。</div>
+
+<p class="explain"><span class="line">L1-7</span>导入 <code>CanActivate</code>(守卫接口)、<code>ExecutionContext</code>(上下文)、<code>Injectable</code>、<code>UnauthorizedException</code>(401)、<code>RedisService</code>。</p>
+<p class="explain"><span class="line">L9-15</span>注释讲清背景：EventSource 不支持 Authorization 头 → 用 <code>POST /ai/chat/ticket</code> 拿一次性 ticket（30s）→ ticket 取完即焚，<b>避免 JWT 泄露在 URL 被重放</b>。</p>
+<p class="explain"><span class="line">L16-18</span><code>@Injectable() class StreamTicketGuard implements CanActivate</code>，注入 RedisService。</p>
+<p class="explain"><span class="line">L20-21</span><code>async canActivate(ctx)</code>：守卫核心方法，返回 boolean/Promise。取 HTTP 请求对象（类型断言含 url 与可选 userId）。</p>
+<p class="explain"><span class="line">L24-25</span>从 URL 解析 <code>ticket</code> 查询参数（SSE 走 GET，票放 query）。<b>用 <code>new URL(req.url,'http://localhost')</code></b> 安全解析，避免手动字符串截取。</p>
+<p class="explain"><span class="line">L26</span>无 ticket 直接抛 401「缺少 ticket」。</p>
+<p class="explain"><span class="line">L28-29</span>去 Redis 用 <code>ai:ticket:${ticket}</code> 查它对应的 userId；查不到(票不存在或已过期)抛 401「ticket 无效或已过期」。</p>
+<p class="explain"><span class="line">L31-33</span><span class="tag">关键</span><b>取完即焚</b>：<code>del</code> 删掉这个 ticket——一次性，杜绝重放。把 <code>userId</code> 写到 <code>req.userId</code>，后续控制器直接用。</p>
+<p class="explain"><span class="line">L34</span>返回 true，放行进入 stream 方法。</p>
+</section>
+
+<!-- ============ ratelimit ============ -->
+<section id="ratelimit">
+<h2>十一、rate-limit.service.ts（限流 · 57 行）</h2>
+<div class="meta">作用：防止单用户刷接口烧钱。按 userId 用 Redis 计数限流（10 次/分钟）。方案的生产化检查清单要求按用户限流。</div>
+
+<p class="explain"><span class="line">L4-7</span>常量：<code>WINDOW_SECONDS=60</code>、<code>MAX_REQUESTS=10</code>（每分钟 10 次）。</p>
+<p class="explain"><span class="line">L9-15</span>定义返回结构 <code>RateLimitResult</code>：<code>allowed</code>(是否放行)、<code>remaining</code>(窗口剩余)、<code>resetSeconds</code>(多少秒后重置)。</p>
+<p class="explain"><span class="line">L17-22</span>注释：说明是"固定窗口计数"，简单够用；要更平滑可换令牌桶/Lua。</p>
+<p class="explain"><span class="line">L23-27</span>类，注入 RedisService。</p>
+<p class="explain"><span class="line">L29-31</span>私有 <code>key(userId)</code> 返回 <code>ai:ratelimit:${userId}</code>。</p>
+<p class="explain"><span class="line">L33-42</span><code>check(userId)</code>：<code>client.incr(key)</code> 让计数 +1 并返回当前值（<b>原子操作，Redis 保证并发安全</b>）；若首次命中(count===1)就 <code>expire</code> 设 60s 过期，避免 key 永久堆积；再取 ttl 用于告诉调用方还剩多久。</p>
+<p class="explain"><span class="line">L44-49</span>判定：<code>count &lt;= MAX_REQUESTS</code> 即放行；超限时打 warn 日志（含当前次数与重置剩余秒数），便于排查谁在刷。</p>
+<p class="explain"><span class="line">L51-55</span>组返回对象：remaining 用 <code>Math.max(0, MAX-count)</code> 保证非负；resetSeconds 用 ttl，若 ttl 已 <0 则回退到完整窗口。</p>
+</section>
+
+<!-- ============ dto ============ -->
+<section id="dto">
+<h2>十二、dto/chat.dto.ts（请求校验 · 21 行）</h2>
+<div class="meta">作用：定义请求体的<b>校验规则</b>（用 class-validator 装饰器）。这里目前实际是被换票接口 <code>createTicket</code> 预留使用（本版 stream 走 GET query，没走 body），是对话请求体的规范定义。</div>
+
+<p class="explain"><span class="line">L1-7</span>从 class-validator 导入校验装饰器：<code>IsNotEmpty</code>(非空)、<code>IsOptional</code>(可选)、<code>IsString</code>(字符串)、<code>IsUUID</code>(UUID 格式)、<code>MaxLength</code>(最大长度)。</p>
+<p class="explain"><span class="line">L9</span>注释：作用于 POST /ai/chat/ticket 的请求体。</p>
+<p class="explain"><span class="line">L10-15</span><code>question</code> 字段：必须是字符串、非空、最长 4000 字。<code>!:</code> 是 TS 的明确赋值断言(在此类初始化时不检查未赋值)。配合 ValidationPipe 可自动拦截非法输入。</p>
+<p class="explain"><span class="line">L18-20</span><code>conversationId</code>：可选；若提供了则必须符合 UUID 格式（校验会话 ID 合法性）。</p>
+</section>
+
+<!-- ============ 坑与关键 ============ -->
+<section id="pitfalls">
+<h2>十三、坑点与关键设计（实测踩过 / 必须知道）</h2>
+
+<div class="warn"><b>坑 1：流式接口必须用 <code>@Sse</code>，不能用 <code>@Get</code></b>。<br>
+若用 <code>@Get</code> 返回 Observable，Nest 会把 Observable 当"普通异步值"解析，只取最后一个发出的值，把整个流拍平成单个 JSON → 响应头变 <code>application/json</code>，前端一个 token 事件都收不到。而<b>最阴险的是后端其实照常调了 LLM 并把完整回答落库了</b>——看着像"前端没渲染"实则后端协议错了。判别标志：看响应 <code>content-type</code> 是否 <code>text/event-stream</code>。</div>
+
+<div class="warn"><b>坑 2：不 <code>bindTools</code> 模型永远不调工具</b>。<br>
+注册工具到 ToolRegistry 只解决"后端有工具"；必须 <code>this.model.bindTools(tools)</code> 把工具 schema 传给模型（放入请求的 <code>tools</code> 字段），模型才知道有哪些工具可调、<code>tool_calls</code> 才会有值。否则 Agent 永远直接给文字答案，看似正常其实退化成了普通聊天。</div>
+
+<div class="warn"><b>坑 3：done 事件要在落库之后发</b>。<br>
+助手消息若在 <code>finally</code>（done 之后）才写库，客户端收到 done 立刻开下一轮会读到旧历史 → 多轮记忆"随机失效"。修复：在 <code>done</code> 事件前先 <code>await persistAssistant()</code>，并用幂等标志避免 finally 重复写。</div>
+
+<div class="warn"><b>坑 4：SSE 错误要走 complete 而非 error</b>。<br>
+流中途若直接 <code>subscriber.error()</code>，会被全局 HttpExceptionFilter 捕获转成 JSON 响应，破坏已经建立的 SSE 通道。正确做法是推一个 <code>{type:'error'}</code> 事件文本后 <code>complete()</code>。</div>
+
+<div class="note"><b>关键 5：心跳防"半死连接"</b>。代理/网关常设空闲超时，长时间无数据会误杀连接；每 15s 推 <code>:ping</code> 保活。部署时 Nginx 还需 <code>proxy_buffering off</code> + <code>proxy_read_timeout</code> &gt; 模型超时。</div>
+
+<div class="note"><b>关键 6：中断要真 abort LLM</b>。用户点"停止"→ Observable unsubscribe → teardown 里 <code>controller.abort()</code> → signal 一路传到 <code>model.stream(messages,{signal})</code> → 底层请求真正取消，停止继续计费。若只在 JS 层 return 而不断底层请求，token 照扣。</div>
+
+<div class="good"><b>关键 7：Agent Loop 上限与工具兜底</b>。MAX_ITERATIONS=8 兜死循环；工具执行 Promise.race 超时 + retries 重试 + 统一 <code>{ok,output}</code> 返回，避免单个工具异常让整条流崩掉；超轮/工具错都以 <code>error</code> 事件而非抛异常告知前端。</div>
+
+<div class="good"><b>关键 8：双层记忆 &amp; 上下文窗口</b>。Redis 热缓存(最近 20 条, 30min TTL)让多轮取历史零 DB 压力；Prisma 持久化保底。缓存层全部 try/catch——缓存失败降级 DB，绝不因缓存问题丢掉用户数据。</div>
+
+<div class="good"><b>关键 9：一次性 ticket 防重放</b>。EventSource 无法带 Header，改用"JWT 换 30s 一次性票"，守卫取完即焚(<code>del</code>)，即使票被截获也无法二次使用。</div>
+</section>
+
+<!-- ============ 外部协同 ============ -->
+<section id="external">
+<h2>十四、本模块之外的必要协同改动</h2>
+<p>AI 模块能跑通，还依赖下面几处跨文件改动（需一起理解）：</p>
+<table>
+  <tr><th>文件</th><th>改动</th><th>为什么</th></tr>
+  <tr><td><code>src/common/interceptors/response.interceptor.ts</code></td><td>注入 <code>Reflector</code>，读到 <code>SKIP_RESPONSE_KEY</code> 时原样放行</td><td>否则全局 <code>{code,msg,data}</code> 壳会包住 SSE 数据</td></tr>
+  <tr><td><code>src/main.ts</code></td><td><code>new ResponseInterceptor(app.get(Reflector))</code> 注册</td><td>拦截器现在需要 Reflector 构造参数</td></tr>
+  <tr><td><code>src/app.module.ts</code></td><td>imports 里加入 <code>AiModule</code></td><td>让模块被应用加载</td></tr>
+  <tr><td><code>prisma/schema.prisma</code></td><td>新增 <code>Conversation</code>、<code>Message</code> 模型，User 补反向关联</td><td>提供持久化表；已跑迁移 <code>20260902141354_add_ai_conversation</code></td></tr>
+  <tr><td><code>package.json</code></td><td>装 @langchain/core、@langchain/openai、zod@^3</td><td>Agent 与工具运行时依赖（项目实际为 langchain 1.x）</td></tr>
+</table>
+<p>接口验收脚本已放 <code>test/e2e-ai-check*.mts</code>（test 目录被构建排除），可用 <code>npx tsx test/e2e-ai-check2.mts</code> 复验。</p>
+</section>
+
+</main>
+</div>
+</body>
+</html>

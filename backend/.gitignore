@@ -1,0 +1,75 @@
+# compiled output
+/dist
+/node_modules
+/build
+
+# Logs
+logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# OS
+.DS_Store
+
+# Tests
+/coverage
+/.nyc_output
+
+# IDEs and editors
+/.idea
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+
+# IDE - VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# dotenv environment variable files
+.env
+.env.development.local
+.env.test.local
+.env.production.local
+.env.local
+
+# temp directory
+.temp
+.tmp
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Diagnostic reports (https://nodejs.org/api/report.html)
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+/generated/prisma
+
+# Prisma 生成产物（实际输出在 src/generated/prisma，
+# 上面那条 /generated/prisma 是根相对路径，匹配不到它）
+/src/generated
+
+# AI 工具状态目录（各编辑器的 skills / 会话缓存）
+/.agents
+/.claude
+/.windsurf
+
+# WorkBuddy 项目记忆（本地笔记，不进版本库）
+/.workbuddy
+
+# 环境变量：含真实密钥，绝不上传
+.env
+.env.*
+!.env.example
