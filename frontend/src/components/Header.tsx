@@ -24,8 +24,9 @@ export const Header: React.FC<HeaderProps> = ({
     <div
       className={
         isTransparent
-          // 透明：bg 透出，颜色白色，靠 backdrop-blur 在彩色背景前保对比度
-          ? 'w-full bg-transparent'
+          ? // 透明 + fixed 顶部定位：bg 完全透出场景图，
+            // 顶部自带渐变暗角，保证浅色场景（如远山）下白色文字仍可读
+            'fixed inset-x-0 top-0 z-50 bg-gradient-to-b from-slate-950/55 via-slate-950/20 to-transparent'
           : 'w-full bg-[#f6f5f0]'
       }
     >

@@ -69,3 +69,18 @@ body {
 #root {
   min-height: 100vh;
 }
+
+/*
+ * 隐藏滚动条 —— 仅在页面含 .no-scrollbar-page 时生效（目前是首页）。
+ * 用 html:has() 而不是直接改 html，避免影响 /agent 等常规页面。
+ * 隐藏后仍可正常滚动，首页右侧有进度指示器作为定位依据。
+ */
+html:has(.no-scrollbar-page) {
+  scrollbar-width: none;           /* Firefox */
+  -ms-overflow-style: none;        /* 旧版 Edge */
+}
+html:has(.no-scrollbar-page)::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;                   /* Chrome / Edge / Safari */
+}
