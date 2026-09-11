@@ -51,10 +51,17 @@ function SceneFigure({ scene, priority }: { scene: Scene; priority?: boolean }) 
   );
 }
 
-export const ImmersiveScenes: React.FC = () => {
+export const ImmersiveScenes: React.FC<{
+  /** 是否仍处于钉住的场景序列内（用于让固定 CTA 在离开序列后淡出） */
+  onImmersiveChange?: (active: boolean) => void;
+}> = ({ onImmersiveChange }) => {
   const rootRef = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState(0);
   const reduce = useReducedMotion();
+
+  // 用 ref 持有回调，避免闭包过期 & 不触发 useGSAP 重跑
+  const cbRef = useRef(onImmersiveChange);
+  cbRef.current = onImmersiveChange;
 
   useGSAP(
     () => {
@@ -82,6 +89,7 @@ export const ImmersiveScenes: React.FC = () => {
             );
             setActive((prev) => (prev === idx ? prev : idx));
           },
+          onToggle: (self) => cbRef.current?.(self.isActive),
         },
       });
 

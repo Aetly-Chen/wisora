@@ -26,7 +26,7 @@ export const Header: React.FC<HeaderProps> = ({
         isTransparent
           ? // 透明 + fixed 顶部定位：bg 完全透出场景图，
             // 顶部自带渐变暗角，保证浅色场景（如远山）下白色文字仍可读
-            'fixed inset-x-0 top-0 z-50 bg-gradient-to-b from-slate-950/55 via-slate-950/20 to-transparent'
+            'fixed inset-x-0 top-0 z-50 bg-gradient-to-b from-slate-950/65 via-slate-950/25 to-transparent [text-shadow:0_1px_4px_rgba(15,23,42,0.65)]'
           : 'w-full bg-[#f6f5f0]'
       }
     >
@@ -54,7 +54,8 @@ export const Header: React.FC<HeaderProps> = ({
               <span
                 className={
                   isTransparent
-                    ? 'px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/20 text-white border border-white/30 backdrop-blur-sm'
+                    ? // 深色玻璃底：浅色场景（如远山、暮色）下仍可读
+                      'px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-950/35 text-white border border-white/40 backdrop-blur-sm'
                     : 'px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700'
                 }
               >
@@ -63,8 +64,9 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
             <p
               className={
-                'text-[11px] font-medium hidden sm:block ' +
-                (isTransparent ? 'text-white/80 drop-shadow-sm' : 'text-slate-600')
+                'text-[11px] font-medium hidden ' +
+                // 透明变体下隐藏标签语：小字在纯白天空场景上无法保证可读
+                (isTransparent ? '' : 'sm:block text-slate-600')
               }
             >
               多端响应式智能工作台
