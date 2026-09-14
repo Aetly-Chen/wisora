@@ -9,6 +9,7 @@ import {
 import { ChatOpenAI } from '@langchain/openai';
 import { Observable } from 'rxjs';
 import { CHAT_MODEL } from './llm/llm.provider';
+import { DEFAULT_SYSTEM_PROMPT } from './prompts/system.prompt';
 import { ToolRegistry } from './tools/tool.registry';
 import type { ToolWithPolicy } from './tools';
 import type { StreamEvent } from './types/stream-event';
@@ -116,10 +117,7 @@ export class AiService {
     } = params;
 
     const messages: BaseMessage[] = [
-      new SystemMessage(
-        systemPrompt ??
-          '你是 Wisora 的智能助手。可以使用工具获取信息。用中文回答，简洁准确。',
-      ),
+      new SystemMessage(systemPrompt ?? DEFAULT_SYSTEM_PROMPT),
       ...history,
       new HumanMessage(question),
     ];
