@@ -7,7 +7,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
-import { SKIP_RESPONSE_KEY } from '../../ai/decorators/skip-response.decorator';
+import { SKIP_RESPONSE_KEY } from '../decorators/skip-response.decorator';
 
 @Injectable()
 export class ResponseInterceptor implements NestInterceptor {

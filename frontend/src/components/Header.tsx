@@ -1,6 +1,15 @@
 import React from 'react';
+import { NavLink } from 'react-router-dom';
 import type { ViewDevice } from '../types/auth';
 import { Sparkles } from 'lucide-react';
+
+/** 主导航项。AI 助手与笔记是工作区，关于页放在最后。 */
+const NAV_ITEMS = [
+  { to: '/', label: '首页' },
+  { to: '/agent', label: 'AI 助手' },
+  { to: '/notes', label: '笔记' },
+  { to: '/about', label: '关于' },
+] as const;
 
 interface HeaderProps {
   viewDevice?: ViewDevice;
@@ -73,6 +82,31 @@ export const Header: React.FC<HeaderProps> = ({
             </p>
           </div>
         </div>
+
+        {/* 主导航：桌面端显示，移动端交给各页自身的入口 */}
+        <nav className="hidden items-center gap-1 md:flex">
+          {NAV_ITEMS.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.to === '/'}
+              className={({ isActive }) =>
+                [
+                  'rounded-lg px-3 py-1.5 text-[13px] font-medium transition-colors',
+                  isTransparent
+                    ? isActive
+                      ? 'bg-white/20 text-white'
+                      : 'text-white/80 hover:bg-white/10 hover:text-white'
+                    : isActive
+                      ? 'bg-slate-900/[0.06] text-slate-900'
+                      : 'text-slate-600 hover:bg-slate-900/[0.04] hover:text-slate-900',
+                ].join(' ')
+              }
+            >
+              {item.label}
+            </NavLink>
+          ))}
+        </nav>
       </header>
     </div>
   );

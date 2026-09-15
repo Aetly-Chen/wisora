@@ -20,7 +20,7 @@ import { Request } from 'express';
 import { AIMessage, HumanMessage } from '@langchain/core/messages';
 import type { StreamEvent } from './types/stream-event';
 import { AiService } from './ai.service';
-import { SkipResponse } from './decorators/skip-response.decorator';
+import { SkipResponse } from '../common/decorators/skip-response.decorator';
 import {
   StreamTicketGuard,
   type AiStreamRequest,

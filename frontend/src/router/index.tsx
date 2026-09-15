@@ -8,6 +8,7 @@ import { ProtectedRoute } from '../components/ProtectedRoute';
 const Home = lazy(() => import('../pages/Home'));
 const About = lazy(() => import('../pages/About'));
 const Agent = lazy(() => import('../pages/agent'));
+const Notes = lazy(() => import('../pages/notes'));
 const NotFound = lazy(() => import('../pages/NotFound'));
 const Auth = lazy(() => import('../pages/auth/login'));
 
@@ -46,6 +47,10 @@ export const router = createBrowserRouter([
       {
         path: 'agent',
         element: lazyLoad(Agent),
+      },
+      {
+        path: 'notes',
+        element: lazyLoad(Notes),
       },
       {
         path: '*',

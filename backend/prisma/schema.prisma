@@ -20,6 +20,8 @@ model User {
   updatedAt     DateTime  @updatedAt
   deletedAt     DateTime?
   conversations Conversation[]
+  notes         Note[]
+  attachments   Attachment[]
 }
 
 model Conversation {
@@ -49,4 +51,47 @@ model Message {
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@index([conversationId, createdAt])
+}
+
+/// 笔记：Markdown 正文 + 附件
+model Note {
+  id        String    @id @default(cuid())
+  userId    String
+  title     String    @default("无标题")
+  content   String    @default("") // Markdown 原文
+  /// 手动置顶，列表排序时优先于 updatedAt
+  pinned    Boolean   @default(false)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  /// 软删除：列表查询一律带 deletedAt: null
+  deletedAt DateTime?
+
+  user        User         @relation(fields: [userId], references: [id])
+  attachments Attachment[]
+
+  @@index([userId, deletedAt, updatedAt])
+}
+
+/// 附件：PDF 等文件，实体存磁盘，库里只留元数据
+model Attachment {
+  id     String  @id @default(cuid())
+  userId String
+  /// 允许独立上传（笔记尚未保存时先传文件），故可空
+  noteId String?
+
+  /// 用户看到的原始文件名
+  filename   String
+  mimeType   String
+  /// 字节数
+  size       Int
+  /// 磁盘上的实际文件名（随机串 + 扩展名），避免同名覆盖与路径穿越
+  storageKey String @unique
+
+  createdAt DateTime @default(now())
+
+  user User  @relation(fields: [userId], references: [id])
+  note Note? @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([noteId])
 }

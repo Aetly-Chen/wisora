@@ -7,6 +7,7 @@ import { RedisModule } from './redis/redis.module';
 import { VerificationCodeModule } from './verification-code/verification-code.module';
 import { MailModule } from './mail/mail.module';
 import { AiModule } from './ai/ai.module';
+import { NotesModule } from './notes/notes.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { AiModule } from './ai/ai.module';
     VerificationCodeModule,
     MailModule,
     AiModule,
+    NotesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -84,3 +84,114 @@ html:has(.no-scrollbar-page)::-webkit-scrollbar {
   height: 0;
   display: none;                   /* Chrome / Edge / Safari */
 }
+
+/*
+ * Markdown 渲染样式（笔记预览）。
+ *
+ * 项目没装 @tailwindcss/typography，且它的默认排版偏冷灰，
+ * 与本项目的暖白基底不搭，所以手写一套：颜色统一走 slate，
+ * 强调色只出现在链接与引用边线上，避免预览区花花绿绿。
+ */
+.md-body {
+  font-size: 14px;
+  line-height: 1.75;
+  color: #334155;
+  word-wrap: break-word;
+}
+
+.md-body > *:first-child { margin-top: 0; }
+.md-body > *:last-child { margin-bottom: 0; }
+
+.md-body h1,
+.md-body h2,
+.md-body h3,
+.md-body h4 {
+  color: #0f172a;
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 1.6em 0 0.6em;
+}
+
+.md-body h1 { font-size: 1.5em; padding-bottom: 0.3em; border-bottom: 1px solid #e2e8f0; }
+.md-body h2 { font-size: 1.28em; padding-bottom: 0.25em; border-bottom: 1px solid #eef1f5; }
+.md-body h3 { font-size: 1.12em; }
+.md-body h4 { font-size: 1em; color: #475569; }
+
+.md-body p { margin: 0.75em 0; }
+
+.md-body a {
+  color: #4338ca;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(67, 56, 202, 0.35);
+}
+.md-body a:hover { border-bottom-color: #4338ca; }
+
+.md-body strong { color: #0f172a; font-weight: 600; }
+
+.md-body ul,
+.md-body ol { margin: 0.75em 0; padding-left: 1.5em; }
+.md-body ul { list-style: disc; }
+.md-body ol { list-style: decimal; }
+.md-body li { margin: 0.25em 0; }
+.md-body li::marker { color: #94a3b8; }
+
+/* 任务列表（GFM） */
+.md-body li:has(> input[type='checkbox']) { list-style: none; margin-left: -1.2em; }
+.md-body input[type='checkbox'] { margin-right: 0.5em; accent-color: #4f46e5; }
+
+.md-body blockquote {
+  margin: 1em 0;
+  padding: 0.25em 0 0.25em 1em;
+  border-left: 3px solid #c7d2fe;
+  color: #475569;
+}
+
+.md-body code {
+  background: #f1f5f9;
+  border-radius: 4px;
+  padding: 0.12em 0.4em;
+  font-size: 0.88em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #334155;
+}
+
+.md-body pre {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.9em 1em;
+  overflow-x: auto;
+  margin: 1em 0;
+}
+.md-body pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.85em;
+  line-height: 1.6;
+}
+
+.md-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+  font-size: 0.94em;
+}
+.md-body th,
+.md-body td {
+  border: 1px solid #e2e8f0;
+  padding: 0.45em 0.7em;
+  text-align: left;
+}
+.md-body th { background: #f8fafc; font-weight: 600; color: #0f172a; }
+
+.md-body hr {
+  border: none;
+  border-top: 1px solid #e2e8f0;
+  margin: 1.6em 0;
+}
+
+.md-body img {
+  max-width: 100%;
+  border-radius: 8px;
+}

@@ -73,3 +73,6 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 .env
 .env.*
 !.env.example
+
+# 附件上传目录：实体文件不进版本库
+uploads/
