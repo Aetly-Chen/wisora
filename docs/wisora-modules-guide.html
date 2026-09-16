@@ -1,0 +1,681 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Wisora 核心模块详解：AI 与笔记</title>
+<style>
+  :root{
+    --bg:#fbfaf8; --surface:#fff; --border:#e6e2dc; --border-soft:#f0ede8;
+    --text:#1f2328; --text-2:#4a5160; --text-3:#868d9b;
+    --accent:#4338ca; --accent-soft:#eef1fd; --accent-line:#c7cff5;
+    --code-bg:#f6f5f2; --code-border:#e8e4dd;
+    --warn-bg:#fffbeb; --warn-border:#f0d69a;
+    --danger-bg:#fef4f4; --danger-border:#eec0c0;
+    --ok-bg:#f2fbf5; --ok-border:#b6ddc4;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--bg); color:var(--text-2);
+    font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Source Han Sans SC","Noto Sans CJK SC",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    font-size:15px; line-height:1.8; -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1220px;margin:0 auto;padding:0 24px;display:flex;gap:44px;align-items:flex-start}
+  nav.toc{position:sticky;top:0;flex:0 0 250px;max-height:100vh;overflow-y:auto;padding:34px 0 70px;font-size:13.5px}
+  nav.toc .title{font-weight:700;font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--text-3);margin:0 0 12px}
+  nav.toc .title.sub{margin-top:16px;color:var(--accent)}
+  nav.toc a{display:block;color:var(--text-2);text-decoration:none;padding:4px 0 4px 12px;border-left:2px solid transparent;transition:.15s}
+  nav.toc a:hover{color:var(--accent);border-left-color:var(--accent)}
+  nav.toc a.sub{padding-left:24px;font-size:13px;color:var(--text-3)}
+  main{flex:1 1 auto;min-width:0;padding:40px 0 110px}
+  header.hero{border-bottom:2px solid var(--text);padding-bottom:24px;margin-bottom:34px}
+  header.hero h1{font-size:32px;line-height:1.3;margin:0 0 10px;letter-spacing:-.01em;color:var(--text)}
+  header.hero p{margin:0;color:var(--text-3);font-size:14.5px}
+  h2{font-size:26px;margin:64px 0 20px;color:var(--text);letter-spacing:-.01em;scroll-margin-top:20px;padding-top:8px}
+  h2 .num{color:var(--accent);font-weight:600;margin-right:10px}
+  h2.part{background:var(--accent-soft);border-left:4px solid var(--accent);padding:16px 20px;font-size:22px;margin:64px 0 26px;border-radius:0 8px 8px 0}
+  h3{font-size:20px;margin:38px 0 14px;color:var(--text);scroll-margin-top:20px}
+  h4{font-size:16px;margin:26px 0 8px;color:var(--text);scroll-margin-top:20px}
+  p{margin:13px 0}
+  ul,ol{margin:13px 0;padding-left:22px}
+  li{margin:6px 0}
+  code{background:var(--code-bg);border:1px solid var(--code-border);border-radius:4px;padding:1px 5px;font-size:13px;font-family:"SFMono-Regular",Menlo,Consolas,monospace}
+  pre{background:var(--code-bg);border:1px solid var(--code-border);border-radius:8px;padding:15px 17px;overflow-x:auto;font-size:12.8px;line-height:1.68;margin:15px 0;font-family:"SFMono-Regular",Menlo,Consolas,monospace}
+  pre code{background:none;border:none;padding:0;font-size:12.8px}
+  table{width:100%;border-collapse:collapse;margin:18px 0;font-size:14px;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+  th{background:var(--surface);text-align:left;font-weight:600;padding:10px 13px;border-bottom:1px solid var(--border);font-size:13.5px;color:var(--text)}
+  td{padding:10px 13px;border-bottom:1px solid var(--border-soft);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  tbody tr:hover{background:#fcfbfa}
+  blockquote{margin:16px 0;padding:12px 18px;border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 6px 6px 0;color:#3730a3}
+  blockquote p{margin:0}
+  .note{margin:18px 0;padding:13px 17px;border-radius:8px;background:var(--warn-bg);border:1px solid var(--warn-border);font-size:14px}
+  .note.ok{background:var(--ok-bg);border-color:var(--ok-border)}
+  .note.danger{background:var(--danger-bg);border-color:var(--danger-border)}
+  .note strong{display:block;margin-bottom:4px;color:var(--text)}
+  .diagram{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:17px;margin:20px 0;overflow-x:auto;font-family:"SFMono-Regular",Menlo,Consolas,monospace;font-size:12px;line-height:1.6}
+  .pill{display:inline-block;padding:1px 8px;border-radius:20px;font-size:11.5px;background:var(--accent-soft);color:var(--accent);font-weight:600;margin-right:5px}
+  .pill.gray{background:#f1efeb;color:var(--text-2)}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:16px 0}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:15px 17px}
+  .card h4{margin:0 0 8px;font-size:14.5px}
+  .card pre{margin:0;font-size:12px}
+  hr{border:none;border-top:1px solid var(--border);margin:46px 0}
+  footer{margin-top:70px;padding-top:22px;border-top:1px solid var(--border);color:var(--text-3);font-size:13px}
+  @media(max-width:940px){
+    .wrap{flex-direction:column;gap:0;padding:0 18px}
+    nav.toc{position:static;max-height:none;flex:none;width:100%;padding:22px 0 0;border-bottom:1px solid var(--border);margin-bottom:20px}
+    .two{grid-template-columns:1fr}
+    header.hero h1{font-size:25px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<nav class="toc">
+  <div class="title">目录</div>
+  <a href="#s0">0. 总览与文件对照</a>
+  <div class="title sub">Part I　AI 模块</div>
+  <a href="#s1" class="sub">1.1 全链路数据流</a>
+  <a href="#s2" class="sub">1.2 一次性票据鉴权</a>
+  <a href="#s3" class="sub">1.3 SSE 事件协议</a>
+  <a href="#s4" class="sub">1.4 Agent Loop</a>
+  <a href="#s5" class="sub">1.5 工具系统</a>
+  <a href="#s6" class="sub">1.6 双层记忆</a>
+  <a href="#s7" class="sub">1.7 系统提示词</a>
+  <a href="#s8" class="sub">1.8 前端状态管理</a>
+  <a href="#s9" class="sub">1.9 安全设计</a>
+  <div class="title sub">Part II　笔记模块</div>
+  <a href="#n1" class="sub">2.1 数据模型</a>
+  <a href="#n2" class="sub">2.2 后端分层</a>
+  <a href="#n3" class="sub">2.3 通用 JWT 守卫</a>
+  <a href="#n4" class="sub">2.4 文件上传四道防线</a>
+  <a href="#n5" class="sub">2.5 附件预览</a>
+  <a href="#n6" class="sub">2.6 编辑器与自动保存</a>
+  <a href="#n7" class="sub">2.7 Markdown 与安全</a>
+  <div class="title sub">Part III — V</div>
+  <a href="#p3" class="sub">共享基础设施</a>
+  <a href="#p4" class="sub">踩坑清单</a>
+  <a href="#p5" class="sub">扩展与调参</a>
+</nav>
+
+<main>
+
+<header class="hero">
+  <h1>Wisora 核心模块详解：AI 与笔记</h1>
+  <p>覆盖 <code>backend/src/ai</code>（14 文件 / 1344 行）、<code>backend/src/notes</code>（7 文件 / 551 行）与前端对应代码（9 文件 / 2133 行）。<br>
+  每个环节都能定位到具体文件，并解释「为什么这么设计」。</p>
+</header>
+
+<!-- ===== 0 ===== -->
+<h2 id="s0"><span class="num">0</span>总览</h2>
+
+<p>Wisora 有两个相对独立、又复用同一套基础设施的业务模块：</p>
+
+<table>
+  <thead><tr><th style="width:14%"></th><th style="width:43%">AI 模块</th><th>笔记模块</th></tr></thead>
+  <tbody>
+    <tr><td><b>定位</b></td><td>带工具调用的流式对话 Agent</td><td>类 Notion 的 Markdown 笔记 + 附件</td></tr>
+    <tr><td><b>传输</b></td><td>SSE 流式</td><td>普通 JSON + multipart 上传</td></tr>
+    <tr><td><b>数据</b></td><td>Conversation / Message</td><td>Note / Attachment</td></tr>
+    <tr><td><b>外部依赖</b></td><td>LLM（DeepSeek）、Redis 缓存</td><td>本地磁盘存储</td></tr>
+    <tr><td><b>前端页面</b></td><td><code>/agent</code></td><td><code>/notes</code></td></tr>
+  </tbody>
+</table>
+
+<p><b>共享基础设施</b>：JWT 鉴权、Prisma（<code>@Global</code>）、Redis（<code>@Global</code>）、全局响应拦截器与 <code>@SkipResponse()</code>、前端 axios 请求层与 zustand。</p>
+
+<h4>后端文件对照</h4>
+<table>
+  <thead><tr><th style="width:37%">AI 模块</th><th style="width:13%">行数</th><th style="width:34%">笔记模块</th><th style="width:16%">行数</th></tr></thead>
+  <tbody>
+    <tr><td><code>ai.controller.ts</code></td><td>288</td><td><code>notes.controller.ts</code></td><td>~50</td></tr>
+    <tr><td><code>ai.service.ts</code></td><td>335</td><td><code>notes.service.ts</code></td><td>~120</td></tr>
+    <tr><td><code>types/stream-event.ts</code></td><td>22</td><td><code>dto/note.dto.ts</code></td><td>~40</td></tr>
+    <tr><td><code>llm/llm.provider.ts</code></td><td>26</td><td><code>attachments.controller.ts</code></td><td>~100</td></tr>
+    <tr><td><code>guards/stream-ticket.guard.ts</code></td><td>61</td><td><code>attachments.service.ts</code></td><td>~160</td></tr>
+    <tr><td><code>memory/conversation.repository.ts</code></td><td>154</td><td><code>storage.service.ts</code></td><td>~80</td></tr>
+    <tr><td><code>tools/*</code>（4 文件）</td><td>~300</td><td><code>notes.module.ts</code></td><td>~20</td></tr>
+    <tr><td><code>prompts/system.prompt.ts</code></td><td>~30</td><td></td><td></td></tr>
+    <tr><td><code>rate-limit.service.ts</code></td><td>~55</td><td></td><td></td></tr>
+    <tr><td><code>ai.module.ts</code></td><td>~47</td><td></td><td></td></tr>
+  </tbody>
+</table>
+
+<h4>前端文件对照</h4>
+<table>
+  <thead><tr><th style="width:30%">文件</th><th style="width:9%">行数</th><th style="width:33%">职责</th><th>对应后端</th></tr></thead>
+  <tbody>
+    <tr><td><code>types/agent.ts</code></td><td>73</td><td>事件协议 / 消息 / 会话类型</td><td><code>types/stream-event.ts</code></td></tr>
+    <tr><td><code>request/ai-stream.ts</code></td><td>195</td><td>换票、会话 CRUD、SSE 解析</td><td><code>ai.controller.ts</code></td></tr>
+    <tr><td><code>stores/useAgentStore.ts</code></td><td>306</td><td>对话状态、流式累加、中断</td><td><code>ai.service.ts</code> 的事件流</td></tr>
+    <tr><td><code>pages/agent/index.tsx</code></td><td>545</td><td>对话界面</td><td>—</td></tr>
+    <tr><td><code>types/note.ts</code></td><td>27</td><td>笔记 / 附件 / 保存状态类型</td><td>Prisma 模型</td></tr>
+    <tr><td><code>request/notes.ts</code></td><td>78</td><td>笔记 CRUD、上传、取 Blob</td><td>两个 controller</td></tr>
+    <tr><td><code>stores/useNotesStore.ts</code></td><td>238</td><td>列表、防抖保存、附件</td><td>—</td></tr>
+    <tr><td><code>pages/notes/index.tsx</code></td><td>632</td><td>笔记界面（列表 + 编辑器）</td><td>—</td></tr>
+    <tr><td><code>components/MarkdownView.tsx</code></td><td>39</td><td>Markdown 渲染（marked + DOMPurify）</td><td>—</td></tr>
+  </tbody>
+</table>
+
+<!-- ===== Part I ===== -->
+<h2 class="part" id="part1">Part I　AI 模块</h2>
+
+<h3 id="s1">1.1 全链路数据流</h3>
+<div class="diagram">┌─ 前端 ──────────────────────────────────────────────────────────┐
+│  InputBar 提交                                                   │
+│      ↓                                                          │
+│  useAgentStore.send(text)                                       │
+│      ├─ new AbortController()                                   │
+│      ├─ 追加 user 消息 + 空的 assistant 占位消息                  │
+│      └─ streamChat({ question, conversationId, signal, handlers })│
+│             ↓                                                   │
+│         createChatTicket()  ──── axios ────┐                    │
+│             ↓                              │                    │
+│         fetch(/ai/chat/stream?ticket=…) ───┼──┐                 │
+│             ↓                              │  │                 │
+│         ReadableStream 逐块读 → 按 \n\n 切帧 │  │                 │
+│             ↓                              │  │                 │
+│         switch (ev.type) → 回调 handlers    │  │                 │
+│             ↓                              │  │                 │
+│         onToken → 只更新最后一条助手消息      │  │                 │
+└─────────────────────────────────────────────┼──┼─────────────────┘
+                                             ↓  ↓
+┌─ 后端 ──────────────────────────────────────────────────────────┐
+│  POST /ai/chat/ticket                                           │
+│      ├─ 校验 JWT → userId                                        │
+│      ├─ 限流检查（10 次 / 60 秒）                                 │
+│      └─ randomUUID() → Redis SETEX ai:ticket:&lt;uuid&gt; 30s          │
+│                                                                 │
+│  GET /ai/chat/stream?ticket=…&amp;q=…&amp;conversationId=…              │
+│      ├─ StreamTicketGuard：取 ticket → 校验 → 立即 DEL（一次性）   │
+│      ├─ 限流检查                                                 │
+│      ├─ assertOwned(userId, conversationId) ← IDOR 防护          │
+│      ├─ loadHistory(conversationId)                             │
+│      ├─ createUserScopedTools(prisma, userId)                   │
+│      └─ aiService.toSse(signal =&gt; chatStream(...))              │
+│             ↓                                                   │
+│         chatStream：建会话 → 存 user 消息 → yield start           │
+│             ↓                                                   │
+│         runAgent：                                              │
+│           ┌──────────────────────────────────────┐              │
+│           │ model.stream(messages, { signal })    │              │
+│           │   → yield token / reasoning          │              │
+│           │ tool_calls?                          │              │
+│           │   是 → yield tool_call                │              │
+│           │        invokeTool()（授权+超时+重试）  │              │
+│           │        yield tool_result              │              │
+│           │        push ToolMessage → 继续循环    │              │
+│           │   否 → yield done（先落库再发）        │              │
+│           └──────────────────────────────────────┘              │
+│             （最多 8 轮）                                         │
+└─────────────────────────────────────────────────────────────────┘</div>
+
+<h3 id="s2">1.2 SSE 鉴权：一次性票据</h3>
+
+<h4>为什么需要</h4>
+<p>原生 <code>EventSource</code> <b>不能携带 <code>Authorization</code> 头</b>。若把 JWT 直接拼在 URL 上：它会进入浏览器历史、服务器与 CDN 日志；且有效期远大于 30 秒，泄露窗口很长。</p>
+
+<h4>方案：两段式</h4>
+<div class="diagram">① POST /ai/chat/ticket  （带 Authorization 头，axios）
+      → 返回 { ticket: "&lt;uuid&gt;", allowWrite }
+
+② GET /ai/chat/stream?ticket=&lt;uuid&gt;&amp;q=...  （fetch / SSE）
+      → 守卫校验后立刻 DEL，一次性</div>
+
+<div class="two">
+  <div class="card">
+    <h4>换票（controller）</h4>
+<pre><code>const TICKET_TTL_SECONDS = 30;
+
+const payload = { userId, allowWrite };
+await redis.setex(
+  `ai:ticket:${ticket}`,
+  30, JSON.stringify(payload));</code></pre>
+  </div>
+  <div class="card">
+    <h4>守卫：取出即焚</h4>
+<pre><code>const raw = await redis.get(`ai:ticket:${ticket}`);
+if (!raw) throw new UnauthorizedException('...');
+await redis.del(`ai:ticket:${ticket}`);</code></pre>
+  </div>
+</div>
+
+<ul>
+  <li><span class="pill">30 秒 TTL</span>够建立连接，又足够短，杜绝长期重放</li>
+  <li><span class="pill">取完即焚</span>同一个 ticket 无法开两次流</li>
+  <li><span class="pill">票带授权</span><code>allowWrite</code> 随票走，换票时声明是否允许 AI 改数据</li>
+  <li><span class="pill gray">向后兼容</span>兼容早期「纯字符串只存 userId」的旧 ticket</li>
+</ul>
+
+<div class="note"><strong>注意</strong>前端请求里依然带了 <code>Authorization</code>，但那只是给网关 / 代理层看的；真正的身份校验由 ticket 完成。</div>
+
+<h3 id="s3">1.3 SSE 事件协议</h3>
+<p>后端 <code>types/stream-event.ts</code> 与前端 <code>types/agent.ts</code> 定义<b>同一套联合类型</b>，是前后端的契约。</p>
+
+<table>
+  <thead><tr><th style="width:13%">type</th><th style="width:25%">载荷</th><th style="width:22%">时机</th><th>前端处理</th></tr></thead>
+  <tbody>
+    <tr><td><code>start</code></td><td><code>conversationId</code>, <code>messageId</code></td><td>流开始</td><td>记下 <code>conversationId</code>（下一轮带上才能接续）</td></tr>
+    <tr><td><code>token</code></td><td><code>content</code></td><td>正文增量</td><td>追加到最后一条助手消息</td></tr>
+    <tr><td><code>reasoning</code></td><td><code>content</code></td><td>思维链（R1 / QwQ）</td><td>追加到该消息的 <code>reasoning</code></td></tr>
+    <tr><td><code>tool_call</code></td><td><code>id</code>, <code>name</code>, <code>args</code></td><td>模型决定调工具</td><td>插入 <code>role:'tool'</code> 消息，<code>toolStatus:'calling'</code></td></tr>
+    <tr><td><code>tool_result</code></td><td><code>id</code>, <code>name</code>, <code>ok</code>, <code>result</code></td><td>工具执行完</td><td>更新消息，<code>ok?'done':'failed'</code></td></tr>
+    <tr><td><code>error</code></td><td><code>code</code>, <code>message</code></td><td>出错</td><td>写入 <code>error</code> 并提示</td></tr>
+    <tr><td><code>done</code></td><td><code>finishReason</code>, <code>usage?</code></td><td>结束</td><td>停 loading，展示 token 消耗，刷新列表</td></tr>
+  </tbody>
+</table>
+
+<div class="note"><strong><code>:ping</code> 心跳</strong>不属于协议的注释行，每 15 秒一次，防止代理 / 网关掐掉长连接。前端必须跳过：<code>if (!raw || raw.startsWith(':')) continue;</code></div>
+
+<h3 id="s4">1.4 Agent Loop：推理 → 行动 → 观察</h3>
+<pre><code>const MAX_ITERATIONS = 8;   // 防止工具调用死循环烧钱
+
+for (let iter = 0; iter &lt; MAX_ITERATIONS; iter++) {
+  if (signal?.aborted) { yield { type:'done', finishReason:'aborted' }; return; }
+
+  const stream = await model.stream(messages, { signal });
+  for await (const chunk of stream) {
+    full = full ? full.concat(chunk) : chunk;
+    if (text) yield { type: 'token', content: text };
+    if (reasoning) yield { type: 'reasoning', content: reasoning };
+  }
+  messages.push(full);
+  this.accumulateUsage(usage, full);
+
+  const toolCalls = full.tool_calls ?? [];
+  if (toolCalls.length === 0) { yield { type:'done', finishReason:'stop', usage }; return; }
+
+  for (const call of toolCalls) {
+    yield { type: 'tool_call', ... };
+    const result = await this.invokeTool(call.name, call.args, allowWrite, extraTools);
+    yield { type: 'tool_result', ... };
+    messages.push(new ToolMessage({ content: result.output, tool_call_id: call.id }));
+  }
+  // 带着工具结果回到循环开头，让模型再推理
+}</code></pre>
+
+<h4>关键一步：绑定工具</h4>
+<pre><code>const allTools = [...this.tools.list(), ...extraTools.map(t =&gt; t.tool)];
+const model = allTools.length &gt; 0 ? this.model.bindTools(allTools) : this.model;</code></pre>
+<div class="note danger"><strong>最容易踩的坑</strong>不 <code>bindTools</code>，模型根本看不到工具，<code>tool_calls</code> 恒为空，Agent 永远不会调用工具。</div>
+
+<h4>token 统计兼容</h4>
+<pre><code>usage_metadata                    // LangChain v1
+response_metadata.token_usage     // 部分厂商仍在用</code></pre>
+
+<h4>流式中断</h4>
+<pre><code>return () =&gt; {
+  cancelled = true;
+  clearInterval(heartbeat);
+  controller.abort();      // 中断底层 LLM 请求，否则模型继续生成并计费
+  void gen.return?.(undefined);
+};</code></pre>
+<p>前端点「停止」→ <code>abort()</code> → fetch 断开 → Nest unsubscribe → 后端 abort → 模型请求终止。<b>真正停止计费</b>，不是前端假装停了。</p>
+
+<h3 id="s5">1.5 工具系统</h3>
+<table>
+  <thead><tr><th style="width:12%">类型</th><th style="width:16%">创建时机</th><th style="width:36%">例子</th><th>原因</th></tr></thead>
+  <tbody>
+    <tr><td><b>全局</b></td><td>应用启动时</td><td><code>query_user</code></td><td>与具体用户无关，可复用单例</td></tr>
+    <tr><td><b>按请求</b></td><td>每次开流</td><td><code>list_my_conversations</code>、<code>read_my_conversation</code>、<code>rename_my_conversation</code></td><td>必须闭包注入 <code>userId</code> 做数据过滤</td></tr>
+  </tbody>
+</table>
+
+<div class="note"><strong>这是防越权的关键</strong>会话类工具若做成全局单例，Agent 就可能读到甚至改动别人的数据。</div>
+
+<h4>执行策略 <code>ToolPolicy</code></h4>
+<table>
+  <thead><tr><th style="width:15%">字段</th><th style="width:13%">默认</th><th>说明</th></tr></thead>
+  <tbody>
+    <tr><td><code>timeoutMs</code></td><td>15 000</td><td>单次执行超时</td></tr>
+    <tr><td><code>retries</code></td><td>1</td><td>失败重试；<b>写操作必须为 0</b>，避免重复执行</td></tr>
+    <tr><td><code>roles</code></td><td>—</td><td>角色白名单（预留）</td></tr>
+    <tr><td><code>write</code></td><td>false</td><td>是否为写操作</td></tr>
+  </tbody>
+</table>
+
+<h4>写操作授权机制</h4>
+<p>SSE 单向（服务端无法中途问用户），所以授权前置到换票阶段：</p>
+<div class="diagram">客户端换票时声明 allowWrite=true
+        ↓ 写入 ticket payload
+        ↓ 开流时守卫解出 allowWrite
+        ↓ invokeTool 遇到 policy.write 且未授权 → 不执行，
+          返回「需要授权」的结果 → 由模型转告用户</div>
+<pre><code>if (policy?.write &amp;&amp; !allowWrite) {
+  return { ok: false, output: '工具 X 属于写操作，当前会话未获得用户授权…' };
+}</code></pre>
+
+<h3 id="s6">1.6 双层记忆：Redis + PostgreSQL</h3>
+<table>
+  <thead><tr><th style="width:12%">层</th><th style="width:26%">存什么</th><th style="width:11%">TTL</th><th>作用</th></tr></thead>
+  <tbody>
+    <tr><td><b>Redis</b></td><td><code>ai:conv:&lt;id&gt;</code> → 最近 20 条</td><td>30 分钟</td><td>短期记忆，多轮取历史快</td></tr>
+    <tr><td><b>PostgreSQL</b></td><td><code>Conversation</code> + <code>Message</code></td><td>永久</td><td>长期记忆，支持历史回看</td></tr>
+  </tbody>
+</table>
+<pre><code>const HISTORY_LIMIT = 20;                    // 上下文窗口
+const CACHE_TTL_SECONDS = 60 * 30;           // 热缓存 30 分钟</code></pre>
+<div class="note ok"><strong>Redis 挂了不影响主流程</strong>所有缓存操作包在 try/catch 里，失败只打日志，降级直查数据库。</div>
+
+<h3 id="s7">1.7 系统提示词（决定回答像不像样）</h3>
+<p><b>这是最容易被忽视、但对观感影响最大的一环。</b>最初只有 38 字：</p>
+<pre><code>你是 Wisora 的智能助手。可以使用工具获取信息。用中文回答，简洁准确。</code></pre>
+<p>导致三类问题：</p>
+<ol>
+  <li><b>编造理由</b>：被问身份时答「没有权限查看自己的底层模型信息」—— 提示词把它设定成 Wisora 助手，它又确实不知道自己的版本号，两头顾不上就编了个听起来合理的借口</li>
+  <li><b>答非所问</b>：被问开放问题时把工具清单一整摊开</li>
+  <li><b>语气机械</b>：<code>temperature 0.3</code> 加重了这一点</li>
+</ol>
+<p>现抽出到 <code>src/ai/prompts/system.prompt.ts</code>，分三节（回答风格 / 工具使用 / 身份说明），核心是「不知道就直接说不知道，不要编造理由」。</p>
+
+<h4>实测对比</h4>
+<table>
+  <thead><tr><th style="width:14%"></th><th>问「你是什么模型」</th></tr></thead>
+  <tbody>
+    <tr><td><b>改前</b></td><td>我是 Wisora 的智能助手，<b>没有权限查看自己的底层模型信息</b>，所以没法准确告诉你具体是哪个模型。</td></tr>
+    <tr><td><b>改后</b></td><td>…具体用的是哪个厂商、哪个版本的模型，我不确定——这类信息不在我能看到的范围内，所以没法给你一个准确的版本号，<b>就不编了</b>。</td></tr>
+  </tbody>
+</table>
+
+<h3 id="s8">1.8 前端状态管理</h3>
+<pre><code>// 只更新「最后一条助手消息」，避免整列重渲染
+const appendToAssistant = (updater) =&gt; {
+  set(state =&gt; ({
+    messages: state.messages.map(m =&gt; m.id === assistantId
+      ? { ...m, ...updater(m) } : m)
+  }));
+};
+
+// 串台防护：切换前必须中断
+openConversation: async (id) =&gt; { controller?.abort(); ... }</code></pre>
+<p>不中断的话，旧流会继续往已被替换的 <code>messages</code> 里追加 token，两条会话内容混在一起。</p>
+
+<h4>为什么分 axios 和 fetch</h4>
+<table>
+  <thead><tr><th style="width:26%">用途</th><th style="width:15%">走什么</th><th>原因</th></tr></thead>
+  <tbody>
+    <tr><td>换票、会话 CRUD</td><td><b>axios</b></td><td>复用项目统一的 token 注入 / 401 刷新重放</td></tr>
+    <tr><td>开 SSE 流</td><td><b>fetch</b></td><td>axios 基于 XHR，浏览器端拿不到流式增量；只有 <code>ReadableStream</code> 能逐块读</td></tr>
+  </tbody>
+</table>
+
+<h3 id="s9">1.9 安全设计</h3>
+<h4>IDOR 防护（最重要）</h4>
+<p><code>/ai/chat/stream</code> <b>只带 ticket、不带 JWT</b>，而 <code>conversationId</code> 来自 query 参数。若不校验归属：</p>
+<blockquote><p>任何登录用户都能传他人的会话 ID —— 既能把对方历史读进 LLM 上下文，也能往对方会话里写消息。</p></blockquote>
+<pre><code>async assertOwned(userId: string, conversationId: string): Promise&lt;void&gt; {
+  const owned = await prisma.conversation.findFirst({
+    where: { id: conversationId, userId, deletedAt: null }, select: { id: true },
+  });
+  if (!owned) {
+    // 不区分"不存在"和"无权访问"，避免通过错误差异探测他人会话 ID
+    throw new HttpException({ code: 404, msg: '会话不存在或无权访问' }, 404);
+  }
+}</code></pre>
+<div class="note"><strong>统一错误文案是刻意的</strong>如果两种情况返回不同错误，攻击者就能用它探测哪些会话 ID 真实存在。</div>
+<p><b>凡是接收外部 <code>conversationId</code> 的入口都必须先过这一关。</b>限流：每用户 60 秒 10 次，换票和开流两处都查，防止刷票绕过。</p>
+
+<!-- ===== Part II ===== -->
+<h2 class="part" id="part2">Part II　笔记模块</h2>
+
+<h3 id="n1">2.1 数据模型</h3>
+<pre><code>model Note {
+  id        String    @id @default(cuid())
+  userId    String
+  title     String    @default("无标题")
+  content   String    @default("")   // Markdown 原文
+  pinned    Boolean   @default(false)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?                // 软删除
+  user        User         @relation(...)
+  attachments Attachment[]
+  @@index([userId, deletedAt, updatedAt])
+}
+
+model Attachment {
+  id     String  @id @default(cuid())
+  userId String
+  noteId String?                     // 允许先传文件再挂笔记
+  filename   String                  // 用户看到的原始文件名
+  mimeType   String
+  size       Int                     // 字节数
+  storageKey String  @unique         // 磁盘上的实际文件名（随机 UUID + 扩展名）
+  createdAt DateTime @default(now())
+  @@index([userId, createdAt]) @@index([noteId])
+}</code></pre>
+<ul>
+  <li><b>元数据在库、实体在磁盘</b>：库里只留文件名 / 类型 / 大小 / storageKey，不存二进制</li>
+  <li><b><code>storageKey</code> 用随机 UUID + 扩展名</b>：避免同名覆盖，杜绝用上传文件名拼路径导致的路径穿越</li>
+  <li><b><code>noteId</code> 可空</b>：支持「新建笔记时先拖文件」的交互，之后补挂</li>
+</ul>
+
+<h3 id="n2">2.2 后端分层</h3>
+<div class="diagram">NotesController        → 笔记 CRUD、搜索、置顶、软删除
+AttachmentsController  → multipart 上传、读取内容、删除
+        ↓
+NotesService           → 笔记业务 + assertOwned 归属校验
+AttachmentsService     → 附件业务：类型/大小校验、落盘、读回、删除
+        ↓
+StorageService         → 磁盘 IO（换 S3/OSS 只改这一层）</div>
+<p><b>为什么 StorageService 单独抽出来</b>：当前落在本地磁盘，之后换对象存储只需替换这一个实现，上层完全不用动。</p>
+<div class="note danger"><strong>路由前缀的坑</strong><code>AttachmentsController</code> 必须是 <code>@Controller('attachments')</code>，不能挂成 <code>/notes/attachments</code> —— <code>NotesController</code> 上有 <code>@Get(':id')</code>，同级子路径会被它抢先匹配。</div>
+
+<h3 id="n3">2.3 鉴权：通用 JWT 守卫</h3>
+<p>AI 模块原先在 controller 里内联解析 JWT。笔记模块若再抄一份就是三处重复，密钥来源与错误文案一旦不一致很难排查。所以抽出通用实现：</p>
+<pre><code>@Injectable()
+export class JwtAuthGuard implements CanActivate {
+  async canActivate(ctx: ExecutionContext): Promise&lt;boolean&gt; {
+    const req = ctx.switchToHttp().getRequest&lt;AuthedRequest&gt;();
+    const auth = req.headers.authorization;
+    if (!auth?.startsWith('Bearer ')) throw new UnauthorizedException('缺少访问令牌');
+    try {
+      const payload = await this.jwtService.verifyAsync(
+        auth.slice('Bearer '.length), { secret: process.env.JWT_ACCESS_SECRET });
+      req.userId = payload.sub; req.userEmail = payload.email;
+      return true;
+    } catch { throw new UnauthorizedException('访问令牌无效或过期'); }
+  }
+}</code></pre>
+<p>配合 <code>@CurrentUser()</code> 取 userId。<b>userId 一律从令牌取，不接受客户端传入</b>，从源头上杜绝冒用他人身份。</p>
+
+<h3 id="n4">2.4 文件上传：四道防线</h3>
+<pre><code>// 1. 类型白名单
+const ALLOWED_MIME = new Set([ 'application/pdf', 'text/markdown', ... ]);
+
+async upload(userId, file, noteId?) {
+  if (!file) throw new BadRequestException('未收到文件');
+  if (!ALLOWED_MIME.has(file.mimetype)) throw new BadRequestException('不支持的类型');
+  if (file.size &gt; this.storage.maxSize) throw new BadRequestException('文件过大');
+  // 2. 挂到笔记前先校验笔记归属
+  if (noteId) { /* findFirst({ id: noteId, userId }) */ }
+  // 3. 随机文件名落盘
+  const storageKey = await this.storage.save(file.buffer, file.originalname);
+  // 4. 只把元数据写库
+  return this.prisma.attachment.create({ data: { ... } });
+}</code></pre>
+<div class="note"><strong>为什么不做通配放行</strong>上传目录同源可访问，若放任 <code>.html</code> / <code>.svg</code> 这类可执行脚本的类型落盘，等于给自己开了个存储型 XSS 的口子。</div>
+<pre><code>// 读文件时再校验一次路径（defense in depth）
+resolvePath(storageKey: string): string {
+  const full = path.resolve(this.root, storageKey);
+  if (full !== this.root &amp;&amp; !full.startsWith(this.root + path.sep))
+    throw new NotFoundException('附件不存在');
+  return full;
+}</code></pre>
+
+<h3 id="n5">2.5 附件预览：为什么必须先取 Blob</h3>
+<p>附件接口挂在 <code>JwtAuthGuard</code> 下需要 <code>Authorization</code> 头，而 <b><code>&lt;iframe&gt;</code> / <code>&lt;img&gt;</code> 的请求带不上自定义头</b>。直接用 <code>&lt;iframe src="/attachments/:id/content"&gt;</code> 会拿到 401。</p>
+<table>
+  <thead><tr><th style="width:34%">方案</th><th>问题</th></tr></thead>
+  <tbody>
+    <tr><td>把接口开成公开</td><td>任何人拿到 id 就能下载别人附件</td></tr>
+    <tr><td>签一个短期 URL</td><td>要额外实现签名与过期</td></tr>
+    <tr><td><b>先取 Blob 再转 objectURL</b> ✅</td><td>令牌始终留在请求头里</td></tr>
+  </tbody>
+</table>
+<pre><code>export async function fetchAttachmentBlob(id: string): Promise&lt;Blob&gt; {
+  const token = getToken();
+  const res = await fetch(`${BASE}/attachments/${id}/content`, {
+    headers: { Authorization: `Bearer ${token ?? ''}` },
+  });
+  if (!res.ok) throw new Error(`加载附件失败（HTTP ${res.status}）`);
+  return res.blob();
+}</code></pre>
+<p>然后 <code>URL.createObjectURL(blob)</code> 交给 <code>&lt;iframe&gt;</code>（PDF）或 <code>&lt;img&gt;</code>（图片）渲染。<b>记得卸载时 <code>revokeObjectURL</code></b>，否则内存泄漏。</p>
+<p>服务端用 <code>Content-Disposition</code> 区分用途：<code>inline</code> 浏览器内渲染，<code>?download=1</code> 则 <code>attachment</code> 强制下载。文件名含中文时用 RFC 5987 编码。</p>
+<div class="note danger"><strong>文件下载必须加 <code>@SkipResponse()</code></strong>全局拦截器会把响应包成 <code>{code,msg,data}</code>，二进制内容会被破坏。</div>
+
+<h3 id="n6">2.6 前端：编辑器与自动保存</h3>
+<pre><code>const AUTOSAVE_DELAY_MS = 800;
+
+const doSave = async () =&gt; {
+  const { active, saveState } = get();
+  if (!active || saveState === 'saving' || saveState === 'saved') return;
+  set({ saveState: 'saving' });
+  try {
+    const saved = await updateNote(active.id, { title, content });
+    if (get().activeId !== saved.id) return;   // 保存期间用户已切走
+    set({ saveState: 'saved' });
+    // 同步列表里的标题/时间，否则侧边栏显示旧标题
+  } catch (err) { set({ saveState: 'error', error: err.message }); }
+};
+
+// 切换笔记前必须落盘（关键）
+openNote: async (id) =&gt; {
+  if (get().activeId === id) return;
+  cancelPending();      // 取消待执行的定时器
+  await get().flush();  // 立即落盘
+  set({ activeId: id, ... });
+}</code></pre>
+<div class="note danger"><strong>不这么做会出两个问题</strong>① 编辑丢失；② 定时器到点后把<b>旧笔记的内容 PATCH 到新笔记上</b> —— 和 AI 模块「串台」是同一类错误。</div>
+
+<h3 id="n7">2.7 Markdown 渲染与安全</h3>
+<pre><code>marked.setOptions({ gfm: true, breaks: true });
+
+const html = useMemo(() =&gt; {
+  if (!content.trim()) return '';
+  const raw = marked.parse(content, { async: false }) as string;
+  return DOMPurify.sanitize(raw, { USE_PROFILES: { html: true } });
+}, [content]);</code></pre>
+<div class="note"><strong>为什么一定要过 DOMPurify</strong>marked 只负责把 Markdown 转成 HTML 字符串，不做转义。笔记内容现在由用户自己输入，但一旦将来支持导入他人分享的 <code>.md</code> 文件，这里就是唯一的 XSS 防线 —— 现在就装好，比事后补可靠。</div>
+
+<!-- ===== Part III ===== -->
+<h2 id="p3">Part III　两个模块共享的基础设施</h2>
+<table>
+  <thead><tr><th style="width:22%">设施</th><th style="width:26%">位置</th><th>说明</th></tr></thead>
+  <tbody>
+    <tr><td><code>PrismaModule</code></td><td><code>src/prisma</code></td><td><code>@Global()</code>，任何模块可直接注入 <code>PrismaService</code></td></tr>
+    <tr><td><code>RedisModule</code></td><td><code>src/redis</code></td><td><code>@Global()</code>，票据 / 限流 / 会话缓存都用它</td></tr>
+    <tr><td><code>ResponseInterceptor</code></td><td><code>src/common/interceptors</code></td><td>把响应包成 <code>{code,msg,data}</code></td></tr>
+    <tr><td><code>@SkipResponse()</code></td><td><code>src/common/decorators</code></td><td>让 SSE / 文件下载绕过包装</td></tr>
+    <tr><td><code>JwtAuthGuard</code></td><td><code>src/auth/guards</code></td><td>通用 JWT 校验（笔记用；AI 的 SSE 走 ticket）</td></tr>
+    <tr><td><code>@CurrentUser()</code></td><td><code>src/auth/decorators</code></td><td>取令牌里的 userId</td></tr>
+    <tr><td>前端 axios 实例</td><td><code>src/request/index.ts</code></td><td>token 注入、401 刷新重放、响应解包</td></tr>
+    <tr><td>前端 zustand</td><td><code>src/stores</code></td><td>模块各自独立的 store</td></tr>
+  </tbody>
+</table>
+<div class="note"><strong>一次顺带的重构：<code>@SkipResponse()</code> 搬家</strong>原先放在 <code>src/ai/decorators/</code> —— ai 只是它的第一个使用者，文件下载同样需要。放在业务模块里会导致 <code>common</code> 反向依赖 <code>ai</code>，所以移到 <code>src/common/decorators/</code>。</div>
+
+<!-- ===== Part IV ===== -->
+<h2 id="p4">Part IV　踩坑清单</h2>
+
+<h4>共通</h4>
+<table>
+  <thead><tr><th style="width:36%">坑</th><th>正确做法</th></tr></thead>
+  <tbody>
+    <tr><td>在 React 组件内部定义组件</td><td>函数身份变化会重挂子树，输入框失焦（一次只能输一个字符）。子组件一律提到模块顶层</td></tr>
+    <tr><td>外部传入的 id 不做归属校验</td><td>一律 <code>assertOwned</code>，且「不存在」与「无权访问」返回同一文案</td></tr>
+  </tbody>
+</table>
+
+<h4>AI 模块</h4>
+<table>
+  <thead><tr><th style="width:36%">坑</th><th>正确做法</th></tr></thead>
+  <tbody>
+    <tr><td>用 <code>@Get</code> 返回 Observable</td><td>必须用 <code>@Sse</code>。<code>@Get</code> 只取最后一个值发 JSON，流全丢</td></tr>
+    <tr><td>忘了 <code>bindTools</code></td><td>模型看不到工具，<code>tool_calls</code> 恒为空</td></tr>
+    <tr><td>全局拦截器包装 SSE</td><td>加 <code>@SkipResponse()</code>；且不能判断 Content-Type（SSE 响应头在拦截器之后才写入）</td></tr>
+    <tr><td>流内异常用 <code>subscriber.error</code></td><td>用 <code>complete</code> + 下发 <code>error</code> 事件，避免被全局过滤器污染</td></tr>
+    <tr><td>先发 <code>done</code> 再落库</td><td><b>必须先落库再发 done</b>。否则客户端收到 done 立刻发下一轮，读到未写入的历史</td></tr>
+    <tr><td>teardown 不 abort</td><td>客户端断开后模型继续生成并计费</td></tr>
+    <tr><td>写工具设 retries &gt; 0</td><td>写操作重试会造成重复执行，务必设为 0</td></tr>
+    <tr><td>把 <code>:ping</code> 当数据解析</td><td>心跳行以 <code>:</code> 开头，解析时跳过</td></tr>
+    <tr><td>用 <code>EventSource</code> 开流</td><td>不能带 Authorization 头，也不支持自定义中断；用 fetch + ticket</td></tr>
+    <tr><td>系统提示词太短</td><td>会导致编造理由、乱列工具、语气机械（详见 1.7）</td></tr>
+  </tbody>
+</table>
+
+<h4>笔记模块</h4>
+<table>
+  <thead><tr><th style="width:36%">坑</th><th>正确做法</th></tr></thead>
+  <tbody>
+    <tr><td><b>中文文件名乱码</b></td><td>multer 按 latin1 解码 multipart 文件名。用 <code>decodeFilename()</code>：名字含 0x80–0xFF 高位字符才按 latin1 读回字节再解 UTF-8；客户端正确传 UTF-8 时（字符码 &gt; 0xFF）原样返回；还原出 U+FFFD 也保持原样</td></tr>
+    <tr><td>路由前缀冲突</td><td>附件必须用 <code>@Controller('attachments')</code>，会被 <code>@Get(':id')</code> 抢先匹配</td></tr>
+    <tr><td>iframe 直连受保护接口</td><td>带不上 Authorization 头 → 先取 Blob 再转 objectURL</td></tr>
+    <tr><td>忘记 <code>revokeObjectURL</code></td><td>组件卸载时释放，否则内存泄漏</td></tr>
+    <tr><td>切换笔记不落盘</td><td>编辑丢失，且定时器会把旧内容写到新笔记上</td></tr>
+    <tr><td>文件下载没加 <code>@SkipResponse()</code></td><td>二进制被响应拦截器包成 JSON 破坏</td></tr>
+    <tr><td><b><code>prisma migrate status</code> 不报漂移</b></td><td>只比对已应用的迁移文件；schema 加了模型但没建迁移时照样显示 "up to date"。加模型后用 <code>migrate dev</code> 实跑</td></tr>
+  </tbody>
+</table>
+
+<!-- ===== Part V ===== -->
+<h2 id="p5">Part V　扩展与调参</h2>
+
+<h4>调参位置</h4>
+<table>
+  <thead><tr><th style="width:30%">参数</th><th style="width:32%">文件</th><th>当前值</th></tr></thead>
+  <tbody>
+    <tr><td>票据有效期</td><td><code>ai.controller.ts</code></td><td>30 秒</td></tr>
+    <tr><td>Agent 轮次上限</td><td><code>ai.service.ts</code></td><td>8</td></tr>
+    <tr><td>心跳间隔</td><td><code>ai.service.ts</code></td><td>15 秒</td></tr>
+    <tr><td>限流</td><td><code>rate-limit.service.ts</code></td><td>10 次 / 60 秒</td></tr>
+    <tr><td>上下文窗口</td><td><code>memory/conversation.repository.ts</code></td><td>20 条</td></tr>
+    <tr><td>缓存 TTL</td><td>同上</td><td>30 分钟</td></tr>
+    <tr><td>工具超时 / 重试</td><td><code>tool.registry.ts</code></td><td>15 秒 / 1 次</td></tr>
+    <tr><td>系统提示词</td><td><code>prompts/system.prompt.ts</code></td><td>见 1.7</td></tr>
+    <tr><td>模型 / 温度</td><td><code>.env</code></td><td><code>deepseek-v4-flash</code> / 0.7</td></tr>
+    <tr><td>上传大小上限</td><td><code>.env</code> 的 <code>UPLOAD_MAX_BYTES</code></td><td>20 MB</td></tr>
+    <tr><td>上传目录</td><td><code>.env</code> 的 <code>UPLOAD_DIR</code></td><td><code>&lt;项目根&gt;/uploads</code></td></tr>
+  </tbody>
+</table>
+
+<h4>换模型（代码零改动）</h4>
+<pre><code>OPENAI_BASE_URL=https://api.deepseek.com   # 不要加 /v1，SDK 自动补
+CHAT_MODEL_NAME=deepseek-v4-flash
+OPENAI_API_KEY=sk-...
+CHAT_MODEL_TEMPERATURE=0.7</code></pre>
+
+<h4>真机验证脚本</h4>
+<table>
+  <thead><tr><th style="width:38%">脚本</th><th>覆盖</th></tr></thead>
+  <tbody>
+    <tr><td><code>verify-agent-live.cjs</code></td><td>AI：多轮记忆、工具调用、落库</td></tr>
+    <tr><td><code>verify-notes-live.cjs</code></td><td>笔记：23 条断言（CRUD、搜索、上传、二进制比对、越权 404、未鉴权 401、类型白名单、软删除）</td></tr>
+    <tr><td><code>probe-answer-style.cjs</code></td><td>回答风格（改提示词前后对比）</td></tr>
+    <tr><td><code>probe-filename.cjs</code></td><td>文件名编码</td></tr>
+  </tbody>
+</table>
+<p>运行前需 PostgreSQL / Redis / 后端在跑。</p>
+
+<h4>待办与可改进</h4>
+<ul>
+  <li>前后端事件类型目前靠人工同步，可考虑共享包或代码生成消除漂移风险</li>
+  <li>上下文超窗后直接截断，后续计划做摘要记忆</li>
+  <li>限流是固定窗口计数，若要更平滑可换令牌桶或 Lua 脚本</li>
+  <li><code>ChatDto</code> 已定义但换票接口用的是内联类型，未真正启用校验</li>
+  <li>笔记暂无全文搜索（走 <code>contains</code>，大数据量下需要 tsvector 或外部索引）</li>
+  <li>附件删除采用「先删记录再删文件」，长期运行可能产生孤儿文件，可加定时清理任务</li>
+</ul>
+
+<footer>
+  Wisora 核心模块文档 · 更新于 2026-09-17 · 对应代码：<code>backend/src/ai</code>、<code>backend/src/notes</code> 与前端 9 个文件
+</footer>
+
+</main>
+</div>
+</body>
+</html>
