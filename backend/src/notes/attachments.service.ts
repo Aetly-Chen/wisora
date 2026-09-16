@@ -20,6 +20,24 @@ export interface UploadedFileLike {
 }
 
 /**
+ * 还原文件名编码。
+ *
+ * multer 对 multipart 里的文件名按 latin1 解码，中文名会变成
+ * "æµè¯ææ¡£.pdf" 这样的乱码 —— 字节本身没错（仍是 UTF-8 序列），
+ * 只是被当成了单字节字符。这里按 latin1 读回字节再解成 UTF-8。
+ *
+ * 加两道判断是因为存在两种情况：
+ *   1. 名字含 0x80–0xFF 的高位字符 → 属于 latin1 误读，需要还原
+ *   2. 客户端已正确按 UTF-8 传（字符码 > 0xFF）→ 原样返回
+ * 还原结果若含替换字符 U+FFFD，说明本就不是误读，同样保持原样。
+ */
+function decodeFilename(name: string): string {
+  if (!/[\u0080-\u00ff]/.test(name)) return name;
+  const decoded = Buffer.from(name, 'latin1').toString('utf8');
+  return decoded.includes('\uFFFD') ? name : decoded;
+}
+
+/**
  * 允许上传的类型白名单。
  *
  * 不做通配放行：上传目录同源可访问，若放任 .html/.svg 等
@@ -86,7 +104,7 @@ export class AttachmentsService {
       data: {
         userId,
         noteId: noteId ?? null,
-        filename: file.originalname,
+        filename: decodeFilename(file.originalname),
         mimeType: file.mimetype,
         size: file.size,
         storageKey,
