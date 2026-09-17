@@ -11,6 +11,35 @@ const LIST_SELECT = {
   updatedAt: true,
 } as const;
 
+/**
+ * 详情结构：创建 / 更新 / 查询三个接口共用同一份。
+ *
+ * 曾经创建与更新用的是 `{ ...LIST_SELECT, content: true }`，少了 attachments，
+ * 而前端 NoteDetail 把 attachments 声明为必填 —— 新建笔记后页面读
+ * `attachments.length` 直接抛 TypeError。共用一份 select 就不会再漏。
+ */
+const DETAIL_SELECT = {
+  id: true,
+  userId: true,
+  title: true,
+  content: true,
+  pinned: true,
+  createdAt: true,
+  updatedAt: true,
+  deletedAt: true,
+  attachments: {
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true,
+      filename: true,
+      mimeType: true,
+      size: true,
+      noteId: true,
+      createdAt: true,
+    },
+  },
+} as const;
+
 @Injectable()
 export class NotesService {
   constructor(private readonly prisma: PrismaService) {}
@@ -56,25 +85,15 @@ export class NotesService {
   /** 详情：含正文与附件列表 */
   async get(userId: string, noteId: string) {
     await this.assertOwned(userId, noteId);
-    const note = await this.prisma.note.findUnique({
-      where: { id: noteId },
-      include: {
-        attachments: {
-          orderBy: { createdAt: 'desc' },
-          select: {
-            id: true,
-            filename: true,
-            mimeType: true,
-            size: true,
-            createdAt: true,
-          },
-        },
-      },
+    const note = await this.prisma.note.findFirst({
+      where: { id: noteId, userId, deletedAt: null },
+      select: DETAIL_SELECT,
     });
     if (!note) throw new NotFoundException('笔记不存在或无权访问');
     return note;
   }
 
+  /** 新建：返回结构必须与 get 一致（含空的 attachments），前端才不用做形状判断 */
   async create(userId: string, dto: CreateNoteDto) {
     return this.prisma.note.create({
       data: {
@@ -82,7 +101,7 @@ export class NotesService {
         title: dto.title?.trim() || '无标题',
         content: dto.content ?? '',
       },
-      select: { ...LIST_SELECT, content: true },
+      select: DETAIL_SELECT,
     });
   }
 
@@ -98,7 +117,7 @@ export class NotesService {
     return this.prisma.note.update({
       where: { id: noteId },
       data,
-      select: { ...LIST_SELECT, content: true },
+      select: DETAIL_SELECT,
     });
   }
 

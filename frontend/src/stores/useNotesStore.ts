@@ -42,6 +42,16 @@ interface NotesState {
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
+/**
+ * 兜底补齐 attachments。
+ *
+ * 后端若某个接口漏返回该字段，页面会在 `attachments.length` 处整页崩掉。
+ * TS 类型管不住运行时（axios 的泛型只是断言），所以在这里再兜一层。
+ */
+function withAttachments(note: NoteDetail): NoteDetail {
+  return { ...note, attachments: note.attachments ?? [] };
+}
+
 export const useNotesStore = create<NotesState>((set, get) => {
   /** 取消待执行的自动保存（切换/卸载时必须调，否则旧笔记的编辑会写到新笔记上） */
   const cancelPending = () => {
@@ -124,7 +134,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       set({ activeId: id, detailLoading: true, active: undefined, saveState: 'idle' });
       try {
         const note = await getNote(id);
-        set({ active: note, detailLoading: false });
+        set({ active: withAttachments(note), detailLoading: false });
       } catch (err) {
         set({
           detailLoading: false,
@@ -138,7 +148,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       await get().flush();
 
       try {
-        const note = await apiCreateNote({ title: '无标题', content: '' });
+        const note = withAttachments(await apiCreateNote({ title: '无标题', content: '' }));
         // 新笔记插到列表最前，省一次全量刷新
         set((state) => ({
           notes: [{ ...note, pinned: note.pinned }, ...state.notes],

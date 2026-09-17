@@ -9,9 +9,6 @@ import {
   Send,
   Plus,
   Square,
-  Image as ImageIcon,
-  Pencil,
-  Globe,
   X,
   MessageSquare,
   Clock,
@@ -21,24 +18,82 @@ import {
   ArrowLeft,
   Trash2,
   Loader2,
+  NotebookPen,
 } from "lucide-react";
 
-interface ActionCard {
-  id: string;
-  label: string;
-  iconName: "ImageIcon" | "Pencil" | "Globe";
-}
+/**
+ * 固定行高的轻量虚拟列表。
+ *
+ * 会话历史可能积累到几千条，全量渲染会让侧边栏首屏变慢、
+ * 滚动掉帧。这里只渲染视口内的行 + 上下各 OVERSCAN 行缓冲。
+ *
+ * 为什么自己写而不引第三方：列表行高固定、无需动态测量，
+ * 核心逻辑不到 30 行；为这点功能增加一个运行时依赖不划算。
+ * 注意 ROW_HEIGHT 必须与实际行高严格一致，否则滚动位置会漂移。
+ */
+const ROW_HEIGHT = 44;
+const OVERSCAN = 6;
 
-const actionCards: ActionCard[] = [
-  { id: "image", label: "创建图像或贴纸", iconName: "ImageIcon" },
-  { id: "write", label: "撰写或编辑", iconName: "Pencil" },
-  { id: "search", label: "搜索网页", iconName: "Globe" },
-];
+const VirtualList: React.FC<{
+  count: number;
+  renderRow: (index: number) => React.ReactNode;
+  className?: string;
+  empty?: React.ReactNode;
+}> = ({ count, renderRow, className, empty }) => {
+  const ref = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(0);
 
-const iconMap: Record<ActionCard["iconName"], React.ElementType> = {
-  ImageIcon,
-  Pencil,
-  Globe,
+  /**
+   * 滚动容器必须始终挂载，空状态也放在它内部。
+   *
+   * 曾经写成 `if (count === 0) return empty`，导致首次进入页面时
+   * （会话列表还没拉到、count 为 0）容器根本没渲染，ref.current 为 null，
+   * 这个 effect 直接退出且不会再跑；等数据到达容器才挂载，
+   * 但依赖数组是空的不会重跑 —— viewportHeight 永远是 0，
+   * 虚拟窗口算得过小，滚动到后面会露出大片空白。
+   */
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const sync = () => setViewportHeight(el.clientHeight);
+    sync();
+    const ro = new ResizeObserver(sync);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const start = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
+  const end = Math.min(
+    count,
+    Math.ceil((scrollTop + viewportHeight) / ROW_HEIGHT) + OVERSCAN,
+  );
+
+  const rows: React.ReactNode[] = [];
+  for (let i = start; i < end; i++) {
+    rows.push(
+      <div key={i} style={{ height: ROW_HEIGHT }}>
+        {renderRow(i)}
+      </div>,
+    );
+  }
+
+  return (
+    <div
+      ref={ref}
+      onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+      className={className}
+      data-virtual-scroll
+    >
+      {count === 0 ? (
+        empty
+      ) : (
+        <div style={{ height: count * ROW_HEIGHT, position: "relative" }}>
+          <div style={{ transform: `translateY(${start * ROW_HEIGHT}px)` }}>{rows}</div>
+        </div>
+      )}
+    </div>
+  );
 };
 
 /**
@@ -147,6 +202,51 @@ const InputBar: React.FC<InputBarProps> = ({
   </form>
 );
 
+/**
+ * 会话历史的一行。
+ *
+ * 提到模块顶层（而非在 AgentPage 内定义）：
+ * 组件内定义组件会让 React 每次渲染都认为是新类型，卸载重挂整棵子树。
+ */
+const ConversationRow: React.FC<{
+  title: string;
+  active: boolean;
+  busy: boolean;
+  onOpen: () => void;
+  onDelete: () => void;
+}> = ({ title, active, busy, onOpen, onDelete }) => (
+  <div
+    className={`group flex h-full items-center rounded-lg transition-colors ${
+      active ? "bg-slate-200/70" : "hover:bg-slate-200/60"
+    }`}
+    data-conv-row
+  >
+    <button
+      type="button"
+      onClick={onOpen}
+      disabled={busy}
+      className="flex min-w-0 flex-1 items-center gap-2.5 px-2 text-left text-sm text-slate-700 disabled:opacity-60"
+    >
+      {busy ? (
+        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-slate-400" />
+      ) : (
+        <MessageSquare className="h-4 w-4 shrink-0 text-slate-400" />
+      )}
+      <span className="truncate">{title}</span>
+    </button>
+
+    <button
+      type="button"
+      onClick={onDelete}
+      aria-label="删除会话"
+      title="删除会话"
+      className="mr-1 shrink-0 rounded-md p-1.5 text-slate-400 opacity-0 transition hover:bg-red-50 hover:text-red-600 group-hover:opacity-100"
+    >
+      <Trash2 className="h-3.5 w-3.5" />
+    </button>
+  </div>
+);
+
 export const AgentPage: React.FC = () => {
   const { username } = useUserStore();
   // 对话状态统一交给 store：流式 token 只更新最后一条助手消息
@@ -210,16 +310,6 @@ export const AgentPage: React.FC = () => {
     handleSend();
   };
 
-  const handleCardClick = (card: ActionCard) => {
-    const prompts: Record<string, string> = {
-      image: "帮我创建一张与 Wisora 品牌风格一致的图像或贴纸。",
-      write: "帮我撰写一段关于 Wisora AI 工作台的介绍文案。",
-      search: "搜索 Wisora AI 工作台的最新功能和更新。",
-    };
-    handleSend(prompts[card.id]);
-    inputRef.current?.focus();
-  };
-
   const handleNewChat = () => {
     // 开新会话：清空并重置 conversationId
     reset();
@@ -273,89 +363,61 @@ export const AgentPage: React.FC = () => {
           </Button>
         </div>
 
-        <nav className="flex-1 min-h-0 overflow-y-auto px-3 py-2 space-y-4">
-          <div>
-            <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider px-2 mb-1.5">
+        <nav className="flex min-h-0 flex-1 flex-col gap-3 px-3 py-2">
+          {/* 前往笔记模块 */}
+          <button
+            type="button"
+            onClick={() => {
+              setSidebarOpen(false);
+              navigate("/notes");
+            }}
+            className="flex w-full items-center gap-2.5 rounded-lg border border-slate-200 bg-white px-2.5 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50"
+          >
+            <NotebookPen className="h-4 w-4 shrink-0 text-indigo-600" />
+            <span>笔记</span>
+            <ArrowLeft className="ml-auto h-3.5 w-3.5 rotate-180 text-slate-300" />
+          </button>
+
+          {/* 历史记录：用虚拟列表承载，列表自身滚动，占满剩余高度 */}
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="mb-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
               最近
             </div>
-            <div className="space-y-0.5">
-              {conversations.length === 0 ? (
+            <VirtualList
+              count={conversations.length}
+              className="min-h-0 flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent"
+              empty={
                 <p className="px-2 py-2 text-xs text-slate-400">
                   还没有会话，发一条消息试试
                 </p>
-              ) : (
-                conversations.map((chat) => {
-                  const active = chat.id === conversationId;
-                  const busy = switching === chat.id;
-                  return (
-                    <div
-                      key={chat.id}
-                      className={`group relative flex items-center rounded-lg transition-colors ${
-                        active ? "bg-slate-200/70" : "hover:bg-slate-200/60"
-                      }`}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => void handleOpenConversation(chat.id)}
-                        disabled={busy}
-                        className="flex-1 min-w-0 flex items-center gap-2.5 px-2 py-2 text-sm text-slate-700 text-left disabled:opacity-60"
-                      >
-                        {busy ? (
-                          <Loader2 className="w-4 h-4 text-slate-400 shrink-0 animate-spin" />
-                        ) : (
-                          <MessageSquare className="w-4 h-4 text-slate-400 shrink-0" />
-                        )}
-                        <span className="truncate">
-                          {chat.title?.trim() || "未命名会话"}
-                        </span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => void removeConversation(chat.id)}
-                        aria-label="删除会话"
-                        title="删除会话"
-                        className="shrink-0 mr-1 p-1.5 rounded-md text-slate-400 opacity-0 group-hover:opacity-100 hover:text-red-600 hover:bg-red-50 transition"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  );
-                })
-              )}
-            </div>
+              }
+              renderRow={(index) => {
+                const chat = conversations[index];
+                return (
+                  <ConversationRow
+                    title={chat.title?.trim() || "未命名会话"}
+                    active={chat.id === conversationId}
+                    busy={switching === chat.id}
+                    onOpen={() => void handleOpenConversation(chat.id)}
+                    onDelete={() => void removeConversation(chat.id)}
+                  />
+                );
+              }}
+            />
           </div>
 
-          <div>
-            <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider px-2 mb-1.5">
+          <div className="shrink-0">
+            <div className="mb-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
               工具
             </div>
-            <div className="space-y-0.5">
-              <button
-                type="button"
-                onClick={() => setSidebarOpen(false)}
-                className="w-full flex items-center gap-2.5 px-2 py-2 rounded-lg text-sm text-slate-700 hover:bg-slate-200/60 transition-colors text-left"
-              >
-                <ImageIcon className="w-4 h-4 text-slate-400 shrink-0" />
-                <span>图片</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setSidebarOpen(false)}
-                className="w-full flex items-center gap-2.5 px-2 py-2 rounded-lg text-sm text-slate-700 hover:bg-slate-200/60 transition-colors text-left"
-              >
-                <Globe className="w-4 h-4 text-slate-400 shrink-0" />
-                <span>搜索网页</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setSidebarOpen(false)}
-                className="w-full flex items-center gap-2.5 px-2 py-2 rounded-lg text-sm text-slate-700 hover:bg-slate-200/60 transition-colors text-left"
-              >
-                <Clock className="w-4 h-4 text-slate-400 shrink-0" />
-                <span>历史记录</span>
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => setSidebarOpen(false)}
+              className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-slate-200/60"
+            >
+              <Clock className="h-4 w-4 shrink-0 text-slate-400" />
+              <span>历史记录</span>
+            </button>
           </div>
         </nav>
 
@@ -423,25 +485,6 @@ export const AgentPage: React.FC = () => {
                 inputRef={inputRef}
               />
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mt-4">
-                {actionCards.map((card) => {
-                  const Icon = iconMap[card.iconName];
-                  return (
-                    <motion.button
-                      key={card.id}
-                      type="button"
-                      whileHover={{ y: -2 }}
-                      whileTap={{ scale: 0.98 }}
-                      onClick={() => handleCardClick(card)}
-                      disabled={isStreaming}
-                      className="flex items-center gap-2.5 px-3.5 py-3 rounded-2xl bg-white border border-slate-200/80 text-left text-sm text-slate-700 hover:shadow-md hover:border-slate-300 transition-all disabled:opacity-50"
-                    >
-                      <Icon className="w-4 h-4 text-slate-500 shrink-0" />
-                      <span className="truncate">{card.label}</span>
-                    </motion.button>
-                  );
-                })}
-              </div>
             </motion.div>
           </div>
         ) : (
