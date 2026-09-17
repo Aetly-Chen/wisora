@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useUserStore } from "@/stores/useAppStore";
+import { getUserProfile } from "@/request/api";
 import { useAgentStore } from "@/stores/useAgentStore";
 import {
   Send,
@@ -248,7 +249,7 @@ const ConversationRow: React.FC<{
 );
 
 export const AgentPage: React.FC = () => {
-  const { username } = useUserStore();
+  const { username, userId, setUser } = useUserStore();
   // 对话状态统一交给 store：流式 token 只更新最后一条助手消息
   const {
     messages,
@@ -277,6 +278,23 @@ export const AgentPage: React.FC = () => {
   useEffect(() => {
     void loadConversations();
   }, [loadConversations]);
+
+  /**
+   * 补齐用户资料。
+   *
+   * 两种情况本地是没有真实资料的：页面刷新后内存状态丢失、
+   * 以及本次改动之前登录的老会话（本地存的是写死的 'Guest'，
+   * 且没有 userId 字段）。用令牌回查一次即可自愈。
+   * 已有 userId 说明资料是登录时写进去的，就不必再请求。
+   */
+  useEffect(() => {
+    if (userId) return;
+    void getUserProfile()
+      .then((profile) => setUser(profile))
+      .catch(() => {
+        /* 静默失败：拿不到昵称不影响对话主流程 */
+      });
+  }, [userId, setUser]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -422,16 +440,13 @@ export const AgentPage: React.FC = () => {
         </nav>
 
         <div className="p-3 border-t border-slate-200/80">
-          <div className="flex items-center gap-3 px-2 py-2 rounded-xl hover:bg-slate-200/60 transition-colors cursor-pointer">
+          <div className="flex items-center gap-3 px-2 py-2 rounded-xl hover:bg-slate-200/60 transition-colors">
             <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
               {username?.[0]?.toUpperCase() ?? "U"}
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-slate-800 truncate">
-                {username || "User"}
-              </p>
-              <p className="text-[11px] text-slate-500 truncate">免费版</p>
-            </div>
+            <p className="flex-1 min-w-0 truncate text-sm font-medium text-slate-800">
+              {username || "未登录"}
+            </p>
           </div>
         </div>
       </aside>

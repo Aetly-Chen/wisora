@@ -36,11 +36,17 @@ export interface PageResult<T> {
 //   password: string;
 // }
 
+/** 登录 / 注册响应里携带的用户信息（与后端 generateTokens 的返回对应） */
+export interface AuthUser {
+  id: string;
+  email: string;
+  nickname: string | null;
+}
+
 export interface LoginResult {
   accessToken: string;
   refreshToken: string;
-  userId: string;
-  username: string;
+  user: AuthUser;
 }
 
 export interface UserProfile {
@@ -100,6 +106,20 @@ export function loginByCode(data: LoginByCodeParams) {
   };
 
   return request.post<LoginResult>("/auth/login-code", data, config);
+}
+
+/**
+ * 获取当前登录用户资料。
+ *
+ * 用途：页面刷新后令牌仍在、但内存里的昵称已丢失，
+ * 用它回查一次真实昵称；也兼容本次改动之前登录、
+ * 本地仍存着默认值的老会话。
+ */
+export function getUserProfile(settings?: RequestConfig) {
+  return request.get<AuthUser>("/user/profile", {
+    loading: false,
+    ...settings,
+  });
 }
 
 /**

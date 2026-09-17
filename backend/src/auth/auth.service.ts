@@ -30,11 +30,20 @@ export class AuthService {
   ) {}
   private readonly logger = new Logger(AuthService.name);
   /**
-   * 生成 JWT Token
+   * 生成 JWT Token，并一并返回用户信息。
+   *
+   * 为什么要带上 user：登录成功后前端要显示昵称，
+   * 如果只返回 token，前端还得再发一次请求查资料 ——
+   * 而它手上此刻正好已经有一份完整的 user 记录，白跑一趟没必要。
+   *
    * @param user 用户信息
-   * @returns accessToken 和 refreshToken
+   * @returns accessToken / refreshToken / user
    */
-  private async generateTokens(user: { id: string; email: string }) {
+  private async generateTokens(user: {
+    id: string;
+    email: string;
+    nickname?: string | null;
+  }) {
     const payload = {
       sub: user.id,
       email: user.email,
@@ -55,6 +64,11 @@ export class AuthService {
     return {
       accessToken,
       refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        nickname: user.nickname ?? null,
+      },
     };
   }
   async register(dto: RegisterDto) {
@@ -124,10 +138,7 @@ export class AuthService {
     }
 
     // 3. 后面这里生成 JWT
-    return this.generateTokens({
-      id: user.id,
-      email: user.email,
-    });
+    return this.generateTokens(user);
   }
   async loginByCode(dto: LoginByCodeDto) {
     const { email, emailCode } = dto;
@@ -147,10 +158,7 @@ export class AuthService {
     await this.verificationCodeService.verify('login', email, emailCode);
 
     // 3. 后面生成 JWT
-    return this.generateTokens({
-      id: user.id,
-      email: user.email,
-    });
+    return this.generateTokens(user);
   }
   async forgotPassword(dto: ForgotPasswordDto) {
   const {
@@ -231,7 +239,7 @@ export class AuthService {
       }
 
       // 3. 重新生成双 Token
-      return this.generateTokens({ id: user.id, email: user.email });
+      return this.generateTokens(user);
     } catch {
       throw new UnauthorizedException('RefreshToken 无效或已过期');
     }

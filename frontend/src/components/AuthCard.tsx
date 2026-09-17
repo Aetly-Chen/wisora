@@ -24,6 +24,7 @@ import {
   login,
 } from "../request/api";
 import { setToken, setRefreshToken } from "../request/storage";
+import { useUserStore } from "../stores/useAppStore";
 import { useNavigate } from "react-router-dom";
 
 interface AuthCardProps {
@@ -42,6 +43,7 @@ export const AuthCard: React.FC<AuthCardProps> = ({
     "password",
   );
   const navigate = useNavigate();
+  const setUser = useUserStore((s) => s.setUser);
 
   // Form State
   const [email, setEmail] = useState("");
@@ -141,6 +143,8 @@ export const AuthCard: React.FC<AuthCardProps> = ({
     console.log("登录接口返回结果：", res);
     setToken(res.accessToken);
     setRefreshToken(res.refreshToken);
+    // 登录响应已带用户信息，直接落到 store，侧边栏就能显示真实昵称
+    if (res.user) setUser(res.user);
     onShowToast("登录成功");
     navigate("/", { replace: true });
   };

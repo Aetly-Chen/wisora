@@ -1,33 +1,66 @@
-// src/stores/useUserStore.ts
+// src/stores/useAppStore.ts
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 
-// 1. 定义状态和方法类型
-interface UserState {
-  username: string;
-  token: string;
-  isLoggedIn: boolean;
-  login: (username: string, token: string) => void;
-  logout: () => void;
+/** 后端返回的用户信息（登录响应与 /user/profile 同构） */
+export interface AuthUser {
+  id: string;
+  email: string;
+  nickname: string | null;
 }
 
-// 2. 创建带持久化的 Store
+interface UserState {
+  userId: string;
+  /** 显示名：优先昵称，没有昵称时退化为邮箱前缀 */
+  username: string;
+  email: string;
+  isLoggedIn: boolean;
+
+  /** 登录成功后写入；页面刷新时也由资料接口回填 */
+  setUser: (user: AuthUser) => void;
+  clearUser: () => void;
+}
+
+/** 昵称为空时不显示空白，退化用邮箱前缀，最后兜底成「用户」 */
+export function displayName(user: AuthUser): string {
+  const nickname = user.nickname?.trim();
+  if (nickname) return nickname;
+  const local = user.email.split('@')[0]?.trim();
+  return local || '用户';
+}
+
 export const useUserStore = create<UserState>()(
   persist(
     (set) => ({
-      username: 'Guest',
-      token: '',
+      userId: '',
+      // 早先默认值写死为 'Guest' 且 login() 从未被调用，
+      // 导致侧边栏永远显示 Guest。现在留空，由真实数据填充。
+      username: '',
+      email: '',
       isLoggedIn: false,
 
-      login: (username, token) =>
-        set({ username, token, isLoggedIn: true }),
+      setUser: (user) =>
+        set({
+          userId: user.id,
+          username: displayName(user),
+          email: user.email,
+          isLoggedIn: true,
+        }),
 
-      logout: () =>
-        set({ username: 'Guest', token: '', isLoggedIn: false }),
+      clearUser: () =>
+        set({ userId: '', username: '', email: '', isLoggedIn: false }),
     }),
     {
-      name: 'wisora-user-storage', // 存储到 localStorage 中的唯一 key 名称（必填）
-      storage: createJSONStorage(() => localStorage), // 默认就是 localStorage，亦可切换为 sessionStorage
-    }
-  )
+      name: 'wisora-user-storage',
+      storage: createJSONStorage(() => localStorage),
+      // 令牌由 request/storage 单独管理（TOKEN / REFRESH_TOKEN），
+      // 这里不再重复存一份，避免两处不一致
+      partialize: (state) => ({
+        userId: state.userId,
+        username: state.username,
+        email: state.email,
+        isLoggedIn: state.isLoggedIn,
+      }),
+    },
+  ),
 );
