@@ -1,8 +1,10 @@
 # Wisora 核心模块详解：AI 与笔记
 
-> 覆盖 `backend/src/ai`（14 文件 / 1344 行）、`backend/src/notes`（7 文件 / 551 行）
-> 与前端对应代码（9 文件 / 2133 行）。
+> 覆盖 `backend/src/ai`（14 文件 / 1462 行）、`backend/src/notes`（7 文件 / 570 行）
+> 与前端对应代码（10 文件 / 2326 行）。
 > 目标：一份文档看懂两条链路，每个环节都能定位到具体文件，并解释「为什么这么设计」。
+>
+> 最近更新：2026-09-17（补充模型切换、语音输入、登录返回用户信息、若干踩坑）
 
 ---
 
@@ -19,6 +21,8 @@
   - [1.7 系统提示词](#17-系统提示词决定回答像不像样)
   - [1.8 前端状态管理](#18-前端状态管理与渲染)
   - [1.9 安全设计](#19-安全设计)
+  - [1.10 模型接入与切换](#110-模型接入与切换)
+  - [1.11 前端输入框](#111-前端输入框模型切换与语音输入)
 - [Part II　笔记模块](#part-ii-笔记模块)
   - [2.1 数据模型](#21-数据模型)
   - [2.2 后端分层](#22-后端分层)
@@ -57,7 +61,7 @@ Wisora 有两个相对独立、又复用同一套基础设施的业务模块：
 | `ai.controller.ts` | 288 | `notes.controller.ts` | ~50 |
 | `ai.service.ts` | 335 | `notes.service.ts` | ~120 |
 | `types/stream-event.ts` | 22 | `dto/note.dto.ts` | ~40 |
-| `llm/llm.provider.ts` | 26 | `attachments.controller.ts` | ~100 |
+| `llm/llm.provider.ts` | ~80 | `attachments.controller.ts` | ~100 |
 | `guards/stream-ticket.guard.ts` | 61 | `attachments.service.ts` | ~160 |
 | `memory/conversation.repository.ts` | 154 | `storage.service.ts` | ~80 |
 | `tools/*`（4 文件） | ~300 | `notes.module.ts` | ~20 |
@@ -70,14 +74,16 @@ Wisora 有两个相对独立、又复用同一套基础设施的业务模块：
 | 文件 | 行数 | 职责 | 对应后端 |
 | --- | --- | --- | --- |
 | `types/agent.ts` | 73 | 事件协议 / 消息 / 会话类型 | `types/stream-event.ts` |
-| `request/ai-stream.ts` | 195 | 换票、会话 CRUD、SSE 解析 | `ai.controller.ts` |
-| `stores/useAgentStore.ts` | 306 | 对话状态、流式累加、中断 | `ai.service.ts` 的事件流 |
-| `pages/agent/index.tsx` | 545 | 对话界面 | — |
+| `request/ai-stream.ts` | 210 | 换票、会话 CRUD、模型列表、SSE 解析 | `ai.controller.ts` |
+| `stores/useAgentStore.ts` | 345 | 对话状态、流式累加、中断、模型选择 | `ai.service.ts` 的事件流 |
+| `pages/agent/index.tsx` | 845 | 对话界面（含模型切换器与语音输入） | — |
 | `types/note.ts` | 27 | 笔记 / 附件 / 保存状态类型 | Prisma 模型 |
 | `request/notes.ts` | 78 | 笔记 CRUD、上传、取 Blob | 两个 controller |
 | `stores/useNotesStore.ts` | 238 | 列表、防抖保存、附件 | — |
 | `pages/notes/index.tsx` | 632 | 笔记界面（列表 + 编辑器） | — |
 | `components/MarkdownView.tsx` | 39 | Markdown 渲染（marked + DOMPurify） | — |
+| `stores/useAppStore.ts` | 66 | 登录用户信息（昵称 / 邮箱） | `auth/*`、`user/profile` |
+| `request/api.ts` | 222 | 登录 / 注册 / 用户资料接口 | `auth/*`、`user/*` |
 
 ---
 
@@ -480,6 +486,124 @@ Redis `INCR` + 首次命中设过期。换票和开流**两处都查**，防止�
 
 ---
 
+## 1.10 模型接入与切换
+
+### 从单例到工厂
+
+最初 `llm.provider.ts` 只提供一个写死模型名的单例：
+
+```ts
+export const chatModelProvider: Provider = {
+  provide: CHAT_MODEL,
+  useFactory: () => new ChatOpenAI({ model: process.env.CHAT_MODEL_NAME, ... }),
+};
+```
+
+支持前端切换模型后，改成按模型名缓存实例的工厂：
+
+```ts
+@Injectable()
+export class ChatModelFactory {
+  private readonly cache = new Map<string, ChatOpenAI>();
+
+  resolve(requested?: string): string { /* 白名单校验，非法回落默认 */ }
+  get(modelName: string): ChatOpenAI { /* 命中缓存则复用 */ }
+}
+```
+
+**按名缓存而不是每次 new**：ChatOpenAI 构造有开销，且实例内部持有连接池。
+
+### 环境变量语义变了
+
+| 变量 | 改动前 | 改动后 |
+| --- | --- | --- |
+| `CHAT_MODEL_NAME` | 唯一模型 | **默认模型**（请求未指定时用它） |
+| `CHAT_MODEL_OPTIONS` | — | 新增，前端下拉的可选列表 |
+
+```bash
+CHAT_MODEL_NAME=deepseek-flash
+CHAT_MODEL_OPTIONS=deepseek-flash,deepseek-v4-pro
+CHAT_MODEL_TEMPERATURE=0.7
+```
+
+**不配置 `CHAT_MODEL_OPTIONS` 也能跑**：此时退化为只含默认模型，老部署不改配置不会崩。默认模型始终并入列表，避免出现「当前模型不在可选项里」的状态。
+
+### 白名单校验不能省
+
+```ts
+resolve(requested?: string): string {
+  const name = requested?.trim();
+  if (!name) return defaultModelName();
+  if (availableModelNames().includes(name)) return name;
+  this.logger.warn(`请求了未配置的模型「${name}」，已回落至 ${defaultModelName()}`);
+  return defaultModelName();
+}
+```
+
+`model` 参数来自 URL query。不校验的话，调用方可以塞任意字符串让服务端去请求上游 —— 轻则报错，重则被用来探测上游有哪些模型。
+
+### 一个容易踩的坑：模型别名
+
+实测某账号（`https://api.deepseek.com`）：
+
+| 传入 | 实际生效 |
+| --- | --- |
+| `deepseek-v4-flash` | `deepseek-flash` ← **别名** |
+| `deepseek-flash` | `deepseek-flash` |
+| `deepseek-v4-pro` | `deepseek-v4-pro` |
+
+`GET /models` 只列出**规范 id**，别名不会出现。所以配置文件里写别名能跑通，但下拉列表里看不到它 —— 配置值应统一用规范 id。
+
+顺带一个环境变量的细节：`.env` 里 `CHAT_MODEL_NAME=deepseek-v4-flash ` 末尾多了一个空格。dotenv 会 trim，所以不影响运行，但用 shell 解析时会把空格和行内注释一起读进去，排查问题时容易误判。
+
+### 会话的模型跟随更新
+
+```ts
+// 用 updateMany + where 条件：只有确实不同才写，避免每轮对话都产生无意义的 UPDATE
+await this.prisma.conversation.updateMany({
+  where: { id: conversationId, NOT: { model } },
+  data: { model },
+});
+```
+
+失败只记日志 —— 它只影响列表展示，不该拖垮正在进行的流式回答。
+
+## 1.11 前端输入框（模型切换与语音输入）
+
+最终布局：
+
+```
+[＋ 添加文件]  有问题，随便问…        [模型 快速 ▾] [🎤] [发送]
+```
+
+移除了原先的「深度思考」按钮 —— 它没有任何行为，留着会让人误以为能开关推理。
+
+### 模型切换器
+
+- **菜单向上展开**（`bottom-full`），因为输入框在视口底部，向下会被裁掉
+- 点击组件外部或按 `Esc` 收起；带 `aria-haspopup` / `aria-expanded` / `role="option"`
+- 显示名走一张本地小映射表（`deepseek-flash → 快速`），**未知模型直接显示原始 id** —— 后端换厂商或加模型时前端零改动
+- 每个选项同时显示友好名与真实 id，避免排查问题时被别名误导
+
+### 语音输入
+
+用浏览器内置的 **Web Speech API**（`zh-CN`，`interimResults: true`），不经过后端 —— 对「把说的话变成输入框文字」这个需求够用且零成本。
+
+两个实现细节：
+
+```ts
+// 1) 回调必须存 ref。否则父组件每次渲染生成新函数，
+//    effect 会重跑并重建识别器，正在录音时被打断
+const resultRef = useRef(onResult);
+resultRef.current = onResult;
+
+// 2) 不支持的浏览器禁用按钮并给出说明，
+//    而不是留一个点了没反应的按钮
+if (!Ctor) { setSupported(false); return; }
+```
+
+---
+
 # Part II　笔记模块
 
 ## 2.1 数据模型
@@ -755,12 +879,37 @@ const html = useMemo(() => {
 | `@CurrentUser()` | `src/auth/decorators` | 取令牌里的 userId |
 | 前端 axios 实例 | `src/request/index.ts` | token 注入、401 刷新重放、响应解包 |
 | 前端 zustand | `src/stores` | 模块各自独立的 store |
+| `GET /user/profile` | `src/user` | 用令牌回查当前用户资料（昵称等） |
 
 ### 一次顺带的重构：`@SkipResponse()` 搬家
 
 原先放在 `src/ai/decorators/` —— ai 只是它的**第一个使用者**，文件下载同样需要。
 放在业务模块里会导致 `common` 反向依赖 `ai`，所以移到 `src/common/decorators/`，
 同步更新了拦截器的 import。
+
+---
+
+### 登录响应必须带用户信息
+
+原先 `login` / `login-by-code` / `refresh` 只返回双 token。前端登录后只知道
+「有令牌了」，不知道是谁 —— 侧边栏于是长期显示一个写死的默认值。
+
+```ts
+// generateTokens 直接收完整 user 记录，而不是逐个挑字段
+private async generateTokens(user: { id; email; nickname?: string | null }) {
+  return {
+    accessToken, refreshToken,
+    user: { id: user.id, email: user.email, nickname: user.nickname ?? null },
+  };
+}
+```
+
+**关键点是「传完整记录」而不是「挑字段」**：最初调用方写的是
+`generateTokens({ id: user.id, email: user.email })`，加昵称时就得回头改三处调用点，
+漏一处就是一个字段缺失。现在传 `user` 整体，加字段不用动调用方。
+
+`GET /user/profile` 是配套补充：页面刷新后内存状态会丢，
+且改动之前登录的老会话本地存着假数据，需要能用令牌回查真实资料自愈。
 
 ---
 
@@ -772,6 +921,9 @@ const html = useMemo(() => {
 | --- | --- |
 | 在 React 组件内部定义组件 | 函数身份变化会重挂子树，输入框失焦（一次只能输一个字符）。子组件一律提到模块顶层 |
 | 外部传入的 id 不做归属校验 | 一律 `assertOwned`，且「不存在」与「无权访问」返回同一文案 |
+| 把回调直接传给 effect 依赖 | 父组件每次渲染都会生成新函数，effect 反复重跑（语音识别器被重建、录音被打断）。用 ref 持有回调 |
+| 同一实体的多个接口各写一份 `select` | 迟早漏字段（本次就漏过 `attachments`）。抽成共用的常量，加字段只改一处 |
+| 相信 TS 类型能保证运行时数据 | axios 泛型只是类型断言。HTTP 边界上的必填字段仍要兜底，否则一访问属性就整页崩 |
 
 ## AI 模块
 
@@ -787,6 +939,8 @@ const html = useMemo(() => {
 | 把 `:ping` 当数据解析 | 心跳行以 `:` 开头，解析时跳过 |
 | 用 `EventSource` 开流 | 不能带 Authorization 头，也不支持自定义中断；用 fetch + ticket |
 | 系统提示词太短 | 会导致编造理由、乱列工具、语气机械（详见 1.7） |
+| URL 参数不做白名单校验 | `model` 这类来自 query 的值必须校验，否则调用方能塞任意字符串让服务端去请求上游（详见 1.10） |
+| 配置里写模型别名 | 别名能调通，但不会出现在 `GET /models` 里，下拉看不到自己配的值。统一用规范 id |
 
 ## 笔记模块
 
@@ -799,6 +953,7 @@ const html = useMemo(() => {
 | 切换笔记不落盘 | 编辑丢失，且定时器会把旧内容写到新笔记上 |
 | 文件下载没加 `@SkipResponse()` | 二进制被响应拦截器包成 JSON 破坏 |
 | **`prisma migrate status` 不报漂移** | 只比对已应用的迁移文件；schema 加了模型但没建迁移时照样显示 "up to date"。加模型后用 `migrate dev` 实跑 |
+| 自研虚拟列表时提前 return | 初版写成 `if (count === 0) return empty`，首次进入列表为空时滚动容器没挂载，effect 里 `ref.current` 为 null 直接退出且不会重跑；数据到达后容器才挂载，`viewportHeight` 永远是 0，虚拟窗口算得过小，滚到后面露大片空白。**容器必须始终挂载，空状态放在容器内部** |
 
 ---
 
@@ -816,20 +971,30 @@ const html = useMemo(() => {
 | 缓存 TTL | 同上 | 30 分钟 |
 | 工具超时 / 重试 | `tool.registry.ts` | 15 秒 / 1 次 |
 | 系统提示词 | `prompts/system.prompt.ts` | 见 1.7 |
-| 模型 / 温度 | `.env` | `deepseek-v4-flash` / 0.7 |
+| 默认模型 | `.env` 的 `CHAT_MODEL_NAME` | `deepseek-flash` |
+| 可选模型列表 | `.env` 的 `CHAT_MODEL_OPTIONS` | `deepseek-flash,deepseek-v4-pro` |
+| 温度 | `.env` 的 `CHAT_MODEL_TEMPERATURE` | 0.7 |
 | 上传大小上限 | `.env` 的 `UPLOAD_MAX_BYTES` | 20 MB |
 | 上传目录 | `.env` 的 `UPLOAD_DIR` | `<项目根>/uploads` |
 
-## 换模型
+## 换模型 / 增删可选模型
 
-只改后端环境变量，代码零改动：
+只改后端环境变量，**前后端代码都零改动**：
 
 ```bash
 OPENAI_BASE_URL=https://api.deepseek.com   # 不要加 /v1，SDK 自动补
-CHAT_MODEL_NAME=deepseek-v4-flash
+CHAT_MODEL_NAME=deepseek-flash             # 默认模型（规范 id，不用别名）
+CHAT_MODEL_OPTIONS=deepseek-flash,deepseek-v4-pro   # 前端下拉的可选列表
 OPENAI_API_KEY=sk-...
 CHAT_MODEL_TEMPERATURE=0.7
 ```
+
+注意两点：
+
+- 换成别家厂商时，`CHAT_MODEL_OPTIONS` 要一并改成本家可用的模型 id，
+  否则旧 id 会残留在下拉里、点了报错
+- **前端 `.env` 无需任何改动** —— 它只有 `VITE_BASE_API`，
+  模型列表和默认值都由 `GET /ai/models` 下发
 
 ## 加一个 AI 只读工具
 
@@ -850,6 +1015,8 @@ CHAT_MODEL_TEMPERATURE=0.7
 | `backend/test/verify-notes-live.cjs` | 笔记：23 条断言（CRUD、搜索、上传、二进制比对、越权 404、未鉴权 401、类型白名单、软删除） |
 | `backend/test/probe-answer-style.cjs` | 回答风格（改提示词前后对比） |
 | `backend/test/probe-filename.cjs` | 文件名编码 |
+| `backend/test/verify-model-switch.cjs` | 模型切换：列表接口、默认/指定模型落库、会话中途换模型、非法模型回落、未鉴权 401 |
+| `backend/test/repro-note-create.cjs` | 复现「新建笔记报错」（创建接口漏返回 attachments） |
 
 运行前需 PostgreSQL / Redis / 后端在跑。
 
@@ -861,3 +1028,9 @@ CHAT_MODEL_TEMPERATURE=0.7
 - `ChatDto` 已定义但换票接口用的是内联类型，未真正启用校验
 - 笔记暂无全文搜索（走 `contains`，大数据量下需要 tsvector 或外部索引）
 - 附件删除采用「先删记录再删文件」，长期运行可能产生孤儿文件，可加定时清理任务
+- 会话过期时 `request/interceptor.ts` 只清了令牌，没有通知用户 store（`clearUser` 无调用方）。
+  目前无可见问题（重新登录会覆盖），但状态是脏的
+- 语音输入用的是浏览器内置识别，Safari / Firefox 下不可用，且识别质量取决于系统；
+  若要跨浏览器一致需接第三方语音服务
+- 模型下拉目前是全局选择，不能按会话单独记忆；切换会话时会回显该会话上次用的模型，
+  但新会话沿用最后一次选择（符合直觉，未做持久化）

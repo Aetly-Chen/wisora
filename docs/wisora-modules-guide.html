@@ -87,6 +87,8 @@
   <a href="#s7" class="sub">1.7 系统提示词</a>
   <a href="#s8" class="sub">1.8 前端状态管理</a>
   <a href="#s9" class="sub">1.9 安全设计</a>
+  <a href="#s10" class="sub">1.10 模型接入与切换</a>
+  <a href="#s11" class="sub">1.11 前端输入框</a>
   <div class="title sub">Part II　笔记模块</div>
   <a href="#n1" class="sub">2.1 数据模型</a>
   <a href="#n2" class="sub">2.2 后端分层</a>
@@ -105,7 +107,7 @@
 
 <header class="hero">
   <h1>Wisora 核心模块详解：AI 与笔记</h1>
-  <p>覆盖 <code>backend/src/ai</code>（14 文件 / 1344 行）、<code>backend/src/notes</code>（7 文件 / 551 行）与前端对应代码（9 文件 / 2133 行）。<br>
+  <p>覆盖 <code>backend/src/ai</code>（14 文件 / 1462 行）、<code>backend/src/notes</code>（7 文件 / 570 行）与前端对应代码（10 文件 / 2326 行）。<br>
   每个环节都能定位到具体文件，并解释「为什么这么设计」。</p>
 </header>
 
@@ -134,7 +136,7 @@
     <tr><td><code>ai.controller.ts</code></td><td>288</td><td><code>notes.controller.ts</code></td><td>~50</td></tr>
     <tr><td><code>ai.service.ts</code></td><td>335</td><td><code>notes.service.ts</code></td><td>~120</td></tr>
     <tr><td><code>types/stream-event.ts</code></td><td>22</td><td><code>dto/note.dto.ts</code></td><td>~40</td></tr>
-    <tr><td><code>llm/llm.provider.ts</code></td><td>26</td><td><code>attachments.controller.ts</code></td><td>~100</td></tr>
+    <tr><td><code>llm/llm.provider.ts</code></td><td>~80</td><td><code>attachments.controller.ts</code></td><td>~100</td></tr>
     <tr><td><code>guards/stream-ticket.guard.ts</code></td><td>61</td><td><code>attachments.service.ts</code></td><td>~160</td></tr>
     <tr><td><code>memory/conversation.repository.ts</code></td><td>154</td><td><code>storage.service.ts</code></td><td>~80</td></tr>
     <tr><td><code>tools/*</code>（4 文件）</td><td>~300</td><td><code>notes.module.ts</code></td><td>~20</td></tr>
@@ -149,14 +151,16 @@
   <thead><tr><th style="width:30%">文件</th><th style="width:9%">行数</th><th style="width:33%">职责</th><th>对应后端</th></tr></thead>
   <tbody>
     <tr><td><code>types/agent.ts</code></td><td>73</td><td>事件协议 / 消息 / 会话类型</td><td><code>types/stream-event.ts</code></td></tr>
-    <tr><td><code>request/ai-stream.ts</code></td><td>195</td><td>换票、会话 CRUD、SSE 解析</td><td><code>ai.controller.ts</code></td></tr>
-    <tr><td><code>stores/useAgentStore.ts</code></td><td>306</td><td>对话状态、流式累加、中断</td><td><code>ai.service.ts</code> 的事件流</td></tr>
-    <tr><td><code>pages/agent/index.tsx</code></td><td>545</td><td>对话界面</td><td>—</td></tr>
+    <tr><td><code>request/ai-stream.ts</code></td><td>210</td><td>换票、会话 CRUD、模型列表、SSE 解析</td><td><code>ai.controller.ts</code></td></tr>
+    <tr><td><code>stores/useAgentStore.ts</code></td><td>345</td><td>对话状态、流式累加、中断、模型选择</td><td><code>ai.service.ts</code> 的事件流</td></tr>
+    <tr><td><code>pages/agent/index.tsx</code></td><td>845</td><td>对话界面（含模型切换器与语音输入）</td><td>—</td></tr>
     <tr><td><code>types/note.ts</code></td><td>27</td><td>笔记 / 附件 / 保存状态类型</td><td>Prisma 模型</td></tr>
     <tr><td><code>request/notes.ts</code></td><td>78</td><td>笔记 CRUD、上传、取 Blob</td><td>两个 controller</td></tr>
     <tr><td><code>stores/useNotesStore.ts</code></td><td>238</td><td>列表、防抖保存、附件</td><td>—</td></tr>
     <tr><td><code>pages/notes/index.tsx</code></td><td>632</td><td>笔记界面（列表 + 编辑器）</td><td>—</td></tr>
     <tr><td><code>components/MarkdownView.tsx</code></td><td>39</td><td>Markdown 渲染（marked + DOMPurify）</td><td>—</td></tr>
+    <tr><td><code>stores/useAppStore.ts</code></td><td>66</td><td>登录用户信息（昵称 / 邮箱）</td><td><code>auth/*</code>、<code>user/profile</code></td></tr>
+    <tr><td><code>request/api.ts</code></td><td>222</td><td>登录 / 注册 / 用户资料接口</td><td><code>auth/*</code>、<code>user/*</code></td></tr>
   </tbody>
 </table>
 
@@ -419,6 +423,89 @@ openConversation: async (id) =&gt; { controller?.abort(); ... }</code></pre>
 <p><b>凡是接收外部 <code>conversationId</code> 的入口都必须先过这一关。</b>限流：每用户 60 秒 10 次，换票和开流两处都查，防止刷票绕过。</p>
 
 <!-- ===== Part II ===== -->
+<h3 id="s10">1.10 模型接入与切换</h3>
+
+<h4>从单例到工厂</h4>
+<p>最初 <code>llm.provider.ts</code> 只提供一个写死模型名的单例；支持前端切换后，改成按模型名缓存实例的工厂。</p>
+<pre><code>@Injectable()
+export class ChatModelFactory {
+  private readonly cache = new Map&lt;string, ChatOpenAI&gt;();
+
+  resolve(requested?: string): string { /* 白名单校验，非法回落默认 */ }
+  get(modelName: string): ChatOpenAI { /* 命中缓存则复用 */ }
+}</code></pre>
+<p><b>按名缓存而不是每次 new</b>：ChatOpenAI 构造有开销，且实例内部持有连接池。</p>
+
+<h4>环境变量语义变了</h4>
+<table>
+  <thead><tr><th style="width:26%">变量</th><th style="width:30%">改动前</th><th>改动后</th></tr></thead>
+  <tbody>
+    <tr><td><code>CHAT_MODEL_NAME</code></td><td>唯一模型</td><td><b>默认模型</b>（请求未指定时用它）</td></tr>
+    <tr><td><code>CHAT_MODEL_OPTIONS</code></td><td>—</td><td>新增，前端下拉的可选列表</td></tr>
+  </tbody>
+</table>
+<pre><code>CHAT_MODEL_NAME=deepseek-flash
+CHAT_MODEL_OPTIONS=deepseek-flash,deepseek-v4-pro
+CHAT_MODEL_TEMPERATURE=0.7</code></pre>
+<div class="note ok"><strong>不配置 <code>CHAT_MODEL_OPTIONS</code> 也能跑</strong>此时退化为只含默认模型，老部署不改配置不会崩。默认模型始终并入列表，避免出现「当前模型不在可选项里」的状态。</div>
+
+<h4>白名单校验不能省</h4>
+<pre><code>resolve(requested?: string): string {
+  const name = requested?.trim();
+  if (!name) return defaultModelName();
+  if (availableModelNames().includes(name)) return name;
+  this.logger.warn(`请求了未配置的模型「${name}」，已回落至 ${defaultModelName()}`);
+  return defaultModelName();
+}</code></pre>
+<p><code>model</code> 参数来自 URL query。不校验的话，调用方可以塞任意字符串让服务端去请求上游 —— 轻则报错，重则被用来探测上游有哪些模型。</p>
+
+<h4>一个容易踩的坑：模型别名</h4>
+<p>实测某账号（<code>https://api.deepseek.com</code>）：</p>
+<table>
+  <thead><tr><th style="width:44%">传入</th><th>实际生效</th></tr></thead>
+  <tbody>
+    <tr><td><code>deepseek-v4-flash</code></td><td><code>deepseek-flash</code> ← <b>别名</b></td></tr>
+    <tr><td><code>deepseek-flash</code></td><td><code>deepseek-flash</code></td></tr>
+    <tr><td><code>deepseek-v4-pro</code></td><td><code>deepseek-v4-pro</code></td></tr>
+  </tbody>
+</table>
+<p><code>GET /models</code> 只列出<b>规范 id</b>，别名不会出现。所以配置文件里写别名能跑通，但下拉列表里看不到它 —— 配置值应统一用规范 id。</p>
+<p>顺带一个环境变量的细节：<code>.env</code> 里 <code>CHAT_MODEL_NAME=deepseek-v4-flash&nbsp;</code> 末尾多了一个空格。dotenv 会 trim，所以不影响运行，但用 shell 解析时会把空格和行内注释一起读进去，排查问题时容易误判。</p>
+
+<h4>会话的模型跟随更新</h4>
+<pre><code>// 用 updateMany + where 条件：只有确实不同才写，避免每轮对话都产生无意义的 UPDATE
+await this.prisma.conversation.updateMany({
+  where: { id: conversationId, NOT: { model } },
+  data: { model },
+});</code></pre>
+<p>失败只记日志 —— 它只影响列表展示，不该拖垮正在进行的流式回答。</p>
+
+<h3 id="s11">1.11 前端输入框（模型切换与语音输入）</h3>
+
+<div class="diagram">[＋ 添加文件]  有问题，随便问…        [模型 快速 ▾] [🎤] [发送]</div>
+<p>移除了原先的「深度思考」按钮 —— 它没有任何行为，留着会让人误以为能开关推理。</p>
+
+<h4>模型切换器</h4>
+<ul>
+  <li><b>菜单向上展开</b>（<code>bottom-full</code>），因为输入框在视口底部，向下会被裁掉</li>
+  <li>点击组件外部或按 <code>Esc</code> 收起；带 <code>aria-haspopup</code> / <code>aria-expanded</code> / <code>role="option"</code></li>
+  <li>显示名走一张本地小映射表（<code>deepseek-flash → 快速</code>），<b>未知模型直接显示原始 id</b> —— 后端换厂商或加模型时前端零改动</li>
+  <li>每个选项同时显示友好名与真实 id，避免排查问题时被别名误导</li>
+</ul>
+
+<h4>语音输入</h4>
+<p>用浏览器内置的 <b>Web Speech API</b>（<code>zh-CN</code>，<code>interimResults: true</code>），不经过后端 —— 对「把说的话变成输入框文字」这个需求够用且零成本。</p>
+<pre><code>// 1) 回调必须存 ref。否则父组件每次渲染生成新函数，
+//    effect 会重跑并重建识别器，正在录音时被打断
+const resultRef = useRef(onResult);
+resultRef.current = onResult;
+
+// 2) 不支持的浏览器禁用按钮并给出说明，
+//    而不是留一个点了没反应的按钮
+if (!Ctor) { setSupported(false); return; }</code></pre>
+
+<hr>
+
 <h2 class="part" id="part2">Part II　笔记模块</h2>
 
 <h3 id="n1">2.1 数据模型</h3>
@@ -575,9 +662,13 @@ const html = useMemo(() =&gt; {
     <tr><td><code>@CurrentUser()</code></td><td><code>src/auth/decorators</code></td><td>取令牌里的 userId</td></tr>
     <tr><td>前端 axios 实例</td><td><code>src/request/index.ts</code></td><td>token 注入、401 刷新重放、响应解包</td></tr>
     <tr><td>前端 zustand</td><td><code>src/stores</code></td><td>模块各自独立的 store</td></tr>
+    <tr><td><code>GET /user/profile</code></td><td><code>src/user</code></td><td>用令牌回查当前用户资料（昵称等）</td></tr>
   </tbody>
 </table>
 <div class="note"><strong>一次顺带的重构：<code>@SkipResponse()</code> 搬家</strong>原先放在 <code>src/ai/decorators/</code> —— ai 只是它的第一个使用者，文件下载同样需要。放在业务模块里会导致 <code>common</code> 反向依赖 <code>ai</code>，所以移到 <code>src/common/decorators/</code>。</div>
+
+<div class="note"><strong>登录响应必须带用户信息</strong>原先 <code>login</code> / <code>login-by-code</code> / <code>refresh</code> 只返回双 token，前端登录后只知道「有令牌了」、不知道是谁，侧边栏于是长期显示一个写死的默认值。<br>
+<code>generateTokens</code> 改为直接收<b>完整 user 记录</b>而不是逐个挑字段 —— 最初调用方写的是 <code>generateTokens({ id, email })</code>，加昵称时得回头改三处调用点，漏一处就少一个字段。配套新增 <code>GET /user/profile</code>：页面刷新后内存状态会丢，且改动前登录的老会话本地存着假数据，需要能用令牌回查真实资料自愈。</div>
 
 <!-- ===== Part IV ===== -->
 <h2 id="p4">Part IV　踩坑清单</h2>
@@ -588,6 +679,9 @@ const html = useMemo(() =&gt; {
   <tbody>
     <tr><td>在 React 组件内部定义组件</td><td>函数身份变化会重挂子树，输入框失焦（一次只能输一个字符）。子组件一律提到模块顶层</td></tr>
     <tr><td>外部传入的 id 不做归属校验</td><td>一律 <code>assertOwned</code>，且「不存在」与「无权访问」返回同一文案</td></tr>
+    <tr><td>把回调直接传给 effect 依赖</td><td>父组件每次渲染都会生成新函数，effect 反复重跑（语音识别器被重建、录音被打断）。用 ref 持有回调</td></tr>
+    <tr><td>同一实体的多个接口各写一份 <code>select</code></td><td>迟早漏字段（本次就漏过 <code>attachments</code>）。抽成共用的常量，加字段只改一处</td></tr>
+    <tr><td>相信 TS 类型能保证运行时数据</td><td>axios 泛型只是类型断言。HTTP 边界上的必填字段仍要兜底，否则一访问属性就整页崩</td></tr>
   </tbody>
 </table>
 
@@ -605,6 +699,8 @@ const html = useMemo(() =&gt; {
     <tr><td>把 <code>:ping</code> 当数据解析</td><td>心跳行以 <code>:</code> 开头，解析时跳过</td></tr>
     <tr><td>用 <code>EventSource</code> 开流</td><td>不能带 Authorization 头，也不支持自定义中断；用 fetch + ticket</td></tr>
     <tr><td>系统提示词太短</td><td>会导致编造理由、乱列工具、语气机械（详见 1.7）</td></tr>
+    <tr><td>URL 参数不做白名单校验</td><td><code>model</code> 这类来自 query 的值必须校验，否则调用方能塞任意字符串让服务端去请求上游（详见 1.10）</td></tr>
+    <tr><td>配置里写模型别名</td><td>别名能调通，但不会出现在 <code>GET /models</code> 里，下拉看不到自己配的值。统一用规范 id</td></tr>
   </tbody>
 </table>
 
@@ -618,6 +714,7 @@ const html = useMemo(() =&gt; {
     <tr><td>忘记 <code>revokeObjectURL</code></td><td>组件卸载时释放，否则内存泄漏</td></tr>
     <tr><td>切换笔记不落盘</td><td>编辑丢失，且定时器会把旧内容写到新笔记上</td></tr>
     <tr><td>文件下载没加 <code>@SkipResponse()</code></td><td>二进制被响应拦截器包成 JSON 破坏</td></tr>
+    <tr><td>自研虚拟列表时提前 return</td><td>初版写成 <code>if (count === 0) return empty</code>，首次进入列表为空时滚动容器没挂载，effect 里 <code>ref.current</code> 为 null 直接退出且不会重跑；数据到达后容器才挂载，<code>viewportHeight</code> 永远是 0，虚拟窗口算得过小，滚到后面露大片空白。<b>容器必须始终挂载，空状态放在容器内部</b></td></tr>
     <tr><td><b><code>prisma migrate status</code> 不报漂移</b></td><td>只比对已应用的迁移文件；schema 加了模型但没建迁移时照样显示 "up to date"。加模型后用 <code>migrate dev</code> 实跑</td></tr>
   </tbody>
 </table>
@@ -637,17 +734,22 @@ const html = useMemo(() =&gt; {
     <tr><td>缓存 TTL</td><td>同上</td><td>30 分钟</td></tr>
     <tr><td>工具超时 / 重试</td><td><code>tool.registry.ts</code></td><td>15 秒 / 1 次</td></tr>
     <tr><td>系统提示词</td><td><code>prompts/system.prompt.ts</code></td><td>见 1.7</td></tr>
-    <tr><td>模型 / 温度</td><td><code>.env</code></td><td><code>deepseek-v4-flash</code> / 0.7</td></tr>
+    <tr><td>默认模型</td><td><code>.env</code> 的 <code>CHAT_MODEL_NAME</code></td><td><code>deepseek-flash</code></td></tr>
+    <tr><td>可选模型列表</td><td><code>.env</code> 的 <code>CHAT_MODEL_OPTIONS</code></td><td><code>deepseek-flash,deepseek-v4-pro</code></td></tr>
+    <tr><td>温度</td><td><code>.env</code> 的 <code>CHAT_MODEL_TEMPERATURE</code></td><td>0.7</td></tr>
     <tr><td>上传大小上限</td><td><code>.env</code> 的 <code>UPLOAD_MAX_BYTES</code></td><td>20 MB</td></tr>
     <tr><td>上传目录</td><td><code>.env</code> 的 <code>UPLOAD_DIR</code></td><td><code>&lt;项目根&gt;/uploads</code></td></tr>
   </tbody>
 </table>
 
-<h4>换模型（代码零改动）</h4>
+<h4>换模型 / 增删可选模型（前后端代码都零改动）</h4>
 <pre><code>OPENAI_BASE_URL=https://api.deepseek.com   # 不要加 /v1，SDK 自动补
-CHAT_MODEL_NAME=deepseek-v4-flash
+CHAT_MODEL_NAME=deepseek-flash             # 默认模型（规范 id，不用别名）
+CHAT_MODEL_OPTIONS=deepseek-flash,deepseek-v4-pro   # 前端下拉的可选列表
 OPENAI_API_KEY=sk-...
 CHAT_MODEL_TEMPERATURE=0.7</code></pre>
+<div class="note"><strong>换厂商时注意</strong><code>CHAT_MODEL_OPTIONS</code> 要一并改成本家可用的模型 id，否则旧 id 会残留在下拉里、点了报错。<br>
+<b>前端 <code>.env</code> 无需任何改动</b> —— 它只有 <code>VITE_BASE_API</code>，模型列表和默认值都由 <code>GET /ai/models</code> 下发。</div>
 
 <h4>真机验证脚本</h4>
 <table>
@@ -657,6 +759,8 @@ CHAT_MODEL_TEMPERATURE=0.7</code></pre>
     <tr><td><code>verify-notes-live.cjs</code></td><td>笔记：23 条断言（CRUD、搜索、上传、二进制比对、越权 404、未鉴权 401、类型白名单、软删除）</td></tr>
     <tr><td><code>probe-answer-style.cjs</code></td><td>回答风格（改提示词前后对比）</td></tr>
     <tr><td><code>probe-filename.cjs</code></td><td>文件名编码</td></tr>
+    <tr><td><code>verify-model-switch.cjs</code></td><td>模型切换：列表接口、默认/指定模型落库、会话中途换模型、非法模型回落、未鉴权 401</td></tr>
+    <tr><td><code>repro-note-create.cjs</code></td><td>复现「新建笔记报错」（创建接口漏返回 attachments）</td></tr>
   </tbody>
 </table>
 <p>运行前需 PostgreSQL / Redis / 后端在跑。</p>
@@ -669,6 +773,9 @@ CHAT_MODEL_TEMPERATURE=0.7</code></pre>
   <li><code>ChatDto</code> 已定义但换票接口用的是内联类型，未真正启用校验</li>
   <li>笔记暂无全文搜索（走 <code>contains</code>，大数据量下需要 tsvector 或外部索引）</li>
   <li>附件删除采用「先删记录再删文件」，长期运行可能产生孤儿文件，可加定时清理任务</li>
+  <li>会话过期时 <code>request/interceptor.ts</code> 只清了令牌，没有通知用户 store（<code>clearUser</code> 无调用方）。目前无可见问题（重新登录会覆盖），但状态是脏的</li>
+  <li>语音输入用浏览器内置识别，Safari / Firefox 下不可用，识别质量取决于系统；若要跨浏览器一致需接第三方语音服务</li>
+  <li>模型下拉是全局选择，不能按会话单独记忆；切换会话时会回显该会话上次用的模型，新会话沿用最后一次选择（符合直觉，未做持久化）</li>
 </ul>
 
 <footer>
