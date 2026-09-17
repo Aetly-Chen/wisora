@@ -489,8 +489,8 @@ await this.prisma.conversation.updateMany({
 <ul>
   <li><b>菜单向上展开</b>（<code>bottom-full</code>），因为输入框在视口底部，向下会被裁掉</li>
   <li>点击组件外部或按 <code>Esc</code> 收起；带 <code>aria-haspopup</code> / <code>aria-expanded</code> / <code>role="option"</code></li>
-  <li>显示名走一张本地小映射表（<code>deepseek-flash → 快速</code>），<b>未知模型直接显示原始 id</b> —— 后端换厂商或加模型时前端零改动</li>
-  <li>每个选项同时显示友好名与真实 id，避免排查问题时被别名误导</li>
+  <li><b>直接显示模型原始 id</b>（<code>deepseek-flash</code> / <code>deepseek-v4-pro</code>）。曾给它套过「快速 / 增强」这类中文短标签，但那是我们自己编的名字，既不准确又容易和厂商实际命名对不上；排查问题时用户看到的应该是真名</li>
+  <li>按钮宽度按模型 id 长度留够（<code>max-w-[112px]</code>），<code>truncate</code> 仅作兜底</li>
 </ul>
 
 <h4>语音输入</h4>

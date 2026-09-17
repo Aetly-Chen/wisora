@@ -100,18 +100,13 @@ const VirtualList: React.FC<{
   );
 };
 
-/**
- * 模型显示名。
+/*
+ * 模型直接显示原始 id（如 deepseek-flash）。
  *
- * 只是给已知模型加个中文短标签，未知模型直接显示 id ——
- * 这样后端换厂商或新增模型时，前端不改代码也不会显示异常。
+ * 之前给它套过「快速 / 增强」这类中文短标签，但那种名字是
+ * 我们自己编的，既不准确也容易和厂商实际命名对不上 ——
+ * 用户排查问题时看到的应该是真名。
  */
-const MODEL_LABELS: Record<string, string> = {
-  "deepseek-flash": "快速",
-  "deepseek-v4-pro": "增强",
-};
-
-const modelLabel = (id: string) => MODEL_LABELS[id] ?? id;
 
 /** 模型切换器：输入框右侧的下拉 */
 const ModelSwitcher: React.FC<{
@@ -154,8 +149,9 @@ const ModelSwitcher: React.FC<{
         className="flex h-9 items-center gap-1.5 rounded-full px-2.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
       >
         <Cpu className="h-4 w-4" />
-        <span className="max-w-[72px] truncate text-[12px] font-medium">
-          {model ? modelLabel(model) : "模型"}
+        {/* 模型 id 比原先的中文短标签长，留够宽度；truncate 仅作兜底 */}
+        <span className="max-w-[112px] truncate text-[12px] font-medium">
+          {model || "模型"}
         </span>
         <ChevronDown
           className={`h-3 w-3 transition-transform ${open ? "rotate-180" : ""}`}
@@ -191,13 +187,8 @@ const ModelSwitcher: React.FC<{
                     active ? "bg-indigo-50" : "hover:bg-slate-100"
                   }`}
                 >
-                  <span className="flex-1 min-w-0">
-                    <span className="block text-[13px] font-medium text-slate-800">
-                      {modelLabel(m)}
-                    </span>
-                    <span className="block truncate text-[11px] text-slate-400">
-                      {m}
-                    </span>
+                  <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-slate-800">
+                    {m}
                   </span>
                   {active && (
                     <Check className="h-3.5 w-3.5 shrink-0 text-indigo-600" />
