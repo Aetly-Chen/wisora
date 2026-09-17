@@ -42,6 +42,29 @@ export class ConversationRepository {
     });
   }
 
+  /**
+   * 会话的模型发生变化时同步落库。
+   *
+   * 用 updateMany + where 条件一次搞定：只有确实不同才写，
+   * 避免每轮对话都产生一次无意义的 UPDATE。
+   * 失败只记日志 —— 它只影响列表展示，不该拖垮正在进行的流式回答。
+   */
+  async updateModelIfChanged(
+    conversationId: string,
+    model: string,
+  ): Promise<void> {
+    try {
+      await this.prisma.conversation.updateMany({
+        where: { id: conversationId, NOT: { model } },
+        data: { model },
+      });
+    } catch (err) {
+      this.logger.warn(
+        `update conversation model failed: ${(err as Error).message}`,
+      );
+    }
+  }
+
   async listConversations(userId: string) {
     return this.prisma.conversation.findMany({
       where: { userId, deletedAt: null },

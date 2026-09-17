@@ -24,6 +24,8 @@ const BASE = import.meta.env.VITE_BASE_API ?? '';
 export interface StreamChatParams {
   question: string;
   conversationId?: string;
+  /** 本次使用的模型；不传则由后端回落到默认模型 */
+  model?: string;
   signal?: AbortSignal;
   handlers: {
     onStart?: (payload: { conversationId: string; messageId: string }) => void;
@@ -67,6 +69,18 @@ export function listConversations() {
   });
 }
 
+/**
+ * 可选模型列表。
+ *
+ * 列表与默认值都由后端环境变量决定，前端不写死任何模型名 ——
+ * 换模型厂商时前端零改动。
+ */
+export function listModels() {
+  return request.get<{ current: string; options: string[] }>('/ai/models', {
+    loading: false,
+  });
+}
+
 /** 软删除会话 */
 export function deleteConversation(id: string) {
   return request.delete(`/ai/conversations/${id}`, { loading: false });
@@ -88,12 +102,13 @@ export function getConversationMessages(id: string) {
  * - 心跳 `:ping` 要跳过，否则会被当成坏数据
  */
 export async function streamChat(params: StreamChatParams): Promise<void> {
-  const { question, conversationId, signal, handlers } = params;
+  const { question, conversationId, model, signal, handlers } = params;
 
   const { ticket } = await createChatTicket();
 
   const qs = new URLSearchParams({ ticket, q: question });
   if (conversationId) qs.set('conversationId', conversationId);
+  if (model) qs.set('model', model);
 
   const res = await fetch(`${BASE}/ai/chat/stream?${qs.toString()}`, {
     method: 'GET',

@@ -2,7 +2,7 @@ import { Module, OnModuleInit } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { AiController } from './ai.controller';
 import { AiService } from './ai.service';
-import { chatModelProvider } from './llm/llm.provider';
+import { ChatModelFactory } from './llm/llm.provider';
 import { ToolRegistry } from './tools/tool.registry';
 import { registerAllTools } from './tools';
 import { ConversationRepository } from './memory/conversation.repository';
@@ -25,7 +25,7 @@ import { PrismaService } from '../prisma/prisma.service';
     ConversationRepository,
     RateLimitService,
     StreamTicketGuard,
-    chatModelProvider,
+    ChatModelFactory,
   ],
   exports: [AiService],
 })

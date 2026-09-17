@@ -31,6 +31,11 @@ import { RateLimitService } from './rate-limit.service';
 import { createUserScopedTools, type ToolWithPolicy } from './tools';
 import { RedisService } from '../redis/redis.service';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  availableModelNames,
+  ChatModelFactory,
+  defaultModelName,
+} from './llm/llm.provider';
 
 /** ticket 有效期（秒）：换票后须在此时长内打开 SSE 流 */
 const TICKET_TTL_SECONDS = 30;
@@ -47,6 +52,7 @@ export class AiController {
     private readonly conversations: ConversationRepository,
     private readonly rateLimit: RateLimitService,
     private readonly prisma: PrismaService,
+    private readonly models: ChatModelFactory,
   ) {}
 
   /** 从 Authorization: Bearer xxx 中解析 userId */
@@ -64,6 +70,22 @@ export class AiController {
     } catch {
       throw new UnauthorizedException('访问令牌无效或已过期');
     }
+  }
+
+  /**
+   * 可选模型列表 + 当前默认模型。
+   *
+   * 前端用它渲染模型切换器。列表来自环境变量 CHAT_MODEL_OPTIONS，
+   * 默认模型来自 CHAT_MODEL_NAME —— 两者都不写死在前端，
+   * 换模型厂商时前端不用改代码。
+   */
+  @Get('models')
+  async listModels(@Req() req: Request) {
+    await this.getUserId(req);
+    return {
+      current: defaultModelName(),
+      options: availableModelNames(),
+    };
   }
 
   /** 1) 先换票：用 JWT 换取 30 秒有效的一次性 ticket */
@@ -109,6 +131,7 @@ export class AiController {
     @Req() req: AiStreamRequest,
     @Query('q') question: string,
     @Query('conversationId') conversationId?: string,
+    @Query('model') model?: string,
   ) {
     if (!question) {
       throw new HttpException('缺少参数 q', 400);
@@ -143,6 +166,9 @@ export class AiController {
     // 按本次请求创建用户专属工具（带 userId 过滤，防止越权访问他人会话）
     const userTools = createUserScopedTools(this.prisma, userId);
 
+    // 白名单校验：不在 CHAT_MODEL_OPTIONS 里的名字会被回落到默认模型
+    const resolvedModel = this.models.resolve(model);
+
     // signal 透传进 Agent Loop：客户端断开时可中断 LLM 请求
     return this.aiService.toSse((signal) =>
       this.chatStream({
@@ -153,6 +179,7 @@ export class AiController {
         signal,
         allowWrite,
         userTools,
+        model: resolvedModel,
       }),
     );
   }
@@ -193,8 +220,10 @@ export class AiController {
     signal?: AbortSignal;
     allowWrite?: boolean;
     userTools?: ToolWithPolicy[];
+    /** 本次使用的模型（已过白名单校验） */
+    model: string;
   }): AsyncGenerator<StreamEvent> {
-    const { userId, question, conversationId } = params;
+    const { userId, question, conversationId, model } = params;
 
     // 无会话则新建，标题取问题前 30 字
     const conv = conversationId
@@ -202,8 +231,13 @@ export class AiController {
       : await this.conversations.createConversation(
           userId,
           question.slice(0, 30),
-          process.env.CHAT_MODEL_NAME,
+          model,
         );
+
+    // 已有会话：模型可能与上次不同，同步到库里，方便会话列表如实展示
+    if (conversationId) {
+      void this.conversations.updateModelIfChanged(conv.id, model);
+    }
 
     // 用户消息落库
     const userMessage = await this.conversations.appendMessage(conv.id, {
@@ -243,6 +277,7 @@ export class AiController {
         signal: params.signal,
         allowWrite: params.allowWrite,
         extraTools: params.userTools,
+        model,
       })) {
         if (ev.type === 'token') fullText += ev.content;
 

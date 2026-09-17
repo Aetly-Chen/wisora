@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import {
   AIMessageChunk,
   BaseMessage,
@@ -6,9 +6,8 @@ import {
   SystemMessage,
   ToolMessage,
 } from '@langchain/core/messages';
-import { ChatOpenAI } from '@langchain/openai';
 import { Observable } from 'rxjs';
-import { CHAT_MODEL } from './llm/llm.provider';
+import { ChatModelFactory } from './llm/llm.provider';
 import { DEFAULT_SYSTEM_PROMPT } from './prompts/system.prompt';
 import { ToolRegistry } from './tools/tool.registry';
 import type { ToolWithPolicy } from './tools';
@@ -25,7 +24,7 @@ export class AiService {
   private readonly logger = new Logger(AiService.name);
 
   constructor(
-    @Inject(CHAT_MODEL) private readonly model: ChatOpenAI,
+    private readonly models: ChatModelFactory,
     private readonly tools: ToolRegistry,
   ) {}
 
@@ -106,6 +105,11 @@ export class AiService {
      * 与全局注册表里的工具合并后一起绑给模型。
      */
     extraTools?: ToolWithPolicy[];
+    /**
+     * 本次请求使用的模型名。
+     * 未传或不在白名单内时由 ChatModelFactory 回落到默认模型。
+     */
+    model?: string;
   }): AsyncGenerator<StreamEvent> {
     const {
       question,
@@ -114,6 +118,7 @@ export class AiService {
       signal,
       allowWrite = false,
       extraTools = [],
+      model: requestedModel,
     } = params;
 
     const messages: BaseMessage[] = [
@@ -126,8 +131,9 @@ export class AiService {
     // tool_calls 恒为空，Agent 永远不会调用工具。
     // 全局工具 + 本次请求的专属工具一起绑定。
     const allTools = [...this.tools.list(), ...extraTools.map((t) => t.tool)];
+    const baseModel = this.models.get(this.models.resolve(requestedModel));
     const model =
-      allTools.length > 0 ? this.model.bindTools(allTools) : this.model;
+      allTools.length > 0 ? baseModel.bindTools(allTools) : baseModel;
 
     const startedAt = Date.now();
     // 累计 token 消耗（多轮工具调用需跨轮累加）

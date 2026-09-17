@@ -8,6 +8,7 @@ import {
   deleteConversation,
   getConversationMessages,
   listConversations,
+  listModels,
   streamChat,
 } from '../request/ai-stream';
 
@@ -50,12 +51,19 @@ interface AgentState {
   /** 正在拉取某个会话的历史消息 */
   loadingHistory: boolean;
 
+  /** 当前选中的模型 */
+  model: string;
+  /** 后端给出的可选模型列表 */
+  models: string[];
+
   send: (question: string) => Promise<void>;
   stop: () => void;
   reset: () => void;
   clearError: () => void;
 
   loadConversations: () => Promise<void>;
+  loadModels: () => Promise<void>;
+  setModel: (model: string) => void;
   openConversation: (id: string) => Promise<void>;
   removeConversation: (id: string) => Promise<void>;
 }
@@ -69,6 +77,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   error: undefined,
   conversations: [],
   loadingHistory: false,
+  model: '',
+  models: [],
 
   send: async (question: string) => {
     const text = question.trim();
@@ -123,6 +133,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       await streamChat({
         question: text,
         conversationId: get().conversationId,
+        // 带上当前选中的模型；空串表示交给后端用默认模型
+        model: get().model || undefined,
         signal: controller.signal,
         handlers: {
           onStart: ({ conversationId }) => set({ conversationId }),
@@ -215,6 +227,27 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
   clearError: () => set({ error: undefined }),
 
+  /**
+   * 拉取可选模型。
+   *
+   * 只在用户还没选过模型时套用后端默认值 —— 否则会因为一次刷新
+   * 把用户当前的临时选择覆盖掉。
+   */
+  loadModels: async () => {
+    try {
+      const { current, options } = await listModels();
+      set((state) => ({
+        models: Array.isArray(options) ? options : [],
+        model: state.model || current || '',
+      }));
+    } catch {
+      // 拿不到列表不影响对话：留空即走后端默认模型
+      set({ models: [] });
+    }
+  },
+
+  setModel: (model) => set({ model }),
+
   loadConversations: async () => {
     try {
       const list = await listConversations();
@@ -237,12 +270,18 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     controller?.abort();
     controller = null;
 
+    // 切换会话时把模型切回该会话上次用的那个。
+    // 消息接口不返回模型，所以从列表里查（列表项带 model 字段）。
+    const summary = get().conversations.find((c) => c.id === id);
+    const conversationModel = summary?.model?.trim() || get().model;
+
     set({
       conversationId: id,
       isStreaming: false,
       error: undefined,
       loadingHistory: true,
       messages: [],
+      model: conversationModel,
     });
 
     try {

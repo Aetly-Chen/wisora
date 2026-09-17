@@ -15,11 +15,14 @@ import {
   Clock,
   Sparkles,
   PanelLeft,
-  Lightbulb,
   ArrowLeft,
   Trash2,
   Loader2,
   NotebookPen,
+  Cpu,
+  ChevronDown,
+  Check,
+  Mic,
 } from "lucide-react";
 
 /**
@@ -98,6 +101,233 @@ const VirtualList: React.FC<{
 };
 
 /**
+ * 模型显示名。
+ *
+ * 只是给已知模型加个中文短标签，未知模型直接显示 id ——
+ * 这样后端换厂商或新增模型时，前端不改代码也不会显示异常。
+ */
+const MODEL_LABELS: Record<string, string> = {
+  "deepseek-flash": "快速",
+  "deepseek-v4-pro": "增强",
+};
+
+const modelLabel = (id: string) => MODEL_LABELS[id] ?? id;
+
+/** 模型切换器：输入框右侧的下拉 */
+const ModelSwitcher: React.FC<{
+  model: string;
+  models: string[];
+  disabled?: boolean;
+  onChange: (model: string) => void;
+}> = ({ model, models, disabled, onChange }) => {
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  // 点击组件外部时收起，避免菜单一直悬着
+  useEffect(() => {
+    if (!open) return;
+    const onDocDown = (e: MouseEvent) => {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDocDown);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("mousedown", onDocDown);
+      document.removeEventListener("keydown", onEsc);
+    };
+  }, [open]);
+
+  return (
+    <div className="relative shrink-0" ref={boxRef}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        disabled={disabled}
+        title={model ? `当前模型：${model}` : "使用后端默认模型"}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className="flex h-9 items-center gap-1.5 rounded-full px-2.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
+      >
+        <Cpu className="h-4 w-4" />
+        <span className="max-w-[72px] truncate text-[12px] font-medium">
+          {model ? modelLabel(model) : "模型"}
+        </span>
+        <ChevronDown
+          className={`h-3 w-3 transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+
+      {open && (
+        <div
+          role="listbox"
+          className="absolute bottom-full right-0 z-50 mb-2 w-60 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl"
+        >
+          <p className="px-3 py-1.5 text-[11px] font-medium text-slate-400">
+            选择模型
+          </p>
+          {models.length === 0 ? (
+            <p className="px-3 py-2 text-[12px] text-slate-400">
+              后端未配置可选模型
+            </p>
+          ) : (
+            models.map((m) => {
+              const active = m === model;
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  role="option"
+                  aria-selected={active}
+                  onClick={() => {
+                    onChange(m);
+                    setOpen(false);
+                  }}
+                  className={`flex w-full items-center gap-2 px-3 py-2 text-left transition-colors ${
+                    active ? "bg-indigo-50" : "hover:bg-slate-100"
+                  }`}
+                >
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-[13px] font-medium text-slate-800">
+                      {modelLabel(m)}
+                    </span>
+                    <span className="block truncate text-[11px] text-slate-400">
+                      {m}
+                    </span>
+                  </span>
+                  {active && (
+                    <Check className="h-3.5 w-3.5 shrink-0 text-indigo-600" />
+                  )}
+                </button>
+              );
+            })
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+/** 浏览器语音识别的最小类型（TS 标准库未收录） */
+interface SpeechRecognitionLike {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+  onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onend: (() => void) | null;
+  onerror: (() => void) | null;
+}
+
+/**
+ * 语音输入按钮。
+ *
+ * 用浏览器内置的 Web Speech API，不额外接后端 —— 对「把说的话变成
+ * 输入框里的文字」这个需求，它够用且零成本。Chrome / Edge 支持，
+ * 不支持的浏览器直接禁用并给出说明，而不是留个点了没反应的按钮。
+ */
+const VoiceInputButton: React.FC<{
+  disabled?: boolean;
+  onResult: (text: string) => void;
+}> = ({ disabled, onResult }) => {
+  const [listening, setListening] = useState(false);
+  const [supported, setSupported] = useState(true);
+  const recRef = useRef<SpeechRecognitionLike | null>(null);
+
+  // 用 ref 持有回调：否则父组件每次渲染生成新函数，
+  // effect 会重跑并重建识别器，正在录音时会被打断
+  const resultRef = useRef(onResult);
+  resultRef.current = onResult;
+
+  useEffect(() => {
+    const w = window as unknown as {
+      SpeechRecognition?: new () => SpeechRecognitionLike;
+      webkitSpeechRecognition?: new () => SpeechRecognitionLike;
+    };
+    const Ctor = w.SpeechRecognition ?? w.webkitSpeechRecognition;
+    if (!Ctor) {
+      setSupported(false);
+      return;
+    }
+
+    const rec = new Ctor();
+    rec.lang = "zh-CN";
+    rec.interimResults = true;
+    rec.continuous = false;
+
+    rec.onresult = (e) => {
+      let text = "";
+      for (let i = 0; i < e.results.length; i++) {
+        text += e.results[i][0]?.transcript ?? "";
+      }
+      if (text) resultRef.current(text);
+    };
+    rec.onend = () => setListening(false);
+    rec.onerror = () => setListening(false);
+
+    recRef.current = rec;
+    return () => {
+      rec.onresult = null;
+      rec.onend = null;
+      rec.onerror = null;
+      try {
+        rec.abort();
+      } catch {
+        /* 未在录音时 abort 会抛错，忽略 */
+      }
+    };
+  }, []);
+
+  const toggle = () => {
+    const rec = recRef.current;
+    if (!rec) return;
+    if (listening) {
+      rec.stop();
+      setListening(false);
+      return;
+    }
+    try {
+      rec.start();
+      setListening(true);
+    } catch {
+      // 连续点击可能触发 InvalidStateError，忽略即可
+      setListening(false);
+    }
+  };
+
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      onClick={toggle}
+      disabled={disabled || !supported}
+      title={
+        supported
+          ? listening
+            ? "停止语音输入"
+            : "语音输入"
+          : "当前浏览器不支持语音输入"
+      }
+      aria-label={listening ? "停止语音输入" : "语音输入"}
+      className={`h-9 w-9 shrink-0 rounded-full transition-colors ${
+        listening
+          ? "bg-red-50 text-red-600 hover:bg-red-100"
+          : "text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+      }`}
+    >
+      <Mic className={`h-4 w-4 ${listening ? "animate-pulse" : ""}`} />
+    </Button>
+  );
+};
+
+/**
  * 输入框必须定义在组件外部。
  *
  * 若写在 AgentPage 内部，每次 setState 都会生成新的函数身份，
@@ -111,6 +341,12 @@ interface InputBarProps {
   onStop: () => void;
   isStreaming: boolean;
   inputRef: React.RefObject<HTMLInputElement | null>;
+  /** 模型切换 */
+  model: string;
+  models: string[];
+  onModelChange: (model: string) => void;
+  /** 语音识别结果，追加到输入框 */
+  onVoiceResult: (text: string) => void;
   floating?: boolean;
 }
 
@@ -121,6 +357,10 @@ const InputBar: React.FC<InputBarProps> = ({
   onStop,
   isStreaming,
   inputRef,
+  model,
+  models,
+  onModelChange,
+  onVoiceResult,
   floating = false,
 }) => (
   <form onSubmit={onSubmit} className="w-full max-w-2xl mx-auto">
@@ -149,29 +389,14 @@ const InputBar: React.FC<InputBarProps> = ({
       />
 
       <div className="flex items-center gap-1 shrink-0">
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="h-9 w-9 rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-700 hidden sm:inline-flex"
-          title="深度思考"
-        >
-          <Lightbulb className="w-4 h-4" />
-        </Button>
+        <ModelSwitcher
+          model={model}
+          models={models}
+          disabled={isStreaming}
+          onChange={onModelChange}
+        />
 
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="h-9 w-9 rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-700 hidden sm:inline-flex"
-          title="语音输入"
-        >
-          <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current">
-            <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Z" />
-            <path d="M17 11a1 1 0 0 0-2 0 3 3 0 0 1-6 0 1 1 0 0 0-2 0 5 5 0 0 0 10 0Z" />
-            <path d="M12 17a1 1 0 0 0-1 1v3a1 1 0 0 0 2 0v-3a1 1 0 0 0-1-1Z" />
-          </svg>
-        </Button>
+        <VoiceInputButton disabled={isStreaming} onResult={onVoiceResult} />
 
         {isStreaming ? (
           /* 生成中：显示停止按钮。点击会 abort fetch，
@@ -264,6 +489,10 @@ export const AgentPage: React.FC = () => {
     openConversation,
     removeConversation,
     conversationId,
+    model,
+    models,
+    setModel,
+    loadModels,
   } = useAgentStore();
   const navigate = useNavigate();
   const [input, setInput] = useState("");
@@ -278,6 +507,11 @@ export const AgentPage: React.FC = () => {
   useEffect(() => {
     void loadConversations();
   }, [loadConversations]);
+
+  // 可选模型列表同样只拉一次（后端 env 决定，运行期不变）
+  useEffect(() => {
+    void loadModels();
+  }, [loadModels]);
 
   /**
    * 补齐用户资料。
@@ -498,6 +732,10 @@ export const AgentPage: React.FC = () => {
                 onStop={stop}
                 isStreaming={isStreaming}
                 inputRef={inputRef}
+                model={model}
+                models={models}
+                onModelChange={setModel}
+                onVoiceResult={(t) => setInput((prev) => (prev ? `${prev}${t}` : t))}
               />
 
             </motion.div>
@@ -588,6 +826,10 @@ export const AgentPage: React.FC = () => {
                 onStop={stop}
                 isStreaming={isStreaming}
                 inputRef={inputRef}
+                model={model}
+                models={models}
+                onModelChange={setModel}
+                onVoiceResult={(t) => setInput((prev) => (prev ? `${prev}${t}` : t))}
               />
               <p className="text-center text-[10px] text-slate-400 mt-2 px-4">
                 Wisora AI 由后端 LangChain Agent 驱动，内容由 AI 生成，请谨慎甄别。
