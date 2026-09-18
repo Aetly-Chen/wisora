@@ -66,10 +66,19 @@ model Note {
   /// 软删除：列表查询一律带 deletedAt: null
   deletedAt DateTime?
 
+  /// 父页面。为空即顶层页面。子页面自身也可以再有子页面（同一套结构）。
+  parentId String?
+
   user        User         @relation(fields: [userId], references: [id])
+  /// 自关联。onDelete: Cascade 只是数据库层的兜底 —— 业务上走软删除
+  /// （只写 deletedAt），级联不会触发，子树软删除由 NotesService 显式处理。
+  parent   Note?  @relation("NoteTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children Note[] @relation("NoteTree")
+
   attachments Attachment[]
 
   @@index([userId, deletedAt, updatedAt])
+  @@index([parentId])
 }
 
 /// 附件：PDF 等文件，实体存磁盘，库里只留元数据

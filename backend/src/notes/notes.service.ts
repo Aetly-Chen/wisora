@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateNoteDto, UpdateNoteDto } from './dto/note.dto';
 
@@ -7,6 +7,7 @@ const LIST_SELECT = {
   id: true,
   title: true,
   pinned: true,
+  parentId: true,
   createdAt: true,
   updatedAt: true,
 } as const;
@@ -24,9 +25,25 @@ const DETAIL_SELECT = {
   title: true,
   content: true,
   pinned: true,
+  parentId: true,
   createdAt: true,
   updatedAt: true,
   deletedAt: true,
+  /**
+   * 子页面摘要。带上是为了「父页面无内容时展示子页面标题」——
+   * 否则每打开一个父页面都要多发一次请求，而且切换时会有明显的空窗。
+   */
+  /*
+   * 这里用单键 orderBy：`as const` 会把数组推成 readonly 元组，
+   * 与 Prisma 要求的可变数组不兼容；去掉 `as const` 则 'desc' 退化成 string，
+   * 同样不匹配。单对象形式两边都满足。
+   * 「置顶优先」的次级排序在 get() 里补。
+   */
+  children: {
+    where: { deletedAt: null },
+    orderBy: { updatedAt: 'desc' },
+    select: { id: true, title: true, pinned: true, updatedAt: true },
+  },
   attachments: {
     orderBy: { createdAt: 'desc' },
     select: {
@@ -39,6 +56,14 @@ const DETAIL_SELECT = {
     },
   },
 } as const;
+
+/**
+ * 目录层级上限。
+ *
+ * 不限制的话，用户连点几下就能造出几十层嵌套，侧边栏缩进会一路顶到右边
+ * 没法用，面包屑也跟着失控。这里在写入侧直接挡住。
+ */
+const MAX_DEPTH = 6;
 
 @Injectable()
 export class NotesService {
@@ -61,7 +86,7 @@ export class NotesService {
     }
   }
 
-  /** 列表：置顶优先，其余按更新时间倒序 */
+  /** 列表：置顶优先，其余按更新时间倒序。返回扁平结构，树由前端组装 */
   async list(userId: string, keyword?: string) {
     const notes = await this.prisma.note.findMany({
       where: {
@@ -82,7 +107,7 @@ export class NotesService {
     return notes;
   }
 
-  /** 详情：含正文与附件列表 */
+  /** 详情：含正文、子页面摘要与附件列表 */
   async get(userId: string, noteId: string) {
     await this.assertOwned(userId, noteId);
     const note = await this.prisma.note.findFirst({
@@ -90,14 +115,67 @@ export class NotesService {
       select: DETAIL_SELECT,
     });
     if (!note) throw new NotFoundException('笔记不存在或无权访问');
-    return note;
+
+    // Prisma 只按 updatedAt 排了子页面，这里补上「置顶优先」
+    const children = [...note.children].sort(
+      (a, b) =>
+        Number(b.pinned) - Number(a.pinned) ||
+        b.updatedAt.getTime() - a.updatedAt.getTime(),
+    );
+    return { ...note, children };
+  }
+
+  /**
+   * 从指定节点往上数层级（顶层为 1）。
+   * 一路向上直到 parentId 为空或触顶，循环上限即 MAX_DEPTH，天然防死循环。
+   */
+  private async depthOf(userId: string, noteId: string): Promise<number> {
+    let depth = 1;
+    let current: string | null = noteId;
+
+    while (current && depth <= MAX_DEPTH) {
+      const row: { parentId: string | null } | null =
+        await this.prisma.note.findFirst({
+          where: { id: current, userId },
+          select: { parentId: true },
+        });
+      if (!row?.parentId) break;
+      current = row.parentId;
+      depth += 1;
+    }
+    return depth;
+  }
+
+  /** 校验父页面可用（归属正确、未删除、层级未超限），返回其 id */
+  private async resolveParent(
+    userId: string,
+    parentId?: string | null,
+  ): Promise<string | null> {
+    if (!parentId) return null;
+
+    // 归属校验：否则可以把子页面挂到别人的笔记下
+    const parent = await this.prisma.note.findFirst({
+      where: { id: parentId, userId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!parent) throw new NotFoundException('父页面不存在或无权访问');
+
+    if ((await this.depthOf(userId, parentId)) >= MAX_DEPTH) {
+      throw new BadRequestException(
+        `目录层级最多 ${MAX_DEPTH} 层，请换一个更上层的页面`,
+      );
+    }
+    return parentId;
   }
 
   /** 新建：返回结构必须与 get 一致（含空的 attachments），前端才不用做形状判断 */
   async create(userId: string, dto: CreateNoteDto) {
+    const parentId = await this.resolveParent(userId, dto.parentId);
+
     return this.prisma.note.create({
       data: {
         userId,
+        parentId,
         title: dto.title?.trim() || '无标题',
         content: dto.content ?? '',
       },
@@ -121,13 +199,45 @@ export class NotesService {
     });
   }
 
-  /** 软删除：连带把附件标记为已删（实体文件由 AttachmentService 处理） */
+  /**
+   * 收集整棵子树的 id（含自身）。
+   *
+   * 逐层广度遍历而不是递归 SQL：笔记树很浅（<= MAX_DEPTH），
+   * 每层一次查询最多 6 次，代价可忽略，换来的是逻辑一眼能看懂。
+   */
+  private async collectSubtree(userId: string, rootId: string): Promise<string[]> {
+    const all: string[] = [rootId];
+    let frontier: string[] = [rootId];
+
+    while (frontier.length > 0) {
+      const children = await this.prisma.note.findMany({
+        where: { userId, parentId: { in: frontier }, deletedAt: null },
+        select: { id: true },
+      });
+      const next = children.map((c) => c.id);
+      if (next.length === 0) break;
+      all.push(...next);
+      frontier = next;
+    }
+    return all;
+  }
+
+  /**
+   * 软删除：连同整棵子树一起删。
+   *
+   * 只删父页面会让子页面变成"孤儿"—— 列表里还在，但父级已经打不开，
+   * 层级关系断裂，用户再也找不到它们。所以按 Notion 的做法整棵删掉，
+   * 并返回影响数量让前端能如实地告诉用户删了几篇。
+   */
   async remove(userId: string, noteId: string) {
     await this.assertOwned(userId, noteId);
-    await this.prisma.note.update({
-      where: { id: noteId },
+
+    const ids = await this.collectSubtree(userId, noteId);
+    await this.prisma.note.updateMany({
+      where: { id: { in: ids }, userId },
       data: { deletedAt: new Date() },
     });
-    return { deleted: true };
+
+    return { deleted: true, count: ids.length };
   }
 }

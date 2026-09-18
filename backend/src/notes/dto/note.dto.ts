@@ -15,6 +15,15 @@ export class CreateNoteDto {
   @IsOptional()
   @IsString()
   content?: string;
+
+  /**
+   * 父页面 id。不传即顶层页面。
+   * 归属与层级深度在 NotesService.resolveParent 里校验。
+   */
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  parentId?: string;
 }
 
 export class UpdateNoteDto {

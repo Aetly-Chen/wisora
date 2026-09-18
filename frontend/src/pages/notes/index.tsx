@@ -3,9 +3,11 @@ import { Link } from 'react-router-dom';
 import {
   ArrowLeft,
   Check,
+  ChevronRight,
   Columns2,
   Eye,
   FileText,
+  FileUp,
   Loader2,
   Paperclip,
   Pencil,
@@ -26,9 +28,10 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { MarkdownView } from '@/components/MarkdownView';
-import { useNotesStore } from '@/stores/useNotesStore';
+import { VirtualList } from '@/components/VirtualList';
+import { flattenNotes, useNotesStore } from '@/stores/useNotesStore';
 import { downloadAttachment, fetchAttachmentBlob } from '@/request/notes';
-import type { AttachmentMeta, NoteSummary } from '@/types/note';
+import type { AttachmentMeta, NoteChildSummary, NoteTreeRow } from '@/types/note';
 
 /* ------------------------------------------------------------------ */
 /* 工具函数                                                             */
@@ -62,48 +65,128 @@ function isPreviewable(mime: string): boolean {
 }
 
 /* ------------------------------------------------------------------ */
-/* 侧边栏列表项                                                          */
+/* 侧边栏目录树的一行                                                    */
 /* ------------------------------------------------------------------ */
 
-const NoteListItem: React.FC<{
-  note: NoteSummary;
+const NoteTreeItem: React.FC<{
+  row: NoteTreeRow;
   active: boolean;
+  expanded: boolean;
   onOpen: () => void;
+  onToggle: () => void;
+  onAddChild: () => void;
   onDelete: () => void;
-}> = ({ note, active, onOpen, onDelete }) => (
-  <div
-    role="button"
-    tabIndex={0}
-    onClick={onOpen}
-    onKeyDown={(e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        onOpen();
-      }
-    }}
-    className={`group relative cursor-pointer rounded-lg px-3 py-2.5 transition-colors ${
-      active ? 'bg-white shadow-sm ring-1 ring-slate-900/5' : 'hover:bg-slate-900/[0.035]'
-    }`}
-  >
-    <div className="flex items-center gap-2">
-      {note.pinned && <Pin className="h-3 w-3 shrink-0 text-indigo-500" />}
-      <span className="truncate text-[13.5px] font-medium text-slate-800">
-        {note.title || '无标题'}
-      </span>
-    </div>
-    <div className="mt-0.5 text-[11.5px] text-slate-400">{formatTime(note.updatedAt)}</div>
+}> = ({ row, active, expanded, onOpen, onToggle, onAddChild, onDelete }) => {
+  const { note, depth, hasChildren } = row;
 
-    <button
-      type="button"
-      aria-label={`删除 ${note.title}`}
-      onClick={(e) => {
-        e.stopPropagation();
-        onDelete();
-      }}
-      className="absolute right-2 top-1/2 hidden -translate-y-1/2 rounded-md p-1.5 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 group-hover:block"
+  return (
+    <div
+      className={`group flex h-full items-center rounded-lg pr-1 transition-colors ${
+        active ? 'bg-white shadow-sm ring-1 ring-slate-900/5' : 'hover:bg-slate-900/[0.035]'
+      }`}
+      style={{ paddingLeft: 6 + depth * 14 }}
     >
-      <Trash2 className="h-3.5 w-3.5" />
-    </button>
+      {/*
+        展开箭头。没有子页面时用等宽占位 —— 否则同一层的标题
+        会因有无子页面而左右错开一格，看着像没对齐。
+      */}
+      {hasChildren ? (
+        <button
+          type="button"
+          aria-label={expanded ? `收起「${note.title}」的子页面` : `展开「${note.title}」的子页面`}
+          aria-expanded={expanded}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggle();
+          }}
+          className="mr-0.5 shrink-0 rounded p-0.5 text-slate-400 transition-colors hover:bg-slate-900/5 hover:text-slate-600"
+        >
+          <ChevronRight
+            className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`}
+          />
+        </button>
+      ) : (
+        <span className="mr-0.5 h-4 w-4 shrink-0" aria-hidden />
+      )}
+
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex min-w-0 flex-1 items-center gap-1.5 py-2 text-left"
+      >
+        {note.pinned && <Pin className="h-3 w-3 shrink-0 text-indigo-500" />}
+        <span className="truncate text-[13.5px] font-medium text-slate-800">
+          {note.title || '无标题'}
+        </span>
+      </button>
+
+      {/* 平时显示更新时间，hover 时让位给操作按钮 —— 一行放不下两者 */}
+      <span className="shrink-0 text-[10.5px] text-slate-400 group-hover:hidden">
+        {formatTime(note.updatedAt)}
+      </span>
+
+      <div className="hidden shrink-0 items-center group-hover:flex">
+        <button
+          type="button"
+          aria-label={`在「${note.title}」下新建子页面`}
+          title="新建子页面"
+          onClick={onAddChild}
+          className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600"
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          aria-label={`删除 ${note.title}`}
+          title={hasChildren ? '删除该页面及其全部子页面' : '删除'}
+          onClick={onDelete}
+          className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+};
+
+/* ------------------------------------------------------------------ */
+/* 子页面列表（父页面内容为空时展示）                                     */
+/* ------------------------------------------------------------------ */
+
+const ChildPages: React.FC<{
+  children: NoteChildSummary[];
+  onOpen: (id: string) => void;
+}> = ({ children, onOpen }) => (
+  <div className="rounded-xl border border-slate-200 bg-white p-1.5" data-testid="child-pages">
+    <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-medium uppercase tracking-wide text-slate-400">
+      <FileText className="h-3.5 w-3.5" />
+      子页面
+      <span className="text-slate-300">{children.length}</span>
+    </div>
+    <ul>
+      {children.map((child) => (
+        <li key={child.id}>
+          <button
+            type="button"
+            onClick={() => onOpen(child.id)}
+            className="group flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-slate-50"
+          >
+            {child.pinned ? (
+              <Pin className="h-3.5 w-3.5 shrink-0 text-indigo-500" />
+            ) : (
+              <FileText className="h-3.5 w-3.5 shrink-0 text-slate-300" />
+            )}
+            <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-slate-700 group-hover:text-slate-900">
+              {child.title || '无标题'}
+            </span>
+            <span className="shrink-0 text-[10.5px] text-slate-400">
+              {formatTime(child.updatedAt)}
+            </span>
+            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-slate-300 transition-transform group-hover:translate-x-0.5 group-hover:text-slate-500" />
+          </button>
+        </li>
+      ))}
+    </ul>
   </div>
 );
 
@@ -130,7 +213,9 @@ const AttachmentsPanel: React.FC<{
 
     {attachments.length === 0 ? (
       <p className="text-[12.5px] text-slate-400">
-        {dragging ? '松开即可上传' : '把 PDF、图片或 Markdown 拖到这里，或点上方「上传」'}
+        {dragging
+          ? '松开即可 · md / html / txt 会导入为笔记'
+          : 'PDF、图片等拖到这里作为附件；md / html / txt 会导入为笔记'}
       </p>
     ) : (
       <ul className="flex flex-wrap gap-2">
@@ -262,13 +347,16 @@ const NotesPage: React.FC = () => {
     notes,
     keyword,
     listLoading,
+    expanded,
     active,
     activeId,
     detailLoading,
     saveState,
     error,
+    notice,
     loadNotes,
     setKeyword,
+    toggleExpanded,
     openNote,
     createNote,
     editTitle,
@@ -278,14 +366,18 @@ const NotesPage: React.FC = () => {
     removeNote,
     uploadFile,
     removeAttachment,
+    importFiles,
     clearError,
+    clearNotice,
   } = useNotesStore();
 
   const [mode, setMode] = useState<ViewMode>('split');
   const [dragging, setDragging] = useState(false);
   const [previewing, setPreviewing] = useState<AttachmentMeta | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [importing, setImporting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const importRef = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
 
   useEffect(() => {
@@ -301,11 +393,47 @@ const NotesPage: React.FC = () => {
   // 离开页面前把未保存内容落盘
   useEffect(() => () => void flush(), [flush]);
 
-  const sortedNotes = useMemo(() => notes, [notes]);
+  /*
+   * 树摊平。
+   *
+   * 搜索时走扁平行：命中项散落在各层，硬接回原树会出现一堆
+   * 「父级没命中却因为子级命中而冒出来」的中间节点，反而更难读。
+   */
+  const treeRows = useMemo(
+    () => flattenNotes(notes, expanded, !!keyword.trim()),
+    [notes, expanded, keyword],
+  );
 
   const handleFiles = (files: FileList | null) => {
     if (!files?.length) return;
     Array.from(files).forEach((f) => void uploadFile(f));
+  };
+
+  /**
+   * 拖拽落下的文件。
+   *
+   * 拖拽是「用户没明说要干什么」的入口，所以按类型自动分流：
+   * md/html/txt 视为要导入的笔记，其余按附件处理 ——
+   * 让用户先选一次「你要导入还是上传」反而更打断。
+   */
+  const handleDrop = (files: FileList | null) => {
+    if (!files?.length) return;
+    void importFiles(Array.from(files));
+  };
+
+  const handleImportPick = async (files: FileList | null) => {
+    if (!files?.length) return;
+    setImporting(true);
+    try {
+      await importFiles(Array.from(files));
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  /** 侧边栏「新建」：当前有打开的页面就作为它的子页面，否则建顶层页面 */
+  const handleCreate = () => {
+    void createNote(activeId ?? null);
   };
 
   return (
@@ -340,13 +468,14 @@ const NotesPage: React.FC = () => {
             size="sm"
             variant="brand"
             className="h-8 rounded-lg px-3 text-[12.5px]"
+            title={activeId ? '在「当前页面」下新建子页面' : '新建顶层页面'}
             onClick={() => {
-              void createNote();
+              handleCreate();
               setSidebarOpen(false);
             }}
           >
             <Plus className="mr-1 h-3.5 w-3.5" />
-            新建
+            {activeId ? '新建子页面' : '新建'}
           </Button>
         </div>
 
@@ -362,14 +491,14 @@ const NotesPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
+        <div className="flex min-h-0 flex-1 flex-col px-2 pb-2">
           {listLoading && notes.length === 0 ? (
-            <div className="space-y-1.5 px-1 pt-1">
+            <div className="space-y-1 px-1 pt-1">
               {[0, 1, 2, 3].map((i) => (
-                <div key={i} className="h-[52px] animate-pulse rounded-lg bg-slate-900/[0.045]" />
+                <div key={i} className="h-11 animate-pulse rounded-lg bg-slate-900/[0.045]" />
               ))}
             </div>
-          ) : sortedNotes.length === 0 ? (
+          ) : treeRows.length === 0 ? (
             <div className="px-3 py-10 text-center">
               <p className="text-[13px] text-slate-500">
                 {keyword ? '没有匹配的笔记' : '还没有笔记'}
@@ -377,7 +506,7 @@ const NotesPage: React.FC = () => {
               {!keyword && (
                 <button
                   type="button"
-                  onClick={() => void createNote()}
+                  onClick={() => void createNote(null)}
                   className="mt-2 text-[12.5px] text-indigo-600 hover:underline"
                 >
                   新建第一篇
@@ -385,20 +514,42 @@ const NotesPage: React.FC = () => {
               )}
             </div>
           ) : (
-            <div className="space-y-1">
-              {sortedNotes.map((n) => (
-                <NoteListItem
-                  key={n.id}
-                  note={n}
-                  active={n.id === activeId}
-                  onOpen={() => {
-                    void openNote(n.id);
-                    setSidebarOpen(false);
-                  }}
-                  onDelete={() => void removeNote(n.id)}
-                />
-              ))}
-            </div>
+            <VirtualList
+              count={treeRows.length}
+              className="min-h-0 flex-1 overflow-y-auto pr-1"
+              data-testid="notes-tree"
+              renderRow={(index) => {
+                const row = treeRows[index];
+                const note = row.note;
+                return (
+                  <NoteTreeItem
+                    row={row}
+                    active={note.id === activeId}
+                    expanded={!!expanded[note.id]}
+                    onToggle={() => toggleExpanded(note.id)}
+                    onOpen={() => {
+                      void openNote(note.id);
+                      setSidebarOpen(false);
+                    }}
+                    onAddChild={() => void createNote(note.id)}
+                    onDelete={() => void removeNote(note.id)}
+                  />
+                );
+              }}
+            />
+          )}
+
+          {/* 顶层页面的固定入口：头部按钮在「有打开的页面」时会变成新建子页面，
+              这里是唯一能随时建顶层页面的地方 */}
+          {!keyword && (
+            <button
+              type="button"
+              onClick={() => void createNote(null)}
+              className="mt-1 flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-2 text-[12.5px] text-slate-500 transition-colors hover:bg-slate-900/[0.035] hover:text-slate-700"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              新建顶层页面
+            </button>
           )}
         </div>
       </aside>
@@ -490,6 +641,37 @@ const NotesPage: React.FC = () => {
                   e.target.value = '';
                 }}
               />
+
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 rounded-lg border-slate-200 px-2.5 text-[12.5px]"
+                title={
+                  activeId
+                    ? '导入的文件会作为当前页面的子页面'
+                    : '导入的文件会成为顶层页面'
+                }
+                disabled={importing}
+                onClick={() => importRef.current?.click()}
+              >
+                {importing ? (
+                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <FileUp className="mr-1 h-3.5 w-3.5" />
+                )}
+                导入
+              </Button>
+              <input
+                ref={importRef}
+                type="file"
+                multiple
+                hidden
+                accept=".md,.markdown,.html,.htm,.txt"
+                onChange={(e) => {
+                  void handleImportPick(e.target.files);
+                  e.target.value = '';
+                }}
+              />
             </div>
 
             {/* 标题 */}
@@ -501,6 +683,20 @@ const NotesPage: React.FC = () => {
                 className="w-full border-none bg-transparent text-[22px] font-semibold tracking-tight text-slate-900 outline-none placeholder:text-slate-300"
               />
             </div>
+
+            {/*
+              父页面没有正文时，把它当成「目录」来用：
+              直接列出子页面标题，点标题即可跳转。
+              有正文时就不展示 —— 那时正文才是主体，子页面列表会喧宾夺主。
+            */}
+            {!active.content.trim() && active.children.length > 0 && (
+              <div className="px-4 pt-2 sm:px-6">
+                <ChildPages
+                  children={active.children}
+                  onOpen={(id) => void openNote(id)}
+                />
+              </div>
+            )}
 
             {/* 编辑 / 预览 */}
             <div
@@ -522,7 +718,7 @@ const NotesPage: React.FC = () => {
                 e.preventDefault();
                 dragDepth.current = 0;
                 setDragging(false);
-                handleFiles(e.dataTransfer.files);
+                handleDrop(e.dataTransfer.files);
               }}
             >
               <div
@@ -544,6 +740,10 @@ const NotesPage: React.FC = () => {
                   <div className="h-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-4">
                     {active.content.trim() ? (
                       <MarkdownView content={active.content} />
+                    ) : active.children.length > 0 ? (
+                      <p className="text-[13px] text-slate-300">
+                        这是一个目录页面，子页面已列在上方。在左侧输入内容后这里会显示预览。
+                      </p>
                     ) : (
                       <p className="text-[13px] text-slate-300">左侧输入内容后这里会实时预览</p>
                     )}
@@ -564,13 +764,24 @@ const NotesPage: React.FC = () => {
 
       <AttachmentPreview attachment={previewing} onClose={() => setPreviewing(null)} />
 
-      {error && (
-        <div className="fixed bottom-5 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-xl border border-red-200 bg-white px-4 py-2.5 text-[13px] text-red-700 shadow-lg">
-          <span>{error}</span>
+      {/*
+        提示条：错误优先。导入成功这类一次性反馈也走这里，
+        免得为了一个「已导入 3 篇」再引一套 toast 依赖。
+      */}
+      {(error || notice) && (
+        <div
+          className={`fixed bottom-5 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-xl border bg-white px-4 py-2.5 text-[13px] shadow-lg ${
+            error ? 'border-red-200 text-red-700' : 'border-emerald-200 text-emerald-700'
+          }`}
+        >
+          <span className="max-w-[70vw]">{error || notice}</span>
           <button
             type="button"
-            onClick={clearError}
-            className="rounded p-0.5 text-red-400 hover:text-red-700"
+            aria-label="关闭提示"
+            onClick={() => (error ? clearError() : clearNotice())}
+            className={`rounded p-0.5 ${
+              error ? 'text-red-400 hover:text-red-700' : 'text-emerald-400 hover:text-emerald-700'
+            }`}
           >
             <X className="h-3.5 w-3.5" />
           </button>

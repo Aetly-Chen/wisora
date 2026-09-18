@@ -11,7 +11,9 @@ export function listNotes(keyword?: string) {
   });
 }
 
-export function createNote(payload: { title?: string; content?: string } = {}) {
+export function createNote(
+  payload: { title?: string; content?: string; parentId?: string | null } = {},
+) {
   return request.post<NoteDetail>('/notes', payload, { loading: false });
 }
 
