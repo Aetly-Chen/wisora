@@ -40,7 +40,7 @@ interface NotesState {
   loadNotes: (keyword?: string) => Promise<void>;
   setKeyword: (keyword: string) => void;
   toggleExpanded: (id: string) => void;
-  openNote: (id: string) => Promise<void>;
+  openNote: (id: string, force?: boolean) => Promise<void>;
   /** 新建笔记。传 parentId 即作为该页面的子页面，不传为顶层页面 */
   createNote: (parentId?: string | null) => Promise<void>;
   editTitle: (title: string) => void;
@@ -249,8 +249,10 @@ export const useNotesStore = create<NotesState>((set, get) => {
      * 切换前必须先把当前未保存的编辑落盘并取消待执行的定时器，
      * 否则：① 编辑丢失；② 定时器到点后会把旧笔记的内容 PATCH 到新笔记上。
      */
-    openNote: async (id) => {
-      if (get().activeId === id) return;
+    openNote: async (id, force = false) => {
+      // force 用于导入后强制回读：createUnder 已经把这篇设成 active 了，
+      // 但多文件导入时 active 停在最后一篇，需要显式切回第一篇
+      if (!force && get().activeId === id) return;
 
       cancelPending();
       await get().flush();
@@ -422,10 +424,12 @@ export const useNotesStore = create<NotesState>((set, get) => {
         failures.push('未打开任何笔记，非文本文件已跳过（附件需要先有归属页面）');
       }
 
-      // 打开第一份导入的笔记，并刷新列表把顺序对齐
+      // 刷新列表把顺序对齐，然后强制展示第一篇导入的笔记。
+      // 用 force 是必要的：多文件导入时 createUnder 把 active 停在了
+      // 最后一篇，而 openNote 遇到相同 id 会直接返回，不 force 就切不过去。
       if (firstImportedId) {
         await get().loadNotes();
-        await get().openNote(firstImportedId);
+        await get().openNote(firstImportedId, true);
       }
 
       const parts: string[] = [];

@@ -437,7 +437,42 @@ const NotesPage: React.FC = () => {
   };
 
   return (
-    <div className="flex h-[100dvh] bg-[#fafaf8] text-slate-800">
+    /*
+     * 拖拽监听挂在根容器上，而不是编辑器区域。
+     *
+     * 原先只挂在编辑器那一小块，导致三个常见位置全部无效：
+     * 标题区、侧边栏，以及「还没打开任何笔记」时的整个页面 ——
+     * 而最后那种恰恰是最常见的导入场景（先拖文件再谈编辑）。
+     */
+    <div
+      className="flex h-[100dvh] bg-[#fafaf8] text-slate-800"
+      data-testid="notes-root"
+      onDragEnter={(e) => {
+        // 只在真的拖着文件时响应，避免拖选文字也触发遮罩
+        if (!e.dataTransfer?.types?.includes('Files')) return;
+        e.preventDefault();
+        dragDepth.current += 1;
+        setDragging(true);
+      }}
+      onDragOver={(e) => {
+        if (!e.dataTransfer?.types?.includes('Files')) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+      }}
+      onDragLeave={() => {
+        dragDepth.current -= 1;
+        if (dragDepth.current <= 0) {
+          dragDepth.current = 0;
+          setDragging(false);
+        }
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        dragDepth.current = 0;
+        setDragging(false);
+        handleDrop(e.dataTransfer.files);
+      }}
+    >
       {/* ============ 侧边栏 ============ */}
       <aside
         className={`fixed inset-y-0 left-0 z-30 flex w-[276px] flex-col border-r border-slate-200/80 bg-[#f6f5f2] transition-transform md:static md:translate-x-0 ${
@@ -581,7 +616,11 @@ const NotesPage: React.FC = () => {
             <Loader2 className="h-5 w-5 animate-spin text-slate-300" />
           </div>
         ) : !active ? (
-          <EmptyState onCreate={() => void createNote()} />
+          <EmptyState
+            onCreate={() => void createNote(null)}
+            onImport={() => importRef.current?.click()}
+            importing={importing}
+          />
         ) : (
           <>
             {/* 工具栏 */}
@@ -698,29 +737,8 @@ const NotesPage: React.FC = () => {
               </div>
             )}
 
-            {/* 编辑 / 预览 */}
-            <div
-              className="min-h-0 flex-1 overflow-hidden px-4 pb-4 pt-2 sm:px-6"
-              onDragEnter={(e) => {
-                e.preventDefault();
-                dragDepth.current += 1;
-                setDragging(true);
-              }}
-              onDragOver={(e) => e.preventDefault()}
-              onDragLeave={() => {
-                dragDepth.current -= 1;
-                if (dragDepth.current <= 0) {
-                  dragDepth.current = 0;
-                  setDragging(false);
-                }
-              }}
-              onDrop={(e) => {
-                e.preventDefault();
-                dragDepth.current = 0;
-                setDragging(false);
-                handleDrop(e.dataTransfer.files);
-              }}
-            >
+            {/* 编辑 / 预览。拖拽监听已提到页面根容器上，这里不再重复挂 */}
+            <div className="min-h-0 flex-1 overflow-hidden px-4 pb-4 pt-2 sm:px-6">
               <div
                 className={`grid h-full gap-4 ${
                   mode === 'split' ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'
@@ -763,6 +781,25 @@ const NotesPage: React.FC = () => {
       </main>
 
       <AttachmentPreview attachment={previewing} onClose={() => setPreviewing(null)} />
+
+      {/*
+        整页拖拽遮罩。pointer-events-none 是必须的 ——
+        否则遮罩会接住 drop 事件，根容器反而收不到。
+      */}
+      {dragging && (
+        <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-indigo-50/70 backdrop-blur-[2px]">
+          <div className="rounded-2xl border-2 border-dashed border-indigo-300 bg-white/95 px-8 py-6 text-center shadow-xl">
+            <FileUp className="mx-auto mb-3 h-7 w-7 text-indigo-500" />
+            <p className="text-[15px] font-medium text-slate-800">松开即可导入</p>
+            <p className="mt-1 text-[12.5px] text-slate-500">
+              {active
+                ? `md / html / txt 会作为「${active.title || '当前页面'}」的子页面`
+                : 'md / html / txt 会成为顶层页面'}
+              ，其它文件作为附件
+            </p>
+          </div>
+        </div>
+      )}
 
       {/*
         提示条：错误优先。导入成功这类一次性反馈也走这里，
@@ -817,25 +854,43 @@ const ModeButton: React.FC<{
   </button>
 );
 
-const EmptyState: React.FC<{ onCreate: () => void }> = ({ onCreate }) => (
+const EmptyState: React.FC<{
+  onCreate: () => void;
+  onImport: () => void;
+  importing: boolean;
+}> = ({ onCreate, onImport, importing }) => (
   <div className="flex flex-1 items-center justify-center px-6">
-    <div className="max-w-sm text-center">
+    <div className="max-w-md text-center">
       <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900/[0.04]">
         <FileText className="h-5 w-5 text-slate-400" />
       </div>
       <h2 className="text-[15px] font-medium text-slate-700">还没有打开笔记</h2>
       <p className="mt-1.5 text-[13px] leading-relaxed text-slate-500">
-        从左侧选择一篇，或者新建一篇。支持 Markdown 写作，PDF 与图片可以直接拖进来。
+        从左侧选择一篇，或者新建一篇。
+        <br />
+        也可以直接把 <span className="font-medium text-slate-600">Markdown / HTML / 文本</span>
+        文件拖到页面任意位置导入。
       </p>
-      <Button
-        variant="brand"
-        size="sm"
-        className="mt-5 rounded-lg text-[13px]"
-        onClick={onCreate}
-      >
-        <Plus className="mr-1.5 h-3.5 w-3.5" />
-        新建笔记
-      </Button>
+      <div className="mt-5 flex items-center justify-center gap-2">
+        <Button variant="brand" size="sm" className="rounded-lg text-[13px]" onClick={onCreate}>
+          <Plus className="mr-1.5 h-3.5 w-3.5" />
+          新建笔记
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="rounded-lg border-slate-200 text-[13px]"
+          disabled={importing}
+          onClick={onImport}
+        >
+          {importing ? (
+            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <FileUp className="mr-1.5 h-3.5 w-3.5" />
+          )}
+          导入文件
+        </Button>
+      </div>
     </div>
   </div>
 );
