@@ -12,6 +12,7 @@ import {
   deleteNote as apiDeleteNote,
   getNote,
   listNotes,
+  moveNote as apiMoveNote,
   updateNote,
   uploadAttachment,
 } from '../request/notes';
@@ -49,6 +50,8 @@ interface NotesState {
   flush: () => Promise<void>;
   togglePin: () => Promise<void>;
   removeNote: (id: string) => Promise<void>;
+  /** 把某篇笔记移动到另一个页面下（null 表示移到顶层） */
+  moveNote: (id: string, parentId: string | null) => Promise<void>;
   uploadFile: (file: File) => Promise<void>;
   removeAttachment: (id: string) => Promise<void>;
   /**
@@ -136,8 +139,8 @@ function ancestorIds(notes: NoteSummary[], id: string): string[] {
   return chain;
 }
 
-/** 收集某篇笔记及其全部后代的 id（用于乐观删除时一次性移出列表） */
-function subtreeIds(notes: NoteSummary[], rootId: string): Set<string> {
+/** 收集某篇笔记及其全部后代的 id（删除时移出列表；移动时判断非法落点） */
+export function subtreeIds(notes: NoteSummary[], rootId: string): Set<string> {
   const result = new Set([rootId]);
   let added = true;
   while (added) {
@@ -348,6 +351,33 @@ export const useNotesStore = create<NotesState>((set, get) => {
         });
       } catch (err) {
         set({ notes: previous, error: (err as Error).message || '删除失败' });
+      }
+    },
+
+    moveNote: async (id, parentId) => {
+      const { notes, activeId } = get();
+      const target = parentId ? notes.find((n) => n.id === parentId) : undefined;
+      if (parentId && !target) return;
+
+      // 先落盘，避免下面强制刷新详情时把未保存的编辑冲掉
+      cancelPending();
+      await get().flush();
+
+      const previous = notes;
+      // 乐观更新，交互立刻跟手；失败再回滚
+      set((state) => ({
+        notes: state.notes.map((n) => (n.id === id ? { ...n, parentId } : n)),
+        // 展开目标位置，否则移动完这篇会「消失」在收起的节点里
+        expanded: parentId ? { ...state.expanded, [parentId]: true } : state.expanded,
+      }));
+
+      try {
+        await apiMoveNote(id, parentId);
+        // 新旧父页面的 children 都变了，重新拉一次列表与当前详情
+        await get().loadNotes();
+        if (activeId) await get().openNote(activeId, true);
+      } catch (err) {
+        set({ notes: previous, error: (err as Error).message || '移动失败' });
       }
     },
 

@@ -32,6 +32,20 @@ export class UpdateNoteDto {
   @MaxLength(120, { message: '标题最长 120 字' })
   title?: string;
 
+  /**
+   * 移动：改为挂到另一个页面下。传 null 表示移到顶层。
+   *
+   * 注意「不传」与「传 null」语义不同：不传 = 不动层级，
+   * 传 null = 移动到顶层。IsOptional 对两者都放行，
+   * 区分由 service 里判断 `!== undefined` 完成。
+   *
+   * 环与层级的校验在 NotesService.move 里。
+   */
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  parentId?: string | null;
+
   @IsOptional()
   @IsString()
   content?: string;

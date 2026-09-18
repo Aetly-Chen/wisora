@@ -28,6 +28,17 @@ export function updateNote(
   return request.patch<NoteDetail>(`/notes/${id}`, payload, { loading: false });
 }
 
+/**
+ * 移动笔记到另一个页面下。parentId 传 null 即移到顶层。
+ *
+ * 走的是 PATCH /notes/:id —— service 里按 parentId 是否存在分流到 move()，
+ * 那里会校验环与层级。不单独开 /move 接口是因为语义上它就是对
+ * parentId 字段的修改。
+ */
+export function moveNote(id: string, parentId: string | null) {
+  return request.patch<NoteDetail>(`/notes/${id}`, { parentId }, { loading: false });
+}
+
 export function deleteNote(id: string) {
   return request.delete(`/notes/${id}`, { loading: false });
 }

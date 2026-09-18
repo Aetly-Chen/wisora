@@ -183,9 +183,87 @@ export class NotesService {
     });
   }
 
+  /**
+   * 子树相对自身的高度（自身算 1）。
+   * 用于移动时判断「搬过去会不会超过总层数上限」。
+   */
+  private async subtreeHeight(userId: string, rootId: string): Promise<number> {
+    let height = 1;
+    let frontier: string[] = [rootId];
+    while (frontier.length > 0) {
+      const children = await this.prisma.note.findMany({
+        where: { userId, parentId: { in: frontier }, deletedAt: null },
+        select: { id: true },
+      });
+      const next = children.map((c) => c.id);
+      if (next.length === 0) break;
+      height += 1;
+      frontier = next;
+    }
+    return height;
+  }
+
+  /**
+   * 移动到另一个页面下（parentId 传 null 即移到顶层）。
+   *
+   * 两道校验缺一不可：
+   * 1. **不能移动到自己的子树里** —— 否则会形成环：A 的父是 B、
+   *    B 的父是 A，两棵子树互相嵌套，之后谁都遍历不出来，
+   *    侧边栏里它们会整片消失。
+   * 2. **搬家后总层数不能超限** —— 一个 5 层深的子树挂到第 4 层下
+   *    就会变成 8 层。这里算的是「子树最高 + 新父级深度」。
+   */
+  async move(userId: string, noteId: string, parentId: string | null) {
+    await this.assertOwned(userId, noteId);
+
+    if (parentId === noteId) {
+      throw new BadRequestException('不能把页面移动到它自己下面');
+    }
+
+    let newParentId: string | null = null;
+    if (parentId) {
+      // 归属校验：不能把页面搬到别人的笔记下
+      const parent = await this.prisma.note.findFirst({
+        where: { id: parentId, userId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!parent) throw new NotFoundException('目标页面不存在或无权访问');
+
+      // 关键：目标不能落在自己的子树里（collectSubtree 含自身）
+      const ownSubtree = await this.collectSubtree(userId, noteId);
+      if (ownSubtree.includes(parentId)) {
+        throw new BadRequestException('不能把页面移动到它自己的子页面下');
+      }
+
+      const [height, parentDepth] = await Promise.all([
+        this.subtreeHeight(userId, noteId),
+        this.depthOf(userId, parentId),
+      ]);
+      // 新父级深度 + 子树高度 = 搬家后整棵子树的总深度
+      if (parentDepth + height > MAX_DEPTH) {
+        throw new BadRequestException(
+          `移动后层级会超过 ${MAX_DEPTH} 层，请选一个更上层的页面`,
+        );
+      }
+      newParentId = parentId;
+    }
+
+    return this.prisma.note.update({
+      where: { id: noteId },
+      data: { parentId: newParentId },
+      select: DETAIL_SELECT,
+    });
+  }
+
   /** 更新：只改传了的字段，避免把没传的字段覆盖成空 */
   async update(userId: string, noteId: string, dto: UpdateNoteDto) {
     await this.assertOwned(userId, noteId);
+
+    // 移动单独走 move（那里有环与层级的校验），这里只处理普通字段。
+    // 注意区分「没传」（undefined，不动）与「传了 null」（移到顶层）。
+    if (dto.parentId !== undefined) {
+      return this.move(userId, noteId, dto.parentId);
+    }
 
     const data: { title?: string; content?: string; pinned?: boolean } = {};
     if (dto.title !== undefined) data.title = dto.title.trim() || '无标题';

@@ -8,6 +8,8 @@ import {
   Eye,
   FileText,
   FileUp,
+  FolderInput,
+  Home,
   Loader2,
   Paperclip,
   Pencil,
@@ -29,7 +31,7 @@ import {
 } from '@/components/ui/dialog';
 import { MarkdownView } from '@/components/MarkdownView';
 import { VirtualList } from '@/components/VirtualList';
-import { flattenNotes, useNotesStore } from '@/stores/useNotesStore';
+import { flattenNotes, subtreeIds, useNotesStore } from '@/stores/useNotesStore';
 import { downloadAttachment, fetchAttachmentBlob } from '@/request/notes';
 import type { AttachmentMeta, NoteChildSummary, NoteTreeRow } from '@/types/note';
 
@@ -72,19 +74,60 @@ const NoteTreeItem: React.FC<{
   row: NoteTreeRow;
   active: boolean;
   expanded: boolean;
+  /** 正在被拖动的那一行 */
+  dragging: boolean;
+  /** 当前拖到这一行上方 */
+  dragOver: boolean;
+  /** 不能作为落点（自己或自己的后代） */
+  invalidTarget: boolean;
   onOpen: () => void;
   onToggle: () => void;
   onAddChild: () => void;
   onDelete: () => void;
-}> = ({ row, active, expanded, onOpen, onToggle, onAddChild, onDelete }) => {
+  onMoveRequest: () => void;
+  onDragStart: (e: React.DragEvent) => void;
+  onDragOverRow: (e: React.DragEvent) => void;
+  onDragLeaveRow: () => void;
+  onDropRow: (e: React.DragEvent) => void;
+}> = ({
+  row,
+  active,
+  expanded,
+  dragging,
+  dragOver,
+  invalidTarget,
+  onOpen,
+  onToggle,
+  onAddChild,
+  onDelete,
+  onMoveRequest,
+  onDragStart,
+  onDragOverRow,
+  onDragLeaveRow,
+  onDropRow,
+}) => {
   const { note, depth, hasChildren } = row;
 
   return (
     <div
+      // 整行可拖：拖到别的行上即为「移动」
+      draggable
+      onDragStart={onDragStart}
+      onDragEnd={onDragLeaveRow}
+      onDragOver={onDragOverRow}
+      onDragLeave={onDragLeaveRow}
+      onDrop={onDropRow}
       className={`group flex h-full items-center rounded-lg pr-1 transition-colors ${
-        active ? 'bg-white shadow-sm ring-1 ring-slate-900/5' : 'hover:bg-slate-900/[0.035]'
+        dragging ? 'opacity-40' : ''
+      } ${
+        dragOver && !invalidTarget
+          ? 'bg-indigo-50 ring-2 ring-inset ring-indigo-400'
+          : active
+            ? 'bg-white shadow-sm ring-1 ring-slate-900/5'
+            : 'hover:bg-slate-900/[0.035]'
       }`}
       style={{ paddingLeft: 6 + depth * 14 }}
+      data-note-row={note.id}
     >
       {/*
         展开箭头。没有子页面时用等宽占位 —— 否则同一层的标题
@@ -126,6 +169,15 @@ const NoteTreeItem: React.FC<{
       </span>
 
       <div className="hidden shrink-0 items-center group-hover:flex">
+        <button
+          type="button"
+          aria-label={`移动「${note.title}」`}
+          title="移动到…（也可以直接把这一行拖到别的页面上）"
+          onClick={onMoveRequest}
+          className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600"
+        >
+          <FolderInput className="h-3.5 w-3.5" />
+        </button>
         <button
           type="button"
           aria-label={`在「${note.title}」下新建子页面`}
@@ -367,6 +419,7 @@ const NotesPage: React.FC = () => {
     uploadFile,
     removeAttachment,
     importFiles,
+    moveNote,
     clearError,
     clearNotice,
   } = useNotesStore();
@@ -376,6 +429,12 @@ const NotesPage: React.FC = () => {
   const [previewing, setPreviewing] = useState<AttachmentMeta | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [importing, setImporting] = useState(false);
+  /** 正在被拖动的笔记 id（拖拽移动） */
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  /** 当前悬停的落点 id，用于高亮 */
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  /** 「移动到…」弹窗的源笔记 id */
+  const [moveSourceId, setMoveSourceId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
@@ -403,6 +462,36 @@ const NotesPage: React.FC = () => {
     () => flattenNotes(notes, expanded, !!keyword.trim()),
     [notes, expanded, keyword],
   );
+
+  /**
+   * 非法的移动落点：自己 + 自己的全部后代。
+   *
+   * 把 A 移到 A 的后代下会形成环（A 的父是 B、B 的父是 A），
+   * 两棵子树互相嵌套后谁也遍历不出来，侧边栏里会整片消失。
+   * 后端也有同样的校验，这里挡一道是为了不给出会失败的交互暗示。
+   */
+  const invalidMoveTargets = useMemo(
+    () => (draggingId ? subtreeIds(notes, draggingId) : new Set<string>()),
+    [draggingId, notes],
+  );
+
+  /** 移动弹窗用的完整树（全部展开，不跟随侧边栏的收起状态） */
+  const movePickerRows = useMemo(() => {
+    const allExpanded = Object.fromEntries(notes.map((n) => [n.id, true]));
+    return flattenNotes(notes, allExpanded);
+  }, [notes]);
+
+  const moveSource = moveSourceId
+    ? notes.find((n) => n.id === moveSourceId)
+    : undefined;
+  const moveSourceSubtree = useMemo(
+    () => (moveSourceId ? subtreeIds(notes, moveSourceId) : new Set<string>()),
+    [moveSourceId, notes],
+  );
+
+  const handleMove = (id: string, parentId: string | null) => {
+    void moveNote(id, parentId);
+  };
 
   const handleFiles = (files: FileList | null) => {
     if (!files?.length) return;
@@ -465,6 +554,11 @@ const NotesPage: React.FC = () => {
           dragDepth.current = 0;
           setDragging(false);
         }
+      }}
+      // 拖拽移动收尾：松手在任意位置都要清掉拖动态
+      onDragEnd={() => {
+        setDraggingId(null);
+        setDragOverId(null);
       }}
       onDrop={(e) => {
         e.preventDefault();
@@ -561,6 +655,9 @@ const NotesPage: React.FC = () => {
                     row={row}
                     active={note.id === activeId}
                     expanded={!!expanded[note.id]}
+                    dragging={draggingId === note.id}
+                    dragOver={dragOverId === note.id}
+                    invalidTarget={invalidMoveTargets.has(note.id)}
                     onToggle={() => toggleExpanded(note.id)}
                     onOpen={() => {
                       void openNote(note.id);
@@ -568,6 +665,33 @@ const NotesPage: React.FC = () => {
                     }}
                     onAddChild={() => void createNote(note.id)}
                     onDelete={() => void removeNote(note.id)}
+                    onMoveRequest={() => setMoveSourceId(note.id)}
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData('text/note-id', note.id);
+                      e.dataTransfer.effectAllowed = 'move';
+                      setDraggingId(note.id);
+                    }}
+                    onDragOverRow={(e) => {
+                      // 没有拖动源 / 落点是非法目标时不接受 —— 不 preventDefault
+                      // 浏览器就不会显示可放置光标，交互上更诚实
+                      if (!draggingId || invalidMoveTargets.has(note.id)) return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'move';
+                      if (dragOverId !== note.id) setDragOverId(note.id);
+                    }}
+                    onDragLeaveRow={() => {
+                      setDragOverId((cur) => (cur === note.id ? null : cur));
+                    }}
+                    onDropRow={(e) => {
+                      const sourceId = e.dataTransfer.getData('text/note-id');
+                      setDraggingId(null);
+                      setDragOverId(null);
+                      if (!sourceId || sourceId === note.id) return;
+                      if (invalidMoveTargets.has(note.id)) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleMove(sourceId, note.id);
+                    }}
                   />
                 );
               }}
@@ -781,6 +905,78 @@ const NotesPage: React.FC = () => {
       </main>
 
       <AttachmentPreview attachment={previewing} onClose={() => setPreviewing(null)} />
+
+      {/*
+        「移动到…」选择器。
+        拖拽在触屏上不可用，且拖到收起的节点里也没法操作，
+        所以除了拖拽之外必须有一个显式入口。
+      */}
+      <Dialog open={!!moveSourceId} onOpenChange={(v) => !v && setMoveSourceId(null)}>
+        <DialogContent className="max-w-md gap-3 p-0">
+          <DialogHeader className="px-5 pt-5">
+            <DialogTitle className="text-[15px] font-medium text-slate-800">
+              移动「{moveSource?.title || '无标题'}」
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="max-h-[52vh] overflow-y-auto px-2 pb-2">
+            {/* 移到顶层 */}
+            <button
+              type="button"
+              onClick={() => {
+                if (moveSourceId) handleMove(moveSourceId, null);
+                setMoveSourceId(null);
+              }}
+              disabled={moveSource ? moveSource.parentId === null : true}
+              className="mb-1 flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] text-slate-700 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Home className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+              移到顶层
+              {moveSource?.parentId === null && (
+                <span className="ml-auto text-[11px] text-slate-400">当前位置</span>
+              )}
+            </button>
+
+            <div className="my-1 border-t border-slate-100" />
+
+            <p className="px-2.5 py-1.5 text-[11.5px] text-slate-400">
+              选择要移入的页面
+            </p>
+
+            {movePickerRows.map((row) => {
+              const blocked =
+                !!moveSourceId && moveSourceSubtree.has(row.note.id);
+              const isCurrent = moveSource?.parentId === row.note.id;
+              return (
+                <button
+                  key={row.note.id}
+                  type="button"
+                  disabled={blocked || isCurrent}
+                  onClick={() => {
+                    if (moveSourceId) handleMove(moveSourceId, row.note.id);
+                    setMoveSourceId(null);
+                  }}
+                  title={blocked ? '不能移动到它自己的子页面下' : undefined}
+                  className="flex w-full items-center gap-2 rounded-lg py-2 pr-2.5 text-left text-[13px] text-slate-700 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent"
+                  style={{ paddingLeft: 10 + row.depth * 14 }}
+                >
+                  <FileText className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                  <span className="min-w-0 flex-1 truncate">
+                    {row.note.title || '无标题'}
+                  </span>
+                  {isCurrent && (
+                    <span className="shrink-0 text-[11px] text-slate-400">当前位置</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          <p className="px-5 pb-4 text-[11.5px] leading-relaxed text-slate-400">
+            移入后，该页面下的全部子页面会跟着一起移动。
+          </p>
+        </DialogContent>
+      </Dialog>
 
       {/*
         整页拖拽遮罩。pointer-events-none 是必须的 ——
