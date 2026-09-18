@@ -33,6 +33,17 @@ interface NotesState {
   active?: NoteDetail;
   detailLoading: boolean;
 
+  /**
+   * 用户「显式选中」的目录，决定新建/导入的归属。
+   *
+   * 为什么要与 activeId 分开：导入成功后会把导入的笔记设为 active
+   * （用户要求「导入后直接展示内容」），若归属也跟着 active 走，
+   * 连续导入就会一层层嵌套（第二次挂到第一次下面）—— 而那篇并不是
+   * 用户主动选的。所以只有「用户自己点开某篇」才算选中，
+   * 程序化切换（导入后自动展示）不算。
+   */
+  selectedId?: string;
+
   saveState: SaveState;
   error?: string;
   /** 一次性成功提示（如「已导入 3 个文件」），展示后由 clearNotice 清掉 */
@@ -41,8 +52,21 @@ interface NotesState {
   loadNotes: (keyword?: string) => Promise<void>;
   setKeyword: (keyword: string) => void;
   toggleExpanded: (id: string) => void;
-  openNote: (id: string, force?: boolean) => Promise<void>;
-  /** 新建笔记。传 parentId 即作为该页面的子页面，不传为顶层页面 */
+  /**
+   * 打开笔记。
+   * @param opts.keepSelection 程序化打开（导入后自动展示）传 true，
+   *        此时不改变用户选中的目录
+   */
+  openNote: (
+    id: string,
+    opts?: { force?: boolean; keepSelection?: boolean },
+  ) => Promise<void>;
+  /**
+   * 新建笔记。
+   * - 传 parentId：挂到指定页面下（行内「+」用）
+   * - 传 null：建为一级目录
+   * - 不传：按当前选中的目录决定 —— 选中了就作为它的子页面，否则一级目录
+   */
   createNote: (parentId?: string | null) => Promise<void>;
   editTitle: (title: string) => void;
   editContent: (content: string) => void;
@@ -226,6 +250,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
     activeId: undefined,
     active: undefined,
     detailLoading: false,
+    selectedId: undefined,
     saveState: 'idle',
     error: undefined,
     notice: undefined,
@@ -252,9 +277,9 @@ export const useNotesStore = create<NotesState>((set, get) => {
      * 切换前必须先把当前未保存的编辑落盘并取消待执行的定时器，
      * 否则：① 编辑丢失；② 定时器到点后会把旧笔记的内容 PATCH 到新笔记上。
      */
-    openNote: async (id, force = false) => {
-      // force 用于导入后强制回读：createUnder 已经把这篇设成 active 了，
-      // 但多文件导入时 active 停在最后一篇，需要显式切回第一篇
+    openNote: async (id, opts = {}) => {
+      const { force = false, keepSelection = false } = opts;
+      // force 用于程序化回读：此时 activeId 可能已经是这篇了，但内容要重取
       if (!force && get().activeId === id) return;
 
       cancelPending();
@@ -267,6 +292,8 @@ export const useNotesStore = create<NotesState>((set, get) => {
         detailLoading: true,
         active: undefined,
         saveState: 'idle',
+        // 只有用户主动打开才算「选中」；程序化切换保持原选中项
+        selectedId: keepSelection ? state.selectedId : id,
         expanded: ancestors.reduce(
           (acc, aid) => ({ ...acc, [aid]: true }),
           { ...state.expanded },
@@ -284,12 +311,15 @@ export const useNotesStore = create<NotesState>((set, get) => {
       }
     },
 
-    createNote: async (parentId = null) => {
+    createNote: async (parentId) => {
       cancelPending();
       await get().flush();
 
+      // 不传 parentId 时按「当前选中的目录」决定
+      const target = parentId === undefined ? (get().selectedId ?? null) : parentId;
+
       try {
-        await createUnder(parentId);
+        await createUnder(target);
       } catch (err) {
         set({ error: (err as Error).message || '新建笔记失败' });
       }
@@ -375,7 +405,8 @@ export const useNotesStore = create<NotesState>((set, get) => {
         await apiMoveNote(id, parentId);
         // 新旧父页面的 children 都变了，重新拉一次列表与当前详情
         await get().loadNotes();
-        if (activeId) await get().openNote(activeId, true);
+        // 程序化刷新详情，不改动用户选中的目录
+        if (activeId) await get().openNote(activeId, { force: true, keepSelection: true });
       } catch (err) {
         set({ notes: previous, error: (err as Error).message || '移动失败' });
       }
@@ -418,52 +449,95 @@ export const useNotesStore = create<NotesState>((set, get) => {
       cancelPending();
       await get().flush();
 
-      // 归属：当前打开了笔记就挂到它下面，否则作为顶层页面
-      const parentId = get().activeId ?? null;
+      /*
+       * 归属：只看「用户显式选中的目录」。
+       * 没选中任何目录时导入的内容就是一级目录。
+       * 这里刻意不用 activeId —— 导入后 active 会切到导入的笔记，
+       * 若按 active 判定，连续导入会一层层嵌套下去。
+       */
+      const parentId = get().selectedId ?? null;
 
       const noteFiles = files.filter((f) => detectImportKind(f) !== null);
       const otherFiles = files.filter((f) => detectImportKind(f) === null);
 
       const failures: string[] = [];
-      let imported = 0;
-      let firstImportedId: string | undefined;
 
-      for (const file of noteFiles) {
-        try {
+      /*
+       * 并行读取与创建。
+       *
+       * 原先是一个 for + await 逐个串行，N 个文件就是 N 次串行往返；
+       * 而且每个文件都调一次 createUnder，也就 set() 一次、整树重渲染一次。
+       * 现在改为一次 Promise.allSettled 发出全部请求，再一次性写状态。
+       * allSettled 会保持输入顺序，所以「展示第一篇」的语义不变。
+       */
+      const settled = await Promise.allSettled(
+        noteFiles.map(async (file) => {
           const { title, content } = await readNoteFile(file);
-          const note = await createUnder(parentId, title, content);
-          if (!firstImportedId) firstImportedId = note.id;
-          imported += 1;
-        } catch (err) {
-          failures.push(`${file.name}：${(err as Error).message}`);
+          return withNoteShape(await apiCreateNote({ title, content, parentId }));
+        }),
+      );
+
+      const created: NoteDetail[] = [];
+      settled.forEach((result, index) => {
+        if (result.status === 'fulfilled') {
+          created.push(result.value);
+        } else {
+          const reason = result.reason as Error | undefined;
+          failures.push(`${noteFiles[index].name}：${reason?.message ?? '导入失败'}`);
         }
+      });
+
+      if (created.length > 0) {
+        // 一次 set 把全部导入结果落进列表。
+        // 新建接口返回的就是完整详情（含正文与空的子页面/附件），
+        // 所以这里不需要再 loadNotes() 全量刷新，也不需要再回读详情 ——
+        // 原先这两步是纯多余的两个往返。
+        set((state) => ({
+          notes: [...created, ...state.notes],
+          expanded: parentId
+            ? { ...state.expanded, [parentId]: true }
+            : state.expanded,
+          // 直接展示第一篇导入的内容；不改变 selectedId
+          activeId: created[0].id,
+          active: created[0],
+          saveState: 'idle',
+        }));
       }
 
-      // 非笔记类文件仍按附件处理（拖拽场景下用户不一定分得清）
+      /*
+       * 非笔记类文件按附件处理（拖拽场景下用户不一定分得清）。
+       * 附件要挂到「拖拽发生时就打开着的那篇」——
+       * 上面已经把 active 换成导入的笔记了，所以锚点要先记下来。
+       */
       let attached = 0;
-      if (parentId) {
-        for (const file of otherFiles) {
-          try {
-            await get().uploadFile(file);
+      const anchorNoteId = parentId ?? created[0]?.id ?? null;
+      if (otherFiles.length > 0 && anchorNoteId) {
+        const uploads = await Promise.allSettled(
+          otherFiles.map(async (file) => uploadAttachment(file, anchorNoteId)),
+        );
+        const fresh: AttachmentMeta[] = [];
+        uploads.forEach((result, index) => {
+          if (result.status === 'fulfilled') {
+            fresh.push(result.value);
             attached += 1;
-          } catch {
-            failures.push(`${file.name}：上传失败`);
+          } else {
+            failures.push(`${otherFiles[index].name}：上传失败`);
           }
+        });
+        // 附件挂在锚点笔记上，只有当它正好是当前打开的那篇时才回填界面
+        if (fresh.length > 0 && anchorNoteId === created[0]?.id) {
+          set((state) =>
+            state.active
+              ? { active: { ...state.active, attachments: [...fresh, ...state.active.attachments] } }
+              : {},
+          );
         }
       } else if (otherFiles.length > 0) {
-        failures.push('未打开任何笔记，非文本文件已跳过（附件需要先有归属页面）');
-      }
-
-      // 刷新列表把顺序对齐，然后强制展示第一篇导入的笔记。
-      // 用 force 是必要的：多文件导入时 createUnder 把 active 停在了
-      // 最后一篇，而 openNote 遇到相同 id 会直接返回，不 force 就切不过去。
-      if (firstImportedId) {
-        await get().loadNotes();
-        await get().openNote(firstImportedId, true);
+        failures.push('未选中任何目录，非文本文件已跳过（附件需要先有归属页面）');
       }
 
       const parts: string[] = [];
-      if (imported) parts.push(`导入 ${imported} 篇笔记`);
+      if (created.length) parts.push(`导入 ${created.length} 篇笔记`);
       if (attached) parts.push(`${attached} 个附件`);
 
       set({

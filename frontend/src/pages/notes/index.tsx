@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -80,6 +80,8 @@ const NoteTreeItem: React.FC<{
   dragOver: boolean;
   /** 不能作为落点（自己或自己的后代） */
   invalidTarget: boolean;
+  /** 用户选中的目录 —— 新建/导入会作为它的子页面 */
+  selected: boolean;
   onOpen: () => void;
   onToggle: () => void;
   onAddChild: () => void;
@@ -96,6 +98,7 @@ const NoteTreeItem: React.FC<{
   dragging,
   dragOver,
   invalidTarget,
+  selected,
   onOpen,
   onToggle,
   onAddChild,
@@ -126,7 +129,13 @@ const NoteTreeItem: React.FC<{
             ? 'bg-white shadow-sm ring-1 ring-slate-900/5'
             : 'hover:bg-slate-900/[0.035]'
       }`}
-      style={{ paddingLeft: 6 + depth * 14 }}
+      // 选中标记用 inset 阴影而不是左边框：加边框会让内容右移 2px，
+      // 同一层的标题就对不齐了
+      title={selected ? '已选中：新建与导入会作为它的子页面' : undefined}
+      style={{
+        paddingLeft: 6 + depth * 14,
+        boxShadow: selected ? 'inset 2px 0 0 0 #818cf8' : undefined,
+      }}
       data-note-row={note.id}
     >
       {/*
@@ -386,6 +395,16 @@ const AttachmentPreview: React.FC<{
 
 type ViewMode = 'edit' | 'split' | 'preview';
 
+/**
+ * 实时预览的正文长度上限。
+ *
+ * 实测：打开 1.1MB 的笔记会让主线程一次性阻塞 1.1 秒 —— 那是
+ * marked 解析 + DOMPurify 清洗 + 渲染上万节点 DOM 的合计耗时。
+ * 这个量级的文档本来也不需要逐字预览，所以超过阈值就暂停实时渲染，
+ * 给一个「仍然渲染」的按钮让用户自己决定。
+ */
+const PREVIEW_MAX_CHARS = 100_000;
+
 const SAVE_LABEL: Record<string, string> = {
   idle: '',
   dirty: '待保存',
@@ -400,6 +419,7 @@ const NotesPage: React.FC = () => {
     keyword,
     listLoading,
     expanded,
+    selectedId,
     active,
     activeId,
     detailLoading,
@@ -429,6 +449,8 @@ const NotesPage: React.FC = () => {
   const [previewing, setPreviewing] = useState<AttachmentMeta | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [importing, setImporting] = useState(false);
+  /** 大文档下用户手动放行预览 */
+  const [forcePreview, setForcePreview] = useState(false);
   /** 正在被拖动的笔记 id（拖拽移动） */
   const [draggingId, setDraggingId] = useState<string | null>(null);
   /** 当前悬停的落点 id，用于高亮 */
@@ -451,6 +473,11 @@ const NotesPage: React.FC = () => {
 
   // 离开页面前把未保存内容落盘
   useEffect(() => () => void flush(), [flush]);
+
+  // 换了一篇就收回「仍然渲染」的放行，避免上一篇的选择影响下一篇
+  useEffect(() => {
+    setForcePreview(false);
+  }, [activeId]);
 
   /*
    * 树摊平。
@@ -480,6 +507,12 @@ const NotesPage: React.FC = () => {
     const allExpanded = Object.fromEntries(notes.map((n) => [n.id, true]));
     return flattenNotes(notes, allExpanded);
   }, [notes]);
+
+  /** 预览用的延迟值：输入时优先保证编辑区跟手 */
+  const deferredContent = useDeferredValue(active?.content ?? '');
+
+  /** 遮罩文案要用的选中目录对象 */
+  const selected = selectedId ? notes.find((n) => n.id === selectedId) : undefined;
 
   const moveSource = moveSourceId
     ? notes.find((n) => n.id === moveSourceId)
@@ -520,9 +553,13 @@ const NotesPage: React.FC = () => {
     }
   };
 
-  /** 侧边栏「新建」：当前有打开的页面就作为它的子页面，否则建顶层页面 */
+  /**
+   * 侧边栏「新建」。
+   * 不传 parentId，由 store 按「当前选中的目录」决定归属 ——
+   * 选中了就建成子页面，没选中就是一级目录。
+   */
   const handleCreate = () => {
-    void createNote(activeId ?? null);
+    void createNote();
   };
 
   return (
@@ -597,14 +634,14 @@ const NotesPage: React.FC = () => {
             size="sm"
             variant="brand"
             className="h-8 rounded-lg px-3 text-[12.5px]"
-            title={activeId ? '在「当前页面」下新建子页面' : '新建顶层页面'}
+            title={selectedId ? '作为选中目录的子页面' : '新建一级目录'}
             onClick={() => {
               handleCreate();
               setSidebarOpen(false);
             }}
           >
             <Plus className="mr-1 h-3.5 w-3.5" />
-            {activeId ? '新建子页面' : '新建'}
+            {selectedId ? '新建子页面' : '新建'}
           </Button>
         </div>
 
@@ -658,6 +695,7 @@ const NotesPage: React.FC = () => {
                     dragging={draggingId === note.id}
                     dragOver={dragOverId === note.id}
                     invalidTarget={invalidMoveTargets.has(note.id)}
+                    selected={note.id === selectedId}
                     onToggle={() => toggleExpanded(note.id)}
                     onOpen={() => {
                       void openNote(note.id);
@@ -810,9 +848,9 @@ const NotesPage: React.FC = () => {
                 size="sm"
                 className="h-8 rounded-lg border-slate-200 px-2.5 text-[12.5px]"
                 title={
-                  activeId
-                    ? '导入的文件会作为当前页面的子页面'
-                    : '导入的文件会成为顶层页面'
+                  selectedId
+                    ? '导入的文件会作为选中目录的子页面'
+                    : '导入的文件会成为一级目录'
                 }
                 disabled={importing}
                 onClick={() => importRef.current?.click()}
@@ -824,17 +862,6 @@ const NotesPage: React.FC = () => {
                 )}
                 导入
               </Button>
-              <input
-                ref={importRef}
-                type="file"
-                multiple
-                hidden
-                accept=".md,.markdown,.html,.htm,.txt"
-                onChange={(e) => {
-                  void handleImportPick(e.target.files);
-                  e.target.value = '';
-                }}
-              />
             </div>
 
             {/* 标题 */}
@@ -880,14 +907,33 @@ const NotesPage: React.FC = () => {
 
                 {mode !== 'edit' && (
                   <div className="h-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-4">
-                    {active.content.trim() ? (
-                      <MarkdownView content={active.content} />
-                    ) : active.children.length > 0 ? (
-                      <p className="text-[13px] text-slate-300">
-                        这是一个目录页面，子页面已列在上方。在左侧输入内容后这里会显示预览。
-                      </p>
+                    {!active.content.trim() ? (
+                      active.children.length > 0 ? (
+                        <p className="text-[13px] text-slate-300">
+                          这是一个目录页面，子页面已列在上方。在左侧输入内容后这里会显示预览。
+                        </p>
+                      ) : (
+                        <p className="text-[13px] text-slate-300">左侧输入内容后这里会实时预览</p>
+                      )
+                    ) : active.content.length > PREVIEW_MAX_CHARS && !forcePreview ? (
+                      <div className="py-6 text-center">
+                        <p className="text-[13px] text-slate-500">
+                          正文约 {Math.round(active.content.length / 1024)} KB，
+                          已暂停实时预览以保证编辑流畅
+                        </p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="mt-3 rounded-lg border-slate-200 text-[12.5px]"
+                          onClick={() => setForcePreview(true)}
+                        >
+                          仍然渲染预览
+                        </Button>
+                      </div>
                     ) : (
-                      <p className="text-[13px] text-slate-300">左侧输入内容后这里会实时预览</p>
+                      /* useDeferredValue：正文变化时先让输入框保持响应，
+                         预览的解析与渲染以较低优先级进行 */
+                      <MarkdownView content={deferredContent} />
                     )}
                   </div>
                 )}
@@ -979,6 +1025,24 @@ const NotesPage: React.FC = () => {
       </Dialog>
 
       {/*
+        导入用的 file input 必须常驻。
+        原先它渲染在工具栏内部，而工具栏只在「已打开笔记」时才渲染，
+        于是空状态那个「导入文件」按钮点了等于没点 ——
+        ref 指向 null，click() 静默失败。
+      */}
+      <input
+        ref={importRef}
+        type="file"
+        multiple
+        hidden
+        accept=".md,.markdown,.html,.htm,.txt"
+        onChange={(e) => {
+          void handleImportPick(e.target.files);
+          e.target.value = '';
+        }}
+      />
+
+      {/*
         整页拖拽遮罩。pointer-events-none 是必须的 ——
         否则遮罩会接住 drop 事件，根容器反而收不到。
       */}
@@ -988,9 +1052,9 @@ const NotesPage: React.FC = () => {
             <FileUp className="mx-auto mb-3 h-7 w-7 text-indigo-500" />
             <p className="text-[15px] font-medium text-slate-800">松开即可导入</p>
             <p className="mt-1 text-[12.5px] text-slate-500">
-              {active
-                ? `md / html / txt 会作为「${active.title || '当前页面'}」的子页面`
-                : 'md / html / txt 会成为顶层页面'}
+              {selected
+                ? `md / html / txt 会作为「${selected.title || '选中目录'}」的子页面`
+                : 'md / html / txt 会成为一级目录'}
               ，其它文件作为附件
             </p>
           </div>
