@@ -1,10 +1,10 @@
-import request from './index';
-import { getToken } from './storage';
+import request from "./index";
+import { getToken } from "./storage";
 import type {
   ConversationSummary,
   HistoryMessage,
   StreamEvent,
-} from '../types/agent';
+} from "../types/agent";
 
 /**
  * AI 流式对话接口层
@@ -19,13 +19,20 @@ import type {
  * - 开流 走 fetch（必须流式）
  */
 
-const BASE = import.meta.env.VITE_BASE_API ?? '';
+const BASE = import.meta.env.VITE_BASE_API ?? "";
 
 export interface StreamChatParams {
   question: string;
   conversationId?: string;
   /** 本次使用的模型；不传则由后端回落到默认模型 */
   model?: string;
+  /**
+   * 本次是否允许 AI 执行写操作（保存/修改/删除笔记等）。
+   *
+   * 授权随一次性 ticket 一起签发（30 秒过期、取完即焚），
+   * 所以它天然只作用于"这一轮"，不会长期生效。
+   */
+  allowWrite?: boolean;
   signal?: AbortSignal;
   handlers: {
     onStart?: (payload: { conversationId: string; messageId: string }) => void;
@@ -56,7 +63,7 @@ export async function createChatTicket(
   allowWrite = false,
 ): Promise<{ ticket: string; allowWrite: boolean }> {
   return request.post<{ ticket: string; allowWrite: boolean }>(
-    '/ai/chat/ticket',
+    "/ai/chat/ticket",
     { allowWrite },
     { loading: false, cancelRepeat: false },
   );
@@ -64,7 +71,7 @@ export async function createChatTicket(
 
 /** 会话列表 */
 export function listConversations() {
-  return request.get<ConversationSummary[]>('/ai/conversations', {
+  return request.get<ConversationSummary[]>("/ai/conversations", {
     loading: false,
   });
 }
@@ -76,7 +83,7 @@ export function listConversations() {
  * 换模型厂商时前端零改动。
  */
 export function listModels() {
-  return request.get<{ current: string; options: string[] }>('/ai/models', {
+  return request.get<{ current: string; options: string[] }>("/ai/models", {
     loading: false,
   });
 }
@@ -102,34 +109,39 @@ export function getConversationMessages(id: string) {
  * - 心跳 `:ping` 要跳过，否则会被当成坏数据
  */
 export async function streamChat(params: StreamChatParams): Promise<void> {
-  const { question, conversationId, model, signal, handlers } = params;
+  const {
+    question,
+    conversationId,
+    model,
+    allowWrite = false,
+    signal,
+    handlers,
+  } = params;
 
-  const { ticket } = await createChatTicket();
+  const { ticket } = await createChatTicket(allowWrite);
 
   const qs = new URLSearchParams({ ticket, q: question });
-  if (conversationId) qs.set('conversationId', conversationId);
-  if (model) qs.set('model', model);
+  if (conversationId) qs.set("conversationId", conversationId);
+  if (model) qs.set("model", model);
 
   const res = await fetch(`${BASE}/ai/chat/stream?${qs.toString()}`, {
-    method: 'GET',
+    method: "GET",
     headers: {
-      Accept: 'text/event-stream',
+      Accept: "text/event-stream",
       // 带上 token 便于网关/代理层识别（后端校验实际用 ticket）
-      Authorization: `Bearer ${getToken() ?? ''}`,
+      Authorization: `Bearer ${getToken() ?? ""}`,
     },
     signal,
   });
 
   if (!res.ok || !res.body) {
-    const text = await res.text().catch(() => '');
-    throw new Error(
-      text || `建立流式连接失败（HTTP ${res.status}）`,
-    );
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `建立流式连接失败（HTTP ${res.status}）`);
   }
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
-  let buffer = '';
+  let buffer = "";
 
   try {
     while (true) {
@@ -139,18 +151,18 @@ export async function streamChat(params: StreamChatParams): Promise<void> {
       buffer += decoder.decode(value, { stream: true });
 
       // SSE 以空行（\n\n）分隔事件帧
-      let idx = buffer.indexOf('\n\n');
+      let idx = buffer.indexOf("\n\n");
       while (idx >= 0) {
         const frame = buffer.slice(0, idx);
         buffer = buffer.slice(idx + 2);
-        idx = buffer.indexOf('\n\n');
+        idx = buffer.indexOf("\n\n");
 
-        const line = frame.split('\n').find((l) => l.startsWith('data:'));
+        const line = frame.split("\n").find((l) => l.startsWith("data:"));
         if (!line) continue;
 
         const raw = line.slice(5).trim();
         // 心跳注释行，忽略
-        if (!raw || raw.startsWith(':')) continue;
+        if (!raw || raw.startsWith(":")) continue;
 
         let ev: StreamEvent;
         try {
@@ -160,26 +172,26 @@ export async function streamChat(params: StreamChatParams): Promise<void> {
         }
 
         switch (ev.type) {
-          case 'start':
+          case "start":
             handlers.onStart?.({
               conversationId: ev.conversationId,
               messageId: ev.messageId,
             });
             break;
-          case 'token':
+          case "token":
             handlers.onToken?.(ev.content);
             break;
-          case 'reasoning':
+          case "reasoning":
             handlers.onReasoning?.(ev.content);
             break;
-          case 'tool_call':
+          case "tool_call":
             handlers.onToolCall?.({
               id: ev.id,
               name: ev.name,
               args: ev.args,
             });
             break;
-          case 'tool_result':
+          case "tool_result":
             handlers.onToolResult?.({
               id: ev.id,
               name: ev.name,
@@ -187,10 +199,10 @@ export async function streamChat(params: StreamChatParams): Promise<void> {
               result: ev.result,
             });
             break;
-          case 'error':
+          case "error":
             handlers.onError?.(ev.message);
             break;
-          case 'done':
+          case "done":
             handlers.onDone?.({
               finishReason: ev.finishReason,
               usage: ev.usage,

@@ -12,5 +12,12 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
   imports: [JwtModule.register({})],
   controllers: [NotesController, AttachmentsController],
   providers: [NotesService, AttachmentsService, StorageService, JwtAuthGuard],
+  /*
+   * 导出给 AiModule：AI 的笔记工具必须复用 NotesService，而不是自己查 Prisma。
+   * 层级上限、移动环检测、子树级联软删这些规则只应有一份实现 ——
+   * 在工具里另写一套，AI 这条路径就会绕过校验（能把页面挂到第 8 层、
+   * 把目录移进自己的后代形成环）。
+   */
+  exports: [NotesService],
 })
 export class NotesModule {}

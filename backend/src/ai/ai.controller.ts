@@ -31,6 +31,7 @@ import { RateLimitService } from './rate-limit.service';
 import { createUserScopedTools, type ToolWithPolicy } from './tools';
 import { RedisService } from '../redis/redis.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotesService } from '../notes/notes.service';
 import {
   availableModelNames,
   ChatModelFactory,
@@ -53,6 +54,8 @@ export class AiController {
     private readonly rateLimit: RateLimitService,
     private readonly prisma: PrismaService,
     private readonly models: ChatModelFactory,
+     private readonly notes: NotesService,  
+
   ) {}
 
   /** 从 Authorization: Bearer xxx 中解析 userId */
@@ -164,7 +167,7 @@ export class AiController {
       : [];
 
     // 按本次请求创建用户专属工具（带 userId 过滤，防止越权访问他人会话）
-    const userTools = createUserScopedTools(this.prisma, userId);
+    const userTools = createUserScopedTools(this.prisma, userId, this.notes);
 
     // 白名单校验：不在 CHAT_MODEL_OPTIONS 里的名字会被回落到默认模型
     const resolvedModel = this.models.resolve(model);

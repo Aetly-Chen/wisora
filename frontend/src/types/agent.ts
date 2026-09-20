@@ -10,6 +10,13 @@ export interface AgentMessage {
   reasoning?: string;
   /** 工具调用状态，用于渲染"正在调用工具" */
   toolStatus?: 'calling' | 'done' | 'failed';
+  /**
+   * 工具消息对应的原始工具名（如 create_my_note）。
+   *
+   * 单独存一份而不是从 content 里解析：content 是给人看的展示文案，
+   * 文案一改解析就失效；页面还要靠它查「工具名 → 中文动作」的映射表。
+   */
+  toolName?: string;
 }
 
 /**

@@ -24,7 +24,35 @@ import {
   ChevronDown,
   Check,
   Mic,
+  ShieldCheck,
+  ShieldOff,
 } from "lucide-react";
+import { toast } from "sonner";
+import { createNote } from "@/request/notes";
+
+/**
+ * 工具名 → 用户能看懂的动作描述。
+ *
+ * 找不到映射时直接显示原始工具名：后端加新工具时前端不用跟着改，
+ * 顶多是显示得不够友好，不会显示不出来。
+ *
+ * 放在模块顶层而不是组件内部：组件内定义的对象每次渲染都会重建一份，
+ * 虽不像「组件内定义组件」那样导致子树重挂，但没有任何理由付这份开销。
+ */
+const TOOL_LABELS: Record<string, string> = {
+  list_my_notes: "查看笔记目录",
+  read_my_note: "读取笔记内容",
+  create_my_note: "保存到笔记",
+  write_my_note: "写入笔记",
+  update_my_note: "更新笔记",
+  delete_my_note: "删除笔记",
+  list_my_conversations: "查看会话列表",
+  read_my_conversation: "读取会话记录",
+  rename_my_conversation: "重命名会话",
+  query_user: "查询用户资料",
+};
+
+const toolLabel = (name: string) => TOOL_LABELS[name] ?? name;
 
 /*
  * 模型直接显示原始 id（如 deepseek-flash）。
@@ -137,7 +165,9 @@ interface SpeechRecognitionLike {
   start: () => void;
   stop: () => void;
   abort: () => void;
-  onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onresult:
+    | ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void)
+    | null;
   onend: (() => void) | null;
   onerror: (() => void) | null;
 }
@@ -264,6 +294,15 @@ interface InputBarProps {
   onModelChange: (model: string) => void;
   /** 语音识别结果，追加到输入框 */
   onVoiceResult: (text: string) => void;
+  /**
+   * 是否允许 AI 执行写操作（保存 / 修改 / 删除笔记）。
+   *
+   * 后端对所有标记了 write 的工具做统一拦截：未授权时不执行，
+   * 只把「需要用户授权」告知模型。授权随一次性 ticket 签发，
+   * 因此天然只作用于这一轮，不会长期生效。
+   */
+  allowWrite: boolean;
+  onAllowWriteChange: (allow: boolean) => void;
   floating?: boolean;
 }
 
@@ -278,6 +317,8 @@ const InputBar: React.FC<InputBarProps> = ({
   models,
   onModelChange,
   onVoiceResult,
+  allowWrite,
+  onAllowWriteChange,
   floating = false,
 }) => (
   <form onSubmit={onSubmit} className="w-full max-w-2xl mx-auto">
@@ -306,6 +347,35 @@ const InputBar: React.FC<InputBarProps> = ({
       />
 
       <div className="flex items-center gap-1 shrink-0">
+        {/*
+          写操作授权开关。放在模型切换左侧、与"发送"分开，
+          是因为它是一次「授权动作」而不是一个输入设置 ——
+          打开后 AI 才能保存/修改/删除笔记。
+        */}
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={() => onAllowWriteChange(!allowWrite)}
+          aria-pressed={allowWrite}
+          title={
+            allowWrite
+              ? "已允许 AI 修改数据：可保存、整理、删除笔记。点击关闭"
+              : "允许 AI 修改数据（让 AI 保存或整理笔记时需要开启）"
+          }
+          className={`h-9 w-9 rounded-full shrink-0 ${
+            allowWrite
+              ? "bg-indigo-50 text-indigo-600 hover:bg-indigo-100 hover:text-indigo-700"
+              : "text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+          }`}
+        >
+          {allowWrite ? (
+            <ShieldCheck className="h-4 w-4" />
+          ) : (
+            <ShieldOff className="h-4 w-4" />
+          )}
+        </Button>
+
         <ModelSwitcher
           model={model}
           models={models}
@@ -410,6 +480,8 @@ export const AgentPage: React.FC = () => {
     models,
     setModel,
     loadModels,
+    allowWrite,
+    setAllowWrite,
   } = useAgentStore();
   const navigate = useNavigate();
   const [input, setInput] = useState("");
@@ -485,6 +557,33 @@ export const AgentPage: React.FC = () => {
     setInput("");
     setSidebarOpen(false);
     inputRef.current?.focus();
+  };
+
+  /**
+   * 把助手这条消息的原文存成笔记。
+   *
+   * 不走 AI 工具：让模型"把刚生成的内容再输出一遍"既费 token，
+   * 又可能在复述时改写或漏段。这里直接 POST /notes，内容逐字不差。
+   *
+   * 也不受「允许 AI 修改数据」开关限制 —— 那个开关管的是
+   * "AI 自主决定改数据"，与用户点按钮的显式操作是两件事。
+   */
+  const handleSaveToNotes = async (content: string) => {
+    // 标题取首个非空行，去掉 Markdown 标题标记与列表符号
+    const firstLine = content
+      .split("\n")
+      .map((line) => line.trim())
+      .find((line) => line.length > 0);
+    const title =
+      (firstLine ?? "").replace(/^#{1,6}\s*/, "").replace(/^[-*+]\s+/, "").slice(0, 40).trim() ||
+      `对话记录 ${new Date().toLocaleString("zh-CN", { hour12: false })}`;
+
+    try {
+      await createNote({ title, content });
+      toast.success(`已保存到笔记：${title}`);
+    } catch (err) {
+      toast.error((err as Error).message || "保存失败");
+    }
   };
 
   const handleBackHome = () => {
@@ -652,9 +751,12 @@ export const AgentPage: React.FC = () => {
                 model={model}
                 models={models}
                 onModelChange={setModel}
-                onVoiceResult={(t) => setInput((prev) => (prev ? `${prev}${t}` : t))}
+                onVoiceResult={(t) =>
+                  setInput((prev) => (prev ? `${prev}${t}` : t))
+                }
+                allowWrite={allowWrite}
+                onAllowWriteChange={setAllowWrite}
               />
-
             </motion.div>
           </div>
         ) : (
@@ -682,22 +784,60 @@ export const AgentPage: React.FC = () => {
                             : "mr-auto bg-white border border-slate-200/80 text-slate-800"
                       }`}
                     >
-                      {/* 工具调用：标注状态，提升"它在干什么"的透明度 */}
+                      {/* 工具调用：显示中文动作名 + 状态，"它在干什么"一目了然 */}
                       {msg.role === "tool" && (
-                        <div className="mb-1 text-[11px] font-medium text-amber-700">
-                          {msg.toolStatus === "calling"
-                            ? "正在调用工具…"
-                            : msg.toolStatus === "failed"
-                              ? "工具调用失败"
-                              : "工具调用完成"}
+                        <div className="mb-1 flex items-center gap-1.5 text-[11px] font-medium text-amber-700">
+                          {msg.toolStatus === "calling" && (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          )}
+                          <span>{toolLabel(msg.toolName ?? "")}</span>
+                          <span className="font-normal text-amber-600/80">
+                            {msg.toolStatus === "calling"
+                              ? "执行中…"
+                              : msg.toolStatus === "failed"
+                                ? "失败"
+                                : "已完成"}
+                          </span>
                         </div>
                       )}
-                      {msg.content}
+
+                      {/*
+                        工具往返的原始载荷（参数与结果）放在可滚动容器里：
+                        读取长笔记时结果可能上千字，不限制高度会把整页撑开。
+                      */}
+                      {msg.role === "tool" ? (
+                        <div className="max-h-40 overflow-y-auto">
+                          {msg.content}
+                        </div>
+                      ) : (
+                        msg.content
+                      )}
+
                       {msg.meta && (
                         <div className="mt-1.5 text-[11px] text-slate-400">
                           {msg.meta}
                         </div>
                       )}
+
+                      {/*
+                        「保存到笔记」：直接把这条消息的原文存成笔记。
+                        不走 AI 工具，因为它要"把刚生成的内容再输出一遍"，
+                        既费 token，又可能在复述时改写或漏段。
+                      */}
+                      {msg.role === "ai" &&
+                        msg.id !== "welcome" &&
+                        msg.content.trim() !== "" && (
+                          <div className="mt-1.5 flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => void handleSaveToNotes(msg.content)}
+                              className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11.5px] text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                            >
+                              <NotebookPen className="h-3.5 w-3.5" />
+                              保存到笔记
+                            </button>
+                          </div>
+                        )}
                     </div>
                   </motion.div>
                 ))}
@@ -746,10 +886,15 @@ export const AgentPage: React.FC = () => {
                 model={model}
                 models={models}
                 onModelChange={setModel}
-                onVoiceResult={(t) => setInput((prev) => (prev ? `${prev}${t}` : t))}
+                onVoiceResult={(t) =>
+                  setInput((prev) => (prev ? `${prev}${t}` : t))
+                }
+                allowWrite={allowWrite}
+                onAllowWriteChange={setAllowWrite}
               />
               <p className="text-center text-[10px] text-slate-400 mt-2 px-4">
-                Wisora AI 由后端 LangChain Agent 驱动，内容由 AI 生成，请谨慎甄别。
+                Wisora AI 由后端 LangChain Agent 驱动，内容由 AI
+                生成，请谨慎甄别。
               </p>
             </div>
           </>

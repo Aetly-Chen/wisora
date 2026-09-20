@@ -10,10 +10,13 @@ import { RateLimitService } from './rate-limit.service';
 import { StreamTicketGuard } from './guards/stream-ticket.guard';
 import { PrismaModule } from '../prisma/prisma.module';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotesModule } from '../notes/notes.module';
 
 @Module({
   imports: [
     PrismaModule,
+    NotesModule,
+
     // RedisModule 是 @Global()，无需重复导入
     // ticket 换票接口需要验证 JWT（stream 走一次性 ticket，不走这里）
     JwtModule.register({}),
