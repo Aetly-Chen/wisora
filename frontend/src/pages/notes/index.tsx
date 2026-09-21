@@ -1,5 +1,5 @@
 import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
   Check,
@@ -17,6 +17,7 @@ import {
   PinOff,
   Plus,
   Search,
+  Share2,
   Trash2,
   Upload,
   X,
@@ -31,9 +32,17 @@ import {
 } from '@/components/ui/dialog';
 import { MarkdownView } from '@/components/MarkdownView';
 import { VirtualList } from '@/components/VirtualList';
+import { ContextMenu, type ContextMenuItem } from '@/components/ContextMenu';
+import { ShareToFriendDialog } from '@/components/chat/ShareToFriendDialog';
 import { flattenNotes, subtreeIds, useNotesStore } from '@/stores/useNotesStore';
 import { downloadAttachment, fetchAttachmentBlob } from '@/request/notes';
-import type { AttachmentMeta, NoteChildSummary, NoteTreeRow } from '@/types/note';
+import type {
+  AttachmentMeta,
+  NoteChildSummary,
+  NoteSummary,
+  NoteTreeRow,
+} from '@/types/note';
+import type { SharedNotePayload } from '@/types/chat';
 
 /* ------------------------------------------------------------------ */
 /* 工具函数                                                             */
@@ -87,6 +96,8 @@ const NoteTreeItem: React.FC<{
   onAddChild: () => void;
   onDelete: () => void;
   onMoveRequest: () => void;
+  /** 右键菜单。除了行内 hover 按钮，右键是第二条操作入口 */
+  onContextMenu: (e: React.MouseEvent) => void;
   onDragStart: (e: React.DragEvent) => void;
   onDragOverRow: (e: React.DragEvent) => void;
   onDragLeaveRow: () => void;
@@ -104,6 +115,7 @@ const NoteTreeItem: React.FC<{
   onAddChild,
   onDelete,
   onMoveRequest,
+  onContextMenu,
   onDragStart,
   onDragOverRow,
   onDragLeaveRow,
@@ -120,6 +132,7 @@ const NoteTreeItem: React.FC<{
       onDragOver={onDragOverRow}
       onDragLeave={onDragLeaveRow}
       onDrop={onDropRow}
+      onContextMenu={onContextMenu}
       className={`group flex h-full items-center rounded-lg pr-1 transition-colors ${
         dragging ? 'opacity-40' : ''
       } ${
@@ -457,6 +470,14 @@ const NotesPage: React.FC = () => {
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   /** 「移动到…」弹窗的源笔记 id */
   const [moveSourceId, setMoveSourceId] = useState<string | null>(null);
+  /** 右键菜单：坐标 + 目标行 */
+  const [rowMenu, setRowMenu] = useState<{
+    x: number;
+    y: number;
+    note: NoteSummary;
+  } | null>(null);
+  /** 分享弹窗的目标快照；null 表示关闭 */
+  const [shareTarget, setShareTarget] = useState<SharedNotePayload | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
@@ -478,6 +499,26 @@ const NotesPage: React.FC = () => {
   useEffect(() => {
     setForcePreview(false);
   }, [activeId]);
+
+  /*
+   * 深链：/notes?note=<id> 直接打开指定笔记。
+   *
+   * 聊天里收到分享卡片时点「打开」就是走这里。
+   * 读完立刻把参数清掉，否则用户在里面切到别的笔记后刷新页面，
+   * 又会被拽回分享的那一篇。
+   */
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  useEffect(() => {
+    const noteId = searchParams.get('note');
+    if (!noteId) return;
+
+    void openNote(noteId, { force: true });
+
+    const next = new URLSearchParams(searchParams);
+    next.delete('note');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams, openNote]);
 
   /*
    * 树摊平。
@@ -561,6 +602,72 @@ const NotesPage: React.FC = () => {
   const handleCreate = () => {
     void createNote();
   };
+
+  /**
+   * 右键菜单项。
+   *
+   * 与行内 hover 按钮是两条并列的入口，不是替代关系：
+   * hover 按钮给高频的三个操作（移动 / 新建子页面 / 删除），
+   * 右键菜单给完整清单 —— 分享、置顶这些操作没有位置放进
+   * 一行里（行内已经挤了三个按钮），右键是它们唯一的入口。
+   */
+  const rowMenuItems: ContextMenuItem[] = rowMenu
+    ? (() => {
+        const { note } = rowMenu;
+        // 有子页面就算「目录」。分享给好友时卡片上会注明含几个子页面
+        const descendants = subtreeIds(notes, note.id).size - 1;
+        const kind: SharedNotePayload['kind'] = descendants > 0 ? 'folder' : 'note';
+
+        return [
+          {
+            id: 'open',
+            label: '打开',
+            onSelect: () => void openNote(note.id),
+          },
+          {
+            id: 'add-child',
+            label: '新建子页面',
+            icon: Plus,
+            group: 'edit',
+            onSelect: () => void createNote(note.id),
+          },
+          {
+            id: 'move',
+            label: '移动到…',
+            icon: FolderInput,
+            group: 'edit',
+            onSelect: () => setMoveSourceId(note.id),
+          },
+          {
+            id: 'share',
+            label: '分享给好友',
+            icon: Share2,
+            group: 'share',
+            onSelect: () =>
+              setShareTarget({
+                noteId: note.id,
+                title: note.title || '无标题',
+                kind,
+                childCount: descendants,
+              }),
+          },
+          {
+            id: 'pin',
+            label: note.pinned ? '取消置顶' : '置顶',
+            icon: note.pinned ? PinOff : Pin,
+            group: 'share',
+            onSelect: () => void togglePin(note.id),
+          },
+          {
+            id: 'delete',
+            label: descendants > 0 ? `删除（含 ${descendants} 个子页面）` : '删除',
+            icon: Trash2,
+            danger: true,
+            onSelect: () => void removeNote(note.id),
+          },
+        ] satisfies ContextMenuItem[];
+      })()
+    : [];
 
   return (
     /*
@@ -704,6 +811,10 @@ const NotesPage: React.FC = () => {
                     onAddChild={() => void createNote(note.id)}
                     onDelete={() => void removeNote(note.id)}
                     onMoveRequest={() => setMoveSourceId(note.id)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setRowMenu({ x: e.clientX, y: e.clientY, note });
+                    }}
                     onDragStart={(e) => {
                       e.dataTransfer.setData('text/note-id', note.id);
                       e.dataTransfer.effectAllowed = 'move';
@@ -951,6 +1062,24 @@ const NotesPage: React.FC = () => {
       </main>
 
       <AttachmentPreview attachment={previewing} onClose={() => setPreviewing(null)} />
+
+      {/* 目录树的右键菜单 */}
+      <ContextMenu
+        open={!!rowMenu}
+        x={rowMenu?.x ?? 0}
+        y={rowMenu?.y ?? 0}
+        items={rowMenuItems}
+        onClose={() => setRowMenu(null)}
+      />
+
+      {/*
+        分享给好友。传的是笔记快照而不是 id：
+        弹窗不该依赖笔记页的状态，也方便同一篇被反复分享。
+      */}
+      <ShareToFriendDialog
+        target={shareTarget}
+        onClose={() => setShareTarget(null)}
+      />
 
       {/*
         「移动到…」选择器。

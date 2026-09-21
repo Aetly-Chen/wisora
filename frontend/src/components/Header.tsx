@@ -3,11 +3,12 @@ import { NavLink } from 'react-router-dom';
 import type { ViewDevice } from '../types/auth';
 import { Sparkles } from 'lucide-react';
 
-/** 主导航项。AI 助手与笔记是工作区，关于页放在最后。 */
+/** 主导航项。AI 助手、笔记、聊天都是工作区，关于页放在最后。 */
 const NAV_ITEMS = [
   { to: '/', label: '首页' },
   { to: '/agent', label: 'AI 助手' },
   { to: '/notes', label: '笔记' },
+  { to: '/chat', label: '聊天' },
   { to: '/about', label: '关于' },
 ] as const;
 

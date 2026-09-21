@@ -1,0 +1,181 @@
+/**
+ * 聊天模块的类型定义。
+ *
+ * 与后端的数据形状一一对应，字段命名沿用项目既有习惯：
+ * 时间一律用 ISO 字符串（后端 Prisma 的 Date 经 JSON 序列化后就是字符串），
+ * 可空关系用 `| null` 而不是可选字段，避免「有字段但值是 undefined」
+ * 这种前后端都容易踩的形状歧义。
+ */
+
+/* ------------------------------------------------------------------ */
+/* 好友                                                                */
+/* ------------------------------------------------------------------ */
+
+/** 在线状态。离线不显示任何标记，在线才显示小圆点 */
+export type Presence = 'online' | 'away' | 'offline';
+
+export interface Friend {
+  id: string;
+  /** 显示名 */
+  name: string;
+  /**
+   * 唯一账号标识，展示为 @handle。
+   * 加好友时按它精确查找，避免同名歧义。
+   */
+  handle: string;
+  email: string;
+  /** 个性签名 / 职位，展示在好友资料与搜索结果里 */
+  bio: string;
+  presence: Presence;
+  /** 是否已被当前用户加为好友；搜索结果为 false 时显示「添加」 */
+  isFriend: boolean;
+}
+
+/* ------------------------------------------------------------------ */
+/* 会话                                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 会话类型。
+ *
+ * direct 单聊固定 2 名成员；group 群聊 3 人及以上。
+ * 用联合类型而不是 enum —— 项目的 erasableSyntaxOnly 禁用了 enum。
+ */
+export type ConversationKind = 'direct' | 'group';
+
+export interface Conversation {
+  id: string;
+  kind: ConversationKind;
+  /** 群聊的群名。单聊为空，标题由对方名字推导 */
+  title: string | null;
+  /** 参与者 id（包含自己）。单聊为 2 个，群聊为 3 个及以上 */
+  memberIds: string[];
+  /** 最后一条消息，列表用它渲染摘要 */
+  lastMessage: Message | null;
+  unread: number;
+  /** 置顶，列表排序时优先 */
+  pinned: boolean;
+  /** 免打扰：仍然累计未读，但不显示计数红点 */
+  muted: boolean;
+  /** 群聊头像用的取色种子，避免每次渲染颜色抖动 */
+  createdAt: string;
+  updatedAt: string;
+}
+
+/* ------------------------------------------------------------------ */
+/* 消息                                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 消息种类。
+ *
+ * - text  纯文本
+ * - image 图片（附件带了预览地址，气泡内直接显示缩略图）
+ * - file  普通文件（气泡内是文件卡片）
+ * - note  分享的笔记 / 目录（气泡内是笔记卡片，点击可跳回笔记页）
+ */
+export type MessageKind = 'text' | 'image' | 'file' | 'note';
+
+/**
+ * 发送状态。
+ *
+ * sending 显示转圈，failed 显示重试入口。
+ * read 只用于「自己发出的最后一条」，对方的读取回执。
+ */
+export type MessageStatus = 'sending' | 'sent' | 'read' | 'failed';
+
+/** 附件元数据。与笔记模块的 AttachmentMeta 保持一致的字段命名 */
+export interface ChatAttachment {
+  id: string;
+  /** 原始文件名 */
+  name: string;
+  /** 字节数 */
+  size: number;
+  mimeType: string;
+  /** 图片消息的预览地址 */
+  previewUrl?: string;
+  /** 本地已取到的对象地址（前端预览用） */
+  objectUrl?: string;
+}
+
+/**
+ * 分享笔记时附在消息上的卡片数据。
+ *
+ * 只存快照（标题 + 类型 + 子页面数），不存笔记正文 ——
+ * 聊天记录里塞整篇 Markdown 会让消息表迅速膨胀，
+ * 点开卡片时再按 noteId 去笔记模块拉取。
+ */
+export interface SharedNotePayload {
+  noteId: string;
+  title: string;
+  /** 分享的是单篇笔记还是一个目录 */
+  kind: 'note' | 'folder';
+  /** 目录分享时带上子页面数量，卡片上显示「含 N 个子页面」 */
+  childCount: number;
+}
+
+export interface Message {
+  id: string;
+  conversationId: string;
+  /** 发送者 id。等于当前用户 id 时渲染成右侧气泡 */
+  senderId: string;
+  kind: MessageKind;
+  text: string | null;
+  attachment: ChatAttachment | null;
+  note: SharedNotePayload | null;
+  /** 上传进度 0-100，仅发送中的附件消息有值 */
+  uploadProgress?: number;
+  createdAt: string;
+  status: MessageStatus;
+}
+
+/* ------------------------------------------------------------------ */
+/* 实时事件（订阅钩子用）                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 服务端推送事件。
+ *
+ * mock 阶段由适配层用定时器伪造；后端就绪后换成 WebSocket / SSE 的
+ * 消息回调，**store 侧一行都不用改** —— 这是把实时能力抽象成
+ * 订阅钩子的唯一目的。
+ */
+export type ChatEvent =
+  | { type: 'message'; message: Message }
+  | { type: 'typing'; conversationId: string; userId: string; typing: boolean }
+  | { type: 'read'; conversationId: string; userId: string }
+  | { type: 'presence'; userId: string; presence: Presence };
+
+/* ------------------------------------------------------------------ */
+/* 请求载荷                                                            */
+/* ------------------------------------------------------------------ */
+
+export interface SendMessagePayload {
+  conversationId: string;
+  text?: string;
+  attachment?: ChatAttachment;
+  note?: SharedNotePayload;
+}
+
+export interface ShareNotePayload {
+  noteId: string;
+  title: string;
+  kind: 'note' | 'folder';
+  childCount: number;
+  /** 要分享给哪些好友；每人生成（或复用）一个单聊会话 */
+  toFriendIds: string[];
+  /** 附加的一句说明 */
+  comment?: string;
+}
+
+export interface ShareNoteResult {
+  /** 实际送达的会话数 */
+  conversationCount: number;
+  /** 实际生成的消息数 */
+  messageCount: number;
+}
+
+export interface CreateGroupPayload {
+  title: string;
+  memberIds: string[];
+}

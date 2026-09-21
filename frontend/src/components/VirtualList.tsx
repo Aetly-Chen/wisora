@@ -24,6 +24,13 @@ interface VirtualListProps {
   renderRow: (index: number) => React.ReactNode;
   className?: string;
   empty?: React.ReactNode;
+  /**
+   * 行高（像素）。默认 44，与笔记目录树、会话列表一致。
+   *
+   * 聊天的会话行要放头像 + 标题 + 摘要，44px 装不下，所以做成可配的。
+   * 注意这个值必须与实际行高严格相等，否则滚动位置会漂移。
+   */
+  rowHeight?: number;
   'data-testid'?: string;
 }
 
@@ -32,6 +39,7 @@ export const VirtualList: React.FC<VirtualListProps> = ({
   renderRow,
   className,
   empty,
+  rowHeight = ROW_HEIGHT,
   'data-testid': testId,
 }) => {
   const ref = useRef<HTMLDivElement>(null);
@@ -48,16 +56,16 @@ export const VirtualList: React.FC<VirtualListProps> = ({
     return () => ro.disconnect();
   }, []);
 
-  const start = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
+  const start = Math.max(0, Math.floor(scrollTop / rowHeight) - OVERSCAN);
   const end = Math.min(
     count,
-    Math.ceil((scrollTop + viewportHeight) / ROW_HEIGHT) + OVERSCAN,
+    Math.ceil((scrollTop + viewportHeight) / rowHeight) + OVERSCAN,
   );
 
   const rows: React.ReactNode[] = [];
   for (let i = start; i < end; i++) {
     rows.push(
-      <div key={i} style={{ height: ROW_HEIGHT }}>
+      <div key={i} style={{ height: rowHeight }}>
         {renderRow(i)}
       </div>,
     );
@@ -74,8 +82,8 @@ export const VirtualList: React.FC<VirtualListProps> = ({
       {count === 0 ? (
         empty
       ) : (
-        <div style={{ height: count * ROW_HEIGHT, position: 'relative' }}>
-          <div style={{ transform: `translateY(${start * ROW_HEIGHT}px)` }}>{rows}</div>
+        <div style={{ height: count * rowHeight, position: 'relative' }}>
+          <div style={{ transform: `translateY(${start * rowHeight}px)` }}>{rows}</div>
         </div>
       )}
     </div>

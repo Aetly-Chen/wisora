@@ -1,0 +1,222 @@
+/**
+ * 聊天模块的纯函数工具。
+ *
+ * 单独成文件而不是散在组件里：时间分组、字节格式化、头像取色
+ * 这几件事在列表、气泡、文件卡、分享弹窗里都要用，
+ * 各写一份必然出现「同一个时间在列表显示昨天、在气泡显示 09-17」。
+ */
+
+import type { ChatAttachment } from '@/types/chat';
+
+/* ------------------------------ 时间 ------------------------------ */
+
+const pad = (n: number) => String(n).padStart(2, '0');
+
+/** HH:mm，气泡内与列表同用时区的时钟 */
+export function formatClock(iso: string): string {
+  const d = new Date(iso);
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** 两个时间是否落在同一自然日 */
+export function isSameDay(a: string, b: string): boolean {
+  const x = new Date(a);
+  const y = new Date(b);
+  return (
+    x.getFullYear() === y.getFullYear() &&
+    x.getMonth() === y.getMonth() &&
+    x.getDate() === y.getDate()
+  );
+}
+
+/** 列表里的时间：今天给时刻，昨天给「昨天」，一周内给星期，更早给日期 */
+export function formatListTime(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  if (isSameDay(iso, now.toISOString())) return formatClock(iso);
+
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (isSameDay(iso, yesterday.toISOString())) return '昨天';
+
+  const diffDays = Math.floor((now.getTime() - d.getTime()) / 86_400_000);
+  if (diffDays < 7) {
+    return ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][d.getDay()];
+  }
+  if (d.getFullYear() === now.getFullYear()) {
+    return `${d.getMonth() + 1}/${d.getDate()}`;
+  }
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+/**
+ * 消息流里的日期分隔标签。
+ *
+ * 昨天与更早都写全日期，不写「周三」—— 聊天记录经常被翻到几周前，
+ * 「周三」在那时是歧义信息，不如直接给日期。
+ */
+export function formatDayDivider(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  if (isSameDay(iso, now.toISOString())) return '今天';
+
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (isSameDay(iso, yesterday.toISOString())) return '昨天';
+
+  const week = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][d.getDay()];
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${week}`;
+}
+
+/* ------------------------------ 体积 ------------------------------ */
+
+/** 文件体积。附件大小是给用户看的，统一走这个函数避免各处精度不一 */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/* ------------------------------ 头像 ------------------------------ */
+
+/**
+ * 取名字的首字作为头像文字。
+ *
+ * 中文取最后两字（「陈亦航」→「亦航」）比取首字更易区分；
+ * 英文取首字母。都不空时兜底成问号，避免渲染出空圆。
+ */
+export function initials(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return '?';
+
+  if (/[\u4e00-\u9fa5]/.test(trimmed)) {
+    // 中文名：优先取后两字（去掉姓氏），单字名就取该字
+    const withoutSurname = trimmed.length > 2 ? trimmed.slice(1) : trimmed;
+    return withoutSurname.slice(0, 2);
+  }
+
+  const parts = trimmed.split(/\s+/).filter(Boolean);
+  return parts
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase() ?? '')
+    .join('');
+}
+
+/**
+ * 头像底色：由 id 稳定推导，同一人每次渲染都是同一色。
+ *
+ * 用一组**受控的低饱和色**而不是随机 HSL ——
+ * 随机色相会跑出荧光绿、亮橙这类颜色，整页立刻显脏。
+ * 这里是功能性用色（帮人快速区分不同联系人），
+ * 不是在给页面加第二个强调色，所以限定在 5 个都压过饱和度的色相里。
+ */
+const AVATAR_TONES = [
+  'from-indigo-500 to-indigo-600',
+  'from-teal-500 to-teal-600',
+  'from-amber-500 to-amber-600',
+  'from-rose-500 to-rose-600',
+  'from-sky-500 to-sky-600',
+] as const;
+
+export function avatarTone(id: string): string {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = (hash * 31 + id.charCodeAt(i)) % 100_000;
+  }
+  return AVATAR_TONES[hash % AVATAR_TONES.length];
+}
+
+/* ------------------------------ 文件 ------------------------------ */
+
+/**
+ * 附件分类。
+ *
+ * 只用于选图标与文案（「图片」「PDF」「压缩包」），
+ * 不做任何安全判断 —— 类型白名单是后端的事，
+ * 前端按扩展名猜测的东西挡不住攻击者。
+ */
+export type FileKind =
+  | 'image'
+  | 'pdf'
+  | 'doc'
+  | 'sheet'
+  | 'slide'
+  | 'archive'
+  | 'audio'
+  | 'video'
+  | 'code'
+  | 'text'
+  | 'other';
+
+const EXT_MAP: Record<string, FileKind> = {
+  pdf: 'pdf',
+  doc: 'doc',
+  docx: 'doc',
+  rtf: 'doc',
+  xls: 'sheet',
+  xlsx: 'sheet',
+  csv: 'sheet',
+  ppt: 'slide',
+  pptx: 'slide',
+  zip: 'archive',
+  rar: 'archive',
+  '7z': 'archive',
+  gz: 'archive',
+  tar: 'archive',
+  mp3: 'audio',
+  wav: 'audio',
+  m4a: 'audio',
+  mp4: 'video',
+  mov: 'video',
+  webm: 'video',
+  ts: 'code',
+  tsx: 'code',
+  js: 'code',
+  jsx: 'code',
+  json: 'code',
+  py: 'code',
+  go: 'code',
+  rs: 'code',
+  java: 'code',
+  css: 'code',
+  html: 'code',
+  md: 'text',
+  txt: 'text',
+};
+
+export function fileKind(name: string, mimeType: string): FileKind {
+  if (mimeType.startsWith('image/')) return 'image';
+  if (mimeType.startsWith('audio/')) return 'audio';
+  if (mimeType.startsWith('video/')) return 'video';
+
+  const ext = name.split('.').pop()?.toLowerCase() ?? '';
+  return EXT_MAP[ext] ?? 'other';
+}
+
+/** 分类对应的中文标签，用于文件卡片的副标题 */
+export const FILE_KIND_LABEL: Record<FileKind, string> = {
+  image: '图片',
+  pdf: 'PDF',
+  doc: '文档',
+  sheet: '表格',
+  slide: '演示文稿',
+  archive: '压缩包',
+  audio: '音频',
+  video: '视频',
+  code: '代码',
+  text: '文本',
+  other: '文件',
+};
+
+/**
+ * 单文件体积上限。
+ *
+ * 与后端约定保持一致（见设计文档的接口约定表），
+ * 前端先拦一道是为了不在传了 30 秒之后才告诉用户超限。
+ */
+export const CHAT_FILE_MAX_BYTES = 50 * 1024 * 1024;
+
+/** 判断附件是否能在气泡里直接预览成缩略图 */
+export function isPreviewableImage(attachment: ChatAttachment): boolean {
+  return attachment.mimeType.startsWith('image/') && !!attachment.previewUrl;
+}

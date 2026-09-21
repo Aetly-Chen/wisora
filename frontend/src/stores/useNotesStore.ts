@@ -72,7 +72,7 @@ interface NotesState {
   editContent: (content: string) => void;
   /** 立即落盘（离开编辑器、切换笔记前调用） */
   flush: () => Promise<void>;
-  togglePin: () => Promise<void>;
+  togglePin: (noteId?: string) => Promise<void>;
   removeNote: (id: string) => Promise<void>;
   /** 把某篇笔记移动到另一个页面下（null 表示移到顶层） */
   moveNote: (id: string, parentId: string | null) => Promise<void>;
@@ -344,17 +344,44 @@ export const useNotesStore = create<NotesState>((set, get) => {
       await doSave();
     },
 
-    togglePin: async () => {
-      const active = get().active;
-      if (!active) return;
+    /**
+     * 置顶 / 取消置顶。
+     *
+     * 不传 id 时作用于当前打开的笔记（编辑器顶部的按钮用法）；
+     * 传 id 则作用于指定笔记 —— 右键菜单要能置顶任意一行，
+     * 而不只是"被打开的那一篇"。
+     */
+    togglePin: async (noteId) => {
+      const { notes, active, activeId } = get();
+      const targetId = noteId ?? activeId;
+      if (!targetId) return;
 
-      const next = !active.pinned;
-      set({ active: { ...active, pinned: next } });
+      const summary = notes.find((n) => n.id === targetId);
+      const currentPinned = summary?.pinned ?? active?.pinned ?? false;
+      const next = !currentPinned;
+
+      // 乐观更新 + 失败回滚：置顶是高频轻量操作，
+      // 等接口回来再变色会有明显的迟滞感
+      const previousNotes = notes;
+      const previousActive = active;
+
+      set((state) => ({
+        notes: state.notes.map((n) => (n.id === targetId ? { ...n, pinned: next } : n)),
+        // 只有被改的正好是打开的那篇时才动 active
+        ...(state.active && state.active.id === targetId
+          ? { active: { ...state.active, pinned: next } }
+          : {}),
+      }));
+
       try {
-        await updateNote(active.id, { pinned: next });
+        await updateNote(targetId, { pinned: next });
         await get().loadNotes();
       } catch (err) {
-        set({ active: { ...active, pinned: !next }, error: (err as Error).message });
+        set({
+          notes: previousNotes,
+          active: previousActive,
+          error: (err as Error).message || '操作失败',
+        });
       }
     },
 
