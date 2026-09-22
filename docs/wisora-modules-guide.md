@@ -1,7 +1,8 @@
 # Wisora 核心模块详解：AI 与笔记
 
-> 覆盖 `backend/src/ai`（14 文件 / 1462 行）、`backend/src/notes`（7 文件 / 570 行）
-> 与前端对应代码（10 文件 / 2326 行）。
+> 覆盖 `backend/src/ai`（14 文件 / 1888 行）、`backend/src/notes`（6 文件 / 674 行）
+> 与前端对应代码（12 文件 / 4177 行），外加 Part III 的用户身份层
+> （`src/user` + `common/user-shape` + 个人资料页与顶部导航）。
 > 目标：一份文档看懂两条链路，每个环节都能定位到具体文件，并解释「为什么这么设计」。
 >
 > 最近更新：2026-09-17（补充模型切换、语音输入、登录返回用户信息、若干踩坑）
@@ -32,6 +33,8 @@
   - [2.6 前端：编辑器与自动保存](#26-前端编辑器与自动保存)
   - [2.7 Markdown 渲染与安全](#27-markdown-渲染与安全)
 - [Part III　两个模块共享的基础设施](#part-iii-两个模块共享的基础设施)
+  - [登录响应必须带用户信息](#登录响应必须带用户信息)
+  - [用户身份层：资料页、头像入口、退出登录](#用户身份层资料页头像入口退出登录)
 - [Part IV　踩坑清单](#part-iv-踩坑清单)
 - [Part V　扩展与调参](#part-v-扩展与调参)
 
@@ -58,32 +61,37 @@ Wisora 有两个相对独立、又复用同一套基础设施的业务模块：
 
 | AI 模块 | 行数 | 笔记模块 | 行数 |
 | --- | --- | --- | --- |
-| `ai.controller.ts` | 288 | `notes.controller.ts` | ~50 |
-| `ai.service.ts` | 335 | `notes.service.ts` | ~120 |
-| `types/stream-event.ts` | 22 | `dto/note.dto.ts` | ~40 |
-| `llm/llm.provider.ts` | ~80 | `attachments.controller.ts` | ~100 |
-| `guards/stream-ticket.guard.ts` | 61 | `attachments.service.ts` | ~160 |
-| `memory/conversation.repository.ts` | 154 | `storage.service.ts` | ~80 |
-| `tools/*`（4 文件） | ~300 | `notes.module.ts` | ~20 |
-| `prompts/system.prompt.ts` | ~30 | | |
-| `rate-limit.service.ts` | ~55 | | |
-| `ai.module.ts` | ~47 | | |
+| `ai.controller.ts` | 326 | `notes.controller.ts` | 57 |
+| `ai.service.ts` | 339 | `notes.service.ts` | 321 |
+| `types/stream-event.ts` | 22 | `dto/note.dto.ts` | 64 |
+| `llm/llm.provider.ts` | 80 | `attachments.controller.ts` | 88 |
+| `guards/stream-ticket.guard.ts` | 61 | `attachments.service.ts` | 121 |
+| `memory/conversation.repository.ts` | 177 | `notes.module.ts` | 23 |
+| `tools/*`（5 文件） | 763 | | |
+| `prompts/system.prompt.ts` | 52 | | |
+| `ai.module.ts` | 47 | | |
+
+> `notes/storage.service.ts` 与 `ai/rate-limit.service.ts` 已不在各自模块内 ——
+> 两个模块都要用，已搬到 `src/common/`，见 Part III。
 
 **前端**
 
 | 文件 | 行数 | 职责 | 对应后端 |
 | --- | --- | --- | --- |
-| `types/agent.ts` | 73 | 事件协议 / 消息 / 会话类型 | `types/stream-event.ts` |
-| `request/ai-stream.ts` | 210 | 换票、会话 CRUD、模型列表、SSE 解析 | `ai.controller.ts` |
-| `stores/useAgentStore.ts` | 345 | 对话状态、流式累加、中断、模型选择 | `ai.service.ts` 的事件流 |
-| `pages/agent/index.tsx` | 845 | 对话界面（含模型切换器与语音输入） | — |
-| `types/note.ts` | 27 | 笔记 / 附件 / 保存状态类型 | Prisma 模型 |
-| `request/notes.ts` | 78 | 笔记 CRUD、上传、取 Blob | 两个 controller |
-| `stores/useNotesStore.ts` | 238 | 列表、防抖保存、附件 | — |
-| `pages/notes/index.tsx` | 632 | 笔记界面（列表 + 编辑器） | — |
+| `types/agent.ts` | 80 | 事件协议 / 消息 / 会话类型 | `types/stream-event.ts` |
+| `request/ai-stream.ts` | 222 | 换票、会话 CRUD、模型列表、SSE 解析 | `ai.controller.ts` |
+| `stores/useAgentStore.ts` | 399 | 对话状态、流式累加、中断、模型选择 | `ai.service.ts` 的事件流 |
+| `pages/agent/index.tsx` | 917 | 对话界面（含模型切换器与语音输入） | — |
+| `types/note.ts` | 52 | 笔记 / 附件 / 保存状态类型 | Prisma 模型 |
+| `request/notes.ts` | 91 | 笔记 CRUD、上传、取 Blob | 两个 controller |
+| `stores/useNotesStore.ts` | 606 | 列表、树、防抖保存、导入、附件 | — |
+| `pages/notes/index.tsx` | 1287 | 笔记界面（目录树 + 编辑器 + 右键菜单） | — |
 | `components/MarkdownView.tsx` | 39 | Markdown 渲染（marked + DOMPurify） | — |
-| `stores/useAppStore.ts` | 66 | 登录用户信息（昵称 / 邮箱） | `auth/*`、`user/profile` |
-| `request/api.ts` | 222 | 登录 / 注册 / 用户资料接口 | `auth/*`、`user/*` |
+| `components/VirtualList.tsx` | 91 | 固定行高虚拟列表（两处复用） | — |
+| `lib/html-to-markdown.ts` | 287 | 自研 HTML→Markdown 转换 | — |
+| `lib/import-note.ts` | 106 | 导入文件的读取与类型判定 | — |
+| `stores/useAppStore.ts` | 70 | 登录用户信息（昵称 / 邮箱 / 账号） | `auth/*`、`user/profile` |
+| `request/api.ts` | 235 | 登录 / 注册 / 用户资料接口 | `auth/*`、`user/*` |
 
 ---
 
@@ -881,7 +889,12 @@ const html = useMemo(() => {
 | `@CurrentUser()` | `src/auth/decorators` | 取令牌里的 userId |
 | 前端 axios 实例 | `src/request/index.ts` | token 注入、401 刷新重放、响应解包 |
 | 前端 zustand | `src/stores` | 模块各自独立的 store |
-| `GET /user/profile` | `src/user` | 用令牌回查当前用户资料（昵称等） |
+| `StorageModule` | `src/common/storage` | 附件落盘（笔记与聊天共用，`@Global()`） |
+| `common/upload/file-guard.ts` | `src/common/upload` | MIME 白名单 + 文件名解码（安全边界只有一份） |
+| `RateLimitModule` | `src/common/rate-limit` | 限流，带 `scope` / `max` 参数（AI 与聊天各自配额） |
+| `common/user-shape.ts` | `src/common` | **用户对外形状的唯一来源** |
+| `GET /user/profile` | `src/user` | 用令牌回查当前用户资料 |
+| `components/Avatar.tsx` | 前端 | 首字母头像，四个使用点共用 |
 
 ### 一次顺带的重构：`@SkipResponse()` 搬家
 
@@ -896,22 +909,160 @@ const html = useMemo(() => {
 原先 `login` / `login-by-code` / `refresh` 只返回双 token。前端登录后只知道
 「有令牌了」，不知道是谁 —— 侧边栏于是长期显示一个写死的默认值。
 
-```ts
-// generateTokens 直接收完整 user 记录，而不是逐个挑字段
-private async generateTokens(user: { id; email; nickname?: string | null }) {
-  return {
-    accessToken, refreshToken,
-    user: { id: user.id, email: user.email, nickname: user.nickname ?? null },
-  };
-}
-```
-
 **关键点是「传完整记录」而不是「挑字段」**：最初调用方写的是
 `generateTokens({ id: user.id, email: user.email })`，加昵称时就得回头改三处调用点，
 漏一处就是一个字段缺失。现在传 `user` 整体，加字段不用动调用方。
 
 `GET /user/profile` 是配套补充：页面刷新后内存状态会丢，
 且改动之前登录的老会话本地存着假数据，需要能用令牌回查真实资料自愈。
+
+#### 后来收紧成「一份形状，两个出口」
+
+上面那版仍有隐患：登录响应与 `/user/profile` **各自写了一遍字段列表**。
+个人资料页要显示「账号 / 简介 / 注册时间」时，只有 profile 那侧有，
+登录响应没有 —— 同一个概念两个形状，迟早漂移。于是抽到
+`src/common/user-shape.ts`，成为唯一来源：
+
+```ts
+/** 查用户公开信息时统一的 Prisma select */
+export const USER_PUBLIC_SELECT = {
+  id: true, email: true, nickname: true,
+  handle: true, bio: true, createdAt: true,
+} as const;
+
+export interface PublicUser {
+  id: string; email: string; nickname: string | null;
+  handle: string | null; bio: string | null; createdAt: Date;
+}
+
+/**
+ * 收敛成接口出参。
+ * 只做 null 归一化，不做 trim —— 空字符串昵称由前端的 displayName 处理，
+ * 在这里多改一次会让两端的判断逻辑分叉。
+ */
+export function toPublicUser(row: PublicUser): PublicUser { … }
+```
+
+两个收益：
+
+1. **形状不会漂移**：`login` / `login-by-code` / `refresh` 与 `/user/profile`
+   共用同一个 `toPublicUser`，前端也只需一份 `AuthUser` 类型
+   （原先 `api.ts` 与 `useAppStore.ts` 各声明了一份，字段已经不一致）
+2. **不泄露凭据**：登录用的是 `prisma.user.findUnique()`，返回的是**整行**，
+   里面带着 `password` 哈希。显式 select + 显式映射两道关卡，
+   以后新增字段不会自动流出去
+
+---
+
+### 用户身份层：资料页、头像入口、退出登录
+
+这一层横跨模块（顶部导航、个人资料页、三个数据 store 都牵涉），所以放这里。
+
+| 文件 | 行数 | 职责 |
+| --- | --- | --- |
+| `pages/profile/index.tsx` | 241 | 个人资料页 + 退出登录（含二次确认） |
+| `components/Header.tsx` | 223 | 顶部导航：桌面 nav + 头像；移动端汉堡 + 侧栏 |
+| `components/Avatar.tsx` | 94 | 首字母头像（共享，四个使用点） |
+| `components/ui/sheet.tsx` | 101 | 贴边浮层（基于 Radix Dialog） |
+| `lib/logout.ts` | 31 | 退出登录 |
+| `lib/use-current-user.ts` | 56 | 缺用户资料时按令牌回查 |
+| `user/user.service.ts` | 39 | `GET /user/profile` |
+| `common/user-shape.ts` | 52 | 用户对外形状的唯一来源 |
+
+#### 头像入口三处，都通向同一页
+
+顶部导航右侧、AI 助手页侧栏底部、聊天页侧栏底部 —— 同一个东西点了要有同一个结果，
+所以三处都是 `<Link to="/profile">`，而不是各接各的。
+
+头像组件本身从 `components/chat/PeerAvatar.tsx` 挪到了 `components/Avatar.tsx`
+并改名 `Avatar`（7 处引用一并改）：
+
+- 它现在也出现在顶部导航与资料页，放在 `chat/` 下会让导航反向依赖聊天模块
+- 「Peer」语义不适用于当前用户自己 —— 自己不是 peer
+- 底色由 `avatarTone(id)` 稳定推导（hash → 一组压过饱和度的色相）。
+  **不用随机色**：随机色会跑出荧光绿、亮橙，整页立刻显脏；同一人也必须每次同色
+
+#### 移动端侧栏：为什么另写一个 Sheet，而不是改 DialogContent
+
+想复用 `DialogContent` 把它从居中改成贴边，**靠 className 覆盖是不行的**：
+
+> Tailwind 同级工具类的生效顺序由**生成的 CSS 顺序**决定，
+> 不由 class 属性里的先后决定。后写的类不保证赢。
+
+`left-1/2 top-1/2 -translate-*` 与 `inset-y-0 right-0` 是互斥的定位，
+所以另写了 `components/ui/sheet.tsx`，把定位放进组件自身。
+
+底层仍是 **Radix Dialog**（已在依赖里）—— 焦点陷阱、Esc 关闭、遮罩点击关闭、
+打开时锁定背景滚动、关闭后焦点还给触发按钮，这些手写必然漏掉一两个。
+`data-[state=*]` 配 `tailwindcss-animate` 直接用，`motion-reduce:animate-none`
+一行就满足 `prefers-reduced-motion`。
+
+两个容易漏的点：
+
+- **路由变化要显式收起抽屉**。点导航项只是换 URL，抽屉不会自己关，
+  手机上会盖住刚打开的新页面：`useEffect(() => setOpen(false), [location.pathname])`
+- `md:hidden` 要同时加在触发按钮与抽屉内容上，否则窗口从窄变宽时抽屉僵在屏上
+
+#### 资料页的两个取舍
+
+- **不套卡片容器**：这些行是「一页读完」的连续信息，加一层白卡片只是多一圈边框，
+  把连贯感切碎。分组靠留白与发丝线（`divide-y`）
+- **拿不到值的行直接不渲染**：`handle` / `bio` 是可选字段，
+  显示「未设置」会引出一个这页回答不了的问题（怎么设置）
+
+#### 退出登录：只清令牌只做了一半
+
+**这是本次最严重的一处**。`useChatStore` / `useNotesStore` 等不在持久化范围里，
+但会随 SPA 整个生命周期存活 —— 只清令牌的话，
+**换个账号登录会看到上一个人的笔记与聊天记录**。
+自己测永远测不出来，只有换账号才穿帮。
+
+完整的退出按顺序做四件事：
+
+```ts
+export function logout(): void {
+  // 1. 先断开实时连接：否则 socket.io 会带着已失效的令牌不断重连
+  useChatStore.getState().reset();
+  useAgentStore.getState().reset();
+  useNotesStore.getState().reset();
+
+  // 2. 删令牌。顺序有讲究：先删令牌再清用户状态，
+  //    反了会多打一次没意义的 401（见下）
+  removeToken();
+  removeRefreshToken();
+
+  // 3. 清用户
+  useUserStore.getState().clearUser();
+}
+```
+
+每个 store 要有显式 `reset()`，别指望「组件卸载了状态就没了」——
+store 的存活期比组件长。`useNotesStore.reset()` 里还要**取消待执行的自动保存定时器**，
+否则定时器到点会把内容写进已经登出的会话。
+
+> 服务端：JWT 无状态，项目也没有令牌黑名单 —— accessToken 在 15 分钟内仍然有效。
+> 要做到「立即失效」得把已登出的 jti 写进 Redis 并在守卫里校验，
+> 那是独立的一次改动，不能假装删了客户端令牌就等于登出。
+
+#### 退出时那次 401（测试抓出来的）
+
+退出登录后控制台出现 `/user/profile` 401，外加一次无意义的 `/auth/refresh`。
+
+根因是顺序：`logout()` 先删令牌再清用户状态，而清用户状态会让所有用到
+`useCurrentUserId` 的组件重渲染（`Header` 这次成了其中之一），
+它立刻拿着**已经不存在的令牌**去回查资料。
+
+修法是给那个兜底 hook 加令牌判空 —— 它本来就是为「有令牌、缺资料」设计的：
+
+```ts
+useEffect(() => {
+  if (userId) return;
+  // 没有令牌说明当前就是未登录（刚退出 / 直接打开登录页），
+  // 这时回查必然 401，还会连带触发一次刷新重试
+  if (!getToken()) return;
+  …
+}, [userId, setUser]);
+```
 
 ---
 
@@ -926,6 +1077,9 @@ private async generateTokens(user: { id; email; nickname?: string | null }) {
 | 把回调直接传给 effect 依赖 | 父组件每次渲染都会生成新函数，effect 反复重跑（语音识别器被重建、录音被打断）。用 ref 持有回调 |
 | 同一实体的多个接口各写一份 `select` | 迟早漏字段（本次就漏过 `attachments`）。抽成共用的常量，加字段只改一处 |
 | 相信 TS 类型能保证运行时数据 | axios 泛型只是类型断言。HTTP 边界上的必填字段仍要兜底，否则一访问属性就整页崩 |
+| **退出登录只清令牌** | data store 会随 SPA 整个生命周期存活 —— 换个账号登录会看到**上一个人的笔记与聊天记录**。每个 store 要有 `reset()`，`logout()` 里逐个调用（见 Part III） |
+| 用 className 覆盖组件的定位工具类 | Tailwind 同级工具类的生效顺序由**生成顺序**决定、不由 class 属性顺序决定。互斥的定位要另写组件，不要覆盖（见 Part III） |
+| 兜底 hook 不判令牌 | 「按令牌回查资料」的 hook 在登出瞬间会被重渲染触发，抓着已删除的令牌必然 401。进去先 `if (!getToken()) return` |
 
 ## AI 模块
 

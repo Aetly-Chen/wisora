@@ -99,6 +99,8 @@
   <a href="#n7" class="sub">2.7 Markdown 与安全</a>
   <div class="title sub">Part III — V</div>
   <a href="#p3" class="sub">共享基础设施</a>
+  <a href="#s-userinfo" class="sub">登录响应必须带用户信息</a>
+  <a href="#s-identity" class="sub">用户身份层：资料页、头像、退出登录</a>
   <a href="#p4" class="sub">踩坑清单</a>
   <a href="#p5" class="sub">扩展与调参</a>
 </nav>
@@ -107,7 +109,7 @@
 
 <header class="hero">
   <h1>Wisora 核心模块详解：AI 与笔记</h1>
-  <p>覆盖 <code>backend/src/ai</code>（14 文件 / 1462 行）、<code>backend/src/notes</code>（7 文件 / 570 行）与前端对应代码（10 文件 / 2326 行）。<br>
+  <p>覆盖 <code>backend/src/ai</code>（14 文件 / 1888 行）、<code>backend/src/notes</code>（6 文件 / 674 行）与前端对应代码（12 文件 / 4177 行），外加 Part III 的用户身份层（<code>src/user</code> + <code>common/user-shape</code> + 个人资料页与顶部导航）。<br>
   每个环节都能定位到具体文件，并解释「为什么这么设计」。</p>
 </header>
 
@@ -133,16 +135,15 @@
 <table>
   <thead><tr><th style="width:37%">AI 模块</th><th style="width:13%">行数</th><th style="width:34%">笔记模块</th><th style="width:16%">行数</th></tr></thead>
   <tbody>
-    <tr><td><code>ai.controller.ts</code></td><td>288</td><td><code>notes.controller.ts</code></td><td>~50</td></tr>
-    <tr><td><code>ai.service.ts</code></td><td>335</td><td><code>notes.service.ts</code></td><td>~120</td></tr>
-    <tr><td><code>types/stream-event.ts</code></td><td>22</td><td><code>dto/note.dto.ts</code></td><td>~40</td></tr>
-    <tr><td><code>llm/llm.provider.ts</code></td><td>~80</td><td><code>attachments.controller.ts</code></td><td>~100</td></tr>
-    <tr><td><code>guards/stream-ticket.guard.ts</code></td><td>61</td><td><code>attachments.service.ts</code></td><td>~160</td></tr>
-    <tr><td><code>memory/conversation.repository.ts</code></td><td>154</td><td><code>storage.service.ts</code></td><td>~80</td></tr>
-    <tr><td><code>tools/*</code>（4 文件）</td><td>~300</td><td><code>notes.module.ts</code></td><td>~20</td></tr>
-    <tr><td><code>prompts/system.prompt.ts</code></td><td>~30</td><td></td><td></td></tr>
-    <tr><td><code>rate-limit.service.ts</code></td><td>~55</td><td></td><td></td></tr>
-    <tr><td><code>ai.module.ts</code></td><td>~47</td><td></td><td></td></tr>
+    <tr><td><code>ai.controller.ts</code></td><td>326</td><td><code>notes.controller.ts</code></td><td>57</td></tr>
+    <tr><td><code>ai.service.ts</code></td><td>339</td><td><code>notes.service.ts</code></td><td>321</td></tr>
+    <tr><td><code>types/stream-event.ts</code></td><td>22</td><td><code>dto/note.dto.ts</code></td><td>64</td></tr>
+    <tr><td><code>llm/llm.provider.ts</code></td><td>80</td><td><code>attachments.controller.ts</code></td><td>88</td></tr>
+    <tr><td><code>guards/stream-ticket.guard.ts</code></td><td>61</td><td><code>attachments.service.ts</code></td><td>121</td></tr>
+    <tr><td><code>memory/conversation.repository.ts</code></td><td>177</td><td><code>notes.module.ts</code></td><td>23</td></tr>
+    <tr><td><code>tools/*</code>（5 文件）</td><td>763</td><td></td><td></td></tr>
+    <tr><td><code>prompts/system.prompt.ts</code></td><td>52</td><td></td><td></td></tr>
+    <tr><td><code>ai.module.ts</code></td><td>47</td><td></td><td></td></tr>
   </tbody>
 </table>
 
@@ -150,17 +151,20 @@
 <table>
   <thead><tr><th style="width:30%">文件</th><th style="width:9%">行数</th><th style="width:33%">职责</th><th>对应后端</th></tr></thead>
   <tbody>
-    <tr><td><code>types/agent.ts</code></td><td>73</td><td>事件协议 / 消息 / 会话类型</td><td><code>types/stream-event.ts</code></td></tr>
-    <tr><td><code>request/ai-stream.ts</code></td><td>210</td><td>换票、会话 CRUD、模型列表、SSE 解析</td><td><code>ai.controller.ts</code></td></tr>
-    <tr><td><code>stores/useAgentStore.ts</code></td><td>345</td><td>对话状态、流式累加、中断、模型选择</td><td><code>ai.service.ts</code> 的事件流</td></tr>
-    <tr><td><code>pages/agent/index.tsx</code></td><td>845</td><td>对话界面（含模型切换器与语音输入）</td><td>—</td></tr>
-    <tr><td><code>types/note.ts</code></td><td>27</td><td>笔记 / 附件 / 保存状态类型</td><td>Prisma 模型</td></tr>
-    <tr><td><code>request/notes.ts</code></td><td>78</td><td>笔记 CRUD、上传、取 Blob</td><td>两个 controller</td></tr>
-    <tr><td><code>stores/useNotesStore.ts</code></td><td>238</td><td>列表、防抖保存、附件</td><td>—</td></tr>
-    <tr><td><code>pages/notes/index.tsx</code></td><td>632</td><td>笔记界面（列表 + 编辑器）</td><td>—</td></tr>
+    <tr><td><code>types/agent.ts</code></td><td>80</td><td>事件协议 / 消息 / 会话类型</td><td><code>types/stream-event.ts</code></td></tr>
+    <tr><td><code>request/ai-stream.ts</code></td><td>222</td><td>换票、会话 CRUD、模型列表、SSE 解析</td><td><code>ai.controller.ts</code></td></tr>
+    <tr><td><code>stores/useAgentStore.ts</code></td><td>399</td><td>对话状态、流式累加、中断、模型选择</td><td><code>ai.service.ts</code> 的事件流</td></tr>
+    <tr><td><code>pages/agent/index.tsx</code></td><td>917</td><td>对话界面（含模型切换器与语音输入）</td><td>—</td></tr>
+    <tr><td><code>types/note.ts</code></td><td>52</td><td>笔记 / 附件 / 保存状态类型</td><td>Prisma 模型</td></tr>
+    <tr><td><code>request/notes.ts</code></td><td>91</td><td>笔记 CRUD、上传、取 Blob</td><td>两个 controller</td></tr>
+    <tr><td><code>stores/useNotesStore.ts</code></td><td>606</td><td>列表、树、防抖保存、导入、附件</td><td>—</td></tr>
+    <tr><td><code>pages/notes/index.tsx</code></td><td>1287</td><td>笔记界面（目录树 + 编辑器 + 右键菜单）</td><td>—</td></tr>
     <tr><td><code>components/MarkdownView.tsx</code></td><td>39</td><td>Markdown 渲染（marked + DOMPurify）</td><td>—</td></tr>
-    <tr><td><code>stores/useAppStore.ts</code></td><td>66</td><td>登录用户信息（昵称 / 邮箱）</td><td><code>auth/*</code>、<code>user/profile</code></td></tr>
-    <tr><td><code>request/api.ts</code></td><td>222</td><td>登录 / 注册 / 用户资料接口</td><td><code>auth/*</code>、<code>user/*</code></td></tr>
+    <tr><td><code>components/VirtualList.tsx</code></td><td>91</td><td>固定行高虚拟列表（两处复用）</td><td>—</td></tr>
+    <tr><td><code>lib/html-to-markdown.ts</code></td><td>287</td><td>自研 HTML→Markdown 转换</td><td>—</td></tr>
+    <tr><td><code>lib/import-note.ts</code></td><td>106</td><td>导入文件的读取与类型判定</td><td>—</td></tr>
+    <tr><td><code>stores/useAppStore.ts</code></td><td>70</td><td>登录用户信息（昵称 / 邮箱 / 账号）</td><td><code>auth/*</code>、<code>user/profile</code></td></tr>
+    <tr><td><code>request/api.ts</code></td><td>235</td><td>登录 / 注册 / 用户资料接口</td><td><code>auth/*</code>、<code>user/*</code></td></tr>
   </tbody>
 </table>
 
@@ -662,13 +666,121 @@ const html = useMemo(() =&gt; {
     <tr><td><code>@CurrentUser()</code></td><td><code>src/auth/decorators</code></td><td>取令牌里的 userId</td></tr>
     <tr><td>前端 axios 实例</td><td><code>src/request/index.ts</code></td><td>token 注入、401 刷新重放、响应解包</td></tr>
     <tr><td>前端 zustand</td><td><code>src/stores</code></td><td>模块各自独立的 store</td></tr>
-    <tr><td><code>GET /user/profile</code></td><td><code>src/user</code></td><td>用令牌回查当前用户资料（昵称等）</td></tr>
+    <tr><td><code>StorageModule</code></td><td><code>src/common/storage</code></td><td>附件落盘（笔记与聊天共用，<code>@Global()</code>）</td></tr>
+    <tr><td><code>file-guard.ts</code></td><td><code>src/common/upload</code></td><td>MIME 白名单 + 文件名解码（安全边界只有一份）</td></tr>
+    <tr><td><code>RateLimitModule</code></td><td><code>src/common/rate-limit</code></td><td>限流，带 <code>scope</code> / <code>max</code> 参数（AI 与聊天各自配额）</td></tr>
+    <tr><td><code>user-shape.ts</code></td><td><code>src/common</code></td><td><b>用户对外形状的唯一来源</b></td></tr>
+    <tr><td><code>GET /user/profile</code></td><td><code>src/user</code></td><td>用令牌回查当前用户资料</td></tr>
+    <tr><td><code>components/Avatar.tsx</code></td><td>前端</td><td>首字母头像，四个使用点共用</td></tr>
   </tbody>
 </table>
 <div class="note"><strong>一次顺带的重构：<code>@SkipResponse()</code> 搬家</strong>原先放在 <code>src/ai/decorators/</code> —— ai 只是它的第一个使用者，文件下载同样需要。放在业务模块里会导致 <code>common</code> 反向依赖 <code>ai</code>，所以移到 <code>src/common/decorators/</code>。</div>
 
-<div class="note"><strong>登录响应必须带用户信息</strong>原先 <code>login</code> / <code>login-by-code</code> / <code>refresh</code> 只返回双 token，前端登录后只知道「有令牌了」、不知道是谁，侧边栏于是长期显示一个写死的默认值。<br>
-<code>generateTokens</code> 改为直接收<b>完整 user 记录</b>而不是逐个挑字段 —— 最初调用方写的是 <code>generateTokens({ id, email })</code>，加昵称时得回头改三处调用点，漏一处就少一个字段。配套新增 <code>GET /user/profile</code>：页面刷新后内存状态会丢，且改动前登录的老会话本地存着假数据，需要能用令牌回查真实资料自愈。</div>
+<h3 id="s-userinfo">登录响应必须带用户信息</h3>
+<p>原先 <code>login</code> / <code>login-by-code</code> / <code>refresh</code> 只返回双 token。前端登录后只知道「有令牌了」，不知道是谁 —— 侧边栏于是长期显示一个写死的默认值。</p>
+<p><b>关键点是「传完整记录」而不是「挑字段」</b>：最初调用方写的是 <code>generateTokens({ id: user.id, email: user.email })</code>，加昵称时就得回头改三处调用点，漏一处就是一个字段缺失。现在传 <code>user</code> 整体，加字段不用动调用方。</p>
+<p><code>GET /user/profile</code> 是配套补充：页面刷新后内存状态会丢，且改动之前登录的老会话本地存着假数据，需要能用令牌回查真实资料自愈。</p>
+
+<h4>后来收紧成「一份形状，两个出口」</h4>
+<p>上面那版仍有隐患：登录响应与 <code>/user/profile</code> <b>各自写了一遍字段列表</b>。个人资料页要显示「账号 / 简介 / 注册时间」时，只有 profile 那侧有、登录响应没有 —— 同一个概念两个形状，迟早漂移。于是抽到 <code>src/common/user-shape.ts</code>，成为唯一来源：</p>
+<pre><code>/** 查用户公开信息时统一的 Prisma select */
+export const USER_PUBLIC_SELECT = {
+  id: true, email: true, nickname: true,
+  handle: true, bio: true, createdAt: true,
+} as const;
+
+export interface PublicUser {
+  id: string; email: string; nickname: string | null;
+  handle: string | null; bio: string | null; createdAt: Date;
+}
+
+/**
+ * 收敛成接口出参。
+ * 只做 null 归一化，不做 trim —— 空字符串昵称由前端的 displayName 处理，
+ * 在这里多改一次会让两端的判断逻辑分叉。
+ */
+export function toPublicUser(row: PublicUser): PublicUser { … }</code></pre>
+<p>两个收益：</p>
+<ul>
+  <li><b>形状不会漂移</b>：<code>login</code> / <code>login-by-code</code> / <code>refresh</code> 与 <code>/user/profile</code> 共用同一个 <code>toPublicUser</code>，前端也只需一份 <code>AuthUser</code> 类型（原先 <code>api.ts</code> 与 <code>useAppStore.ts</code> 各声明了一份，字段已经不一致）</li>
+  <li><b>不泄露凭据</b>：登录用的是 <code>prisma.user.findUnique()</code>，返回的是<b>整行</b>，里面带着 <code>password</code> 哈希。显式 select + 显式映射两道关卡，以后新增字段不会自动流出去</li>
+</ul>
+
+<h3 id="s-identity">用户身份层：资料页、头像入口、退出登录</h3>
+<p>这一层横跨模块（顶部导航、个人资料页、三个数据 store 都牵涉），所以放这里。</p>
+<table>
+  <thead><tr><th style="width:40%">文件</th><th style="width:10%">行数</th><th>职责</th></tr></thead>
+  <tbody>
+    <tr><td><code>pages/profile/index.tsx</code></td><td>241</td><td>个人资料页 + 退出登录（含二次确认）</td></tr>
+    <tr><td><code>components/Header.tsx</code></td><td>223</td><td>顶部导航：桌面 nav + 头像；移动端汉堡 + 侧栏</td></tr>
+    <tr><td><code>components/Avatar.tsx</code></td><td>94</td><td>首字母头像（共享，四个使用点）</td></tr>
+    <tr><td><code>components/ui/sheet.tsx</code></td><td>101</td><td>贴边浮层（基于 Radix Dialog）</td></tr>
+    <tr><td><code>lib/logout.ts</code></td><td>31</td><td>退出登录</td></tr>
+    <tr><td><code>lib/use-current-user.ts</code></td><td>56</td><td>缺用户资料时按令牌回查</td></tr>
+    <tr><td><code>user/user.service.ts</code></td><td>39</td><td><code>GET /user/profile</code></td></tr>
+    <tr><td><code>common/user-shape.ts</code></td><td>52</td><td>用户对外形状的唯一来源</td></tr>
+  </tbody>
+</table>
+
+<h4>头像入口三处，都通向同一页</h4>
+<p>顶部导航右侧、AI 助手页侧栏底部、聊天页侧栏底部 —— 同一个东西点了要有同一个结果，所以三处都是 <code>&lt;Link to="/profile"&gt;</code>，而不是各接各的。</p>
+<p>头像组件本身从 <code>components/chat/PeerAvatar.tsx</code> 挪到了 <code>components/Avatar.tsx</code> 并改名 <code>Avatar</code>（7 处引用一并改）：</p>
+<ul>
+  <li>它现在也出现在顶部导航与资料页，放在 <code>chat/</code> 下会让导航反向依赖聊天模块</li>
+  <li>「Peer」语义不适用于当前用户自己 —— 自己不是 peer</li>
+  <li>底色由 <code>avatarTone(id)</code> 稳定推导（hash → 一组压过饱和度的色相）。<b>不用随机色</b>：随机色会跑出荧光绿、亮橙，整页立刻显脏；同一人也必须每次同色</li>
+</ul>
+
+<h4>移动端侧栏：为什么另写一个 Sheet，而不是改 DialogContent</h4>
+<p>想复用 <code>DialogContent</code> 把它从居中改成贴边，<b>靠 className 覆盖是不行的</b>：</p>
+<div class="note"><strong>Tailwind 同级工具类的生效顺序由「生成的 CSS 顺序」决定</strong>，不由 class 属性里的先后决定。后写的类不保证赢。<br>
+<code>left-1/2 top-1/2 -translate-*</code> 与 <code>inset-y-0 right-0</code> 是互斥的定位，所以另写了 <code>components/ui/sheet.tsx</code>，把定位放进组件自身。</div>
+<p>底层仍是 <b>Radix Dialog</b>（已在依赖里）—— 焦点陷阱、Esc 关闭、遮罩点击关闭、打开时锁定背景滚动、关闭后焦点还给触发按钮，这些手写必然漏掉一两个。<code>data-[state=*]</code> 配 <code>tailwindcss-animate</code> 直接用，<code>motion-reduce:animate-none</code> 一行就满足 <code>prefers-reduced-motion</code>。</p>
+<p>两个容易漏的点：</p>
+<ul>
+  <li><b>路由变化要显式收起抽屉</b>。点导航项只是换 URL，抽屉不会自己关，手机上会盖住刚打开的新页面：<code>useEffect(() =&gt; setOpen(false), [location.pathname])</code></li>
+  <li><code>md:hidden</code> 要同时加在触发按钮与抽屉内容上，否则窗口从窄变宽时抽屉僵在屏上</li>
+</ul>
+
+<h4>资料页的两个取舍</h4>
+<ul>
+  <li><b>不套卡片容器</b>：这些行是「一页读完」的连续信息，加一层白卡片只是多一圈边框，把连贯感切碎。分组靠留白与发丝线（<code>divide-y</code>）</li>
+  <li><b>拿不到值的行直接不渲染</b>：<code>handle</code> / <code>bio</code> 是可选字段，显示「未设置」会引出一个这页回答不了的问题（怎么设置）</li>
+</ul>
+
+<h4>退出登录：只清令牌只做了一半</h4>
+<p><b>这是本次最严重的一处</b>。<code>useChatStore</code> / <code>useNotesStore</code> 等不在持久化范围里，但会随 SPA 整个生命周期存活 —— 只清令牌的话，<b>换个账号登录会看到上一个人的笔记与聊天记录</b>。自己测永远测不出来，只有换账号才穿帮。</p>
+<p>完整的退出按顺序做四件事：</p>
+<pre><code>export function logout(): void {
+  // 1. 先断开实时连接：否则 socket.io 会带着已失效的令牌不断重连
+  useChatStore.getState().reset();
+  useAgentStore.getState().reset();
+  useNotesStore.getState().reset();
+
+  // 2. 删令牌。顺序有讲究：先删令牌再清用户状态，
+  //    反了会多打一次没意义的 401（见下）
+  removeToken();
+  removeRefreshToken();
+
+  // 3. 清用户
+  useUserStore.getState().clearUser();
+}</code></pre>
+<p>每个 store 要有显式 <code>reset()</code>，别指望「组件卸载了状态就没了」—— store 的存活期比组件长。<code>useNotesStore.reset()</code> 里还要<b>取消待执行的自动保存定时器</b>，否则定时器到点会把内容写进已经登出的会话。</p>
+<div class="note"><strong>服务端</strong>JWT 无状态，项目也没有令牌黑名单 —— accessToken 在 15 分钟内仍然有效。要做到「立即失效」得把已登出的 jti 写进 Redis 并在守卫里校验，那是独立的一次改动，不能假装删了客户端令牌就等于登出。</div>
+
+<h4>退出时那次 401（测试抓出来的）</h4>
+<p>退出登录后控制台出现 <code>/user/profile</code> 401，外加一次无意义的 <code>/auth/refresh</code>。</p>
+<p>根因是顺序：<code>logout()</code> 先删令牌再清用户状态，而清用户状态会让所有用到 <code>useCurrentUserId</code> 的组件重渲染（<code>Header</code> 这次成了其中之一），它立刻拿着<b>已经不存在的令牌</b>去回查资料。</p>
+<p>修法是给那个兜底 hook 加令牌判空 —— 它本来就是为「有令牌、缺资料」设计的：</p>
+<pre><code>useEffect(() =&gt; {
+  if (userId) return;
+  // 没有令牌说明当前就是未登录（刚退出 / 直接打开登录页），
+  // 这时回查必然 401，还会连带触发一次刷新重试
+  if (!getToken()) return;
+  …
+}, [userId, setUser]);</code></pre>
+
+<hr>
 
 <!-- ===== Part IV ===== -->
 <h2 id="p4">Part IV　踩坑清单</h2>
@@ -682,6 +794,9 @@ const html = useMemo(() =&gt; {
     <tr><td>把回调直接传给 effect 依赖</td><td>父组件每次渲染都会生成新函数，effect 反复重跑（语音识别器被重建、录音被打断）。用 ref 持有回调</td></tr>
     <tr><td>同一实体的多个接口各写一份 <code>select</code></td><td>迟早漏字段（本次就漏过 <code>attachments</code>）。抽成共用的常量，加字段只改一处</td></tr>
     <tr><td>相信 TS 类型能保证运行时数据</td><td>axios 泛型只是类型断言。HTTP 边界上的必填字段仍要兜底，否则一访问属性就整页崩</td></tr>
+    <tr><td><b>退出登录只清令牌</b></td><td>data store 会随 SPA 整个生命周期存活 —— 换个账号登录会看到<b>上一个人的笔记与聊天记录</b>。每个 store 要有 <code>reset()</code>，<code>logout()</code> 里逐个调用（见 Part III）</td></tr>
+    <tr><td>用 className 覆盖组件的定位工具类</td><td>Tailwind 同级工具类的生效顺序由<b>生成顺序</b>决定、不由 class 属性顺序决定。互斥的定位要另写组件，不要覆盖（见 Part III）</td></tr>
+    <tr><td>兜底 hook 不判令牌</td><td>「按令牌回查资料」的 hook 在登出瞬间会被重渲染触发，抓着已删除的令牌必然 401。进去先 <code>if (!getToken()) return</code></td></tr>
   </tbody>
 </table>
 

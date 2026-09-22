@@ -477,7 +477,8 @@ J 控制台与网络    0 控制台错误、0 失败请求（证明不依赖后�
 | `_verify/test-chat-live.js` | 浏览器端到端（真实后端） | **29 / 0** |
 | `_verify/test-chat-offline.js` | 纯前端（mock 阶段） | 40 / 0（mock 删除后不再适用） |
 | `backend/test/probe-chat-ws.cjs` | 裸 ws 探测网关命名空间 | 命名空间可达 |
-| `backend/test/seed-chat-demo.cjs` | 演示数据播种（`--me` / `--reset` / `--json`） | — |
+| `backend/test/seed-chat-demo.cjs` | 测试夹具：给 `.local` 测试账号造好友 / 会话 / 消息 | — |
+| `backend/test/purge-demo-chat.cjs` | 清理演示 / 测试残留数据（默认预演，`--apply` 才删） | — |
 
 `verify-chat.cjs` 刻意覆盖的几类边界：
 
@@ -534,24 +535,52 @@ J 控制台与网络    0 控制台错误、0 失败请求（证明不依赖后�
 修法是在 `useChatStore` 里加 `reconcileMessage()`：替换 temp 的同时
 清掉同 id 的其它条目。
 
-### 8.5 演示数据
+### 8.5 测试夹具与「假数据」纪律
 
-`seed-chat-demo.cjs` 可以直接给任意账号造一批好友 / 会话 / 消息：
+`seed-chat-demo.cjs` 是**测试夹具**，不是演示工具。
+唯一的消费者是 `_verify/test-chat-live.js` —— 它需要「图片消息、文件消息、
+笔记卡片、群聊」这些真实账号不一定有的场景。
 
 ```bash
 cd backend
-node test/seed-chat-demo.cjs --me you@example.com   # 造数据
-node test/seed-chat-demo.cjs --reset                # 清干净
+node test/seed-chat-demo.cjs                       # 默认 .local 测试账号
+node test/seed-chat-demo.cjs --me x@wisora.local   # 指定测试账号
+node test/purge-demo-chat.cjs --apply              # 清掉（默认只预演）
 ```
 
-它是**直接写库**的（不走 API）—— 因为目标账号可能是真实账号，
-脚本不知道密码、拿不到令牌。接口层的正确性由 `verify-chat.cjs` 覆盖。
+它是**直接写库**的（不走 API）：脚本没有目标账号的密码，无法登录取令牌。
+接口层的正确性由 `verify-chat.cjs` 覆盖。
+
+#### 这里出过一次事故
+
+把 `--me` 指向真实账号后，4 个虚构联系人（沈砚舟、林知微、何澈、邱迟）
+**直接出现在用户的聊天列表里**，被当成了 bug。
+
+原因是两件事叠加：
+
+1. `seed-chat-demo.cjs` 建的 `demo-chat-*` 好友是**独立账号**，
+   不在浏览器测试的清理范围内 —— 每跑一次测试就往库里多攒 4 个假联系人
+2. 脚本的默认 `--me` 当时就写着真实账号
+
+现在有三道限制：
+
+- **默认目标就是 `.local` 测试账号**；`--me` 传非 `.local` 直接拒绝
+  （`--force` 才放行，且放行后自己负责清理）
+- 新增 `purge-demo-chat.cjs`：按邮箱前缀（`demo-chat-` / `e2e-`）清账号，
+  外加「成员不足 2 人的孤儿会话」与标题含「演示」的群。
+  **默认只预演**，列出将删除什么，加 `--apply` 才动手
+- `test-chat-live.js` 收尾自动调它，不再留残留
+
+界面上的残留也一并清了：加好友弹窗的 placeholder 曾写着
+`例如 yanzhou.shen`，那是演示账号沈砚舟的 handle。
 
 ### 8.6 遗留
 
 - `frontend/pnpm-lock.yaml` 未同步 `socket.io-client`（安装被 safe-delete
-  守卫中断）。`package.json` 已声明，跑一次 `pnpm install` 即补齐；
-  只影响 `--frozen-lockfile` 场景
+  守卫中断）。`package.json` 已声明，在**普通终端**里跑一次
+  `pnpm install` 即补齐；只影响 `--frozen-lockfile` 场景。
+  注意别用 `--store-dir` 变通 —— pnpm 会提示「整个 node_modules 将被删除重装」，
+  在当前环境里这个提示一旦确认就会毁掉依赖树
 - 前端暂未接「加载更早的消息」：`listMessages` 已支持 `before` 游标，
   加个按钮即可
 - 输入状态（typing）的**发送端**未接：网关与 store 都已支持，
