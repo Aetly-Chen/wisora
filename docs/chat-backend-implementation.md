@@ -2456,45 +2456,69 @@ export class ChatModule {}
 
 ## 5. 阶段五：实时推送
 
-### 5.1 依赖安装（注意 pnpm 的坑）
+### 5.1 依赖安装（已实际执行过，结论在此）
 
-```bash
-cd D:/项目/wisora-web/backend
+**这节已被实践修正**：原稿建议用 `npm pack` 手动放入，实际证明
+**「改 package.json + `pnpm install`」是可行的**，只要装完验证一遍顶层链接。
 
-# 先确认版本能对上 Nest 11
-"C:/Users/揭/.workbuddy/binaries/node/versions/22.22.2-2/npm.cmd" pack @nestjs/websockets @nestjs/platform-socket.io socket.io
+已装好的三个包（`backend/package.json` 里已声明，换机器 `pnpm install` 能还原）：
+
+```diff
+  "@nestjs/platform-express": "^11.0.1",
++ "@nestjs/platform-socket.io": "11.1.28",
++ "@nestjs/websockets": "11.1.28",
+  ...
++ "socket.io": "^4.8.3",
 ```
 
-⚠️ **不要直接 `pnpm add`** —— 这个项目历史上被沙箱 safe-delete 拦过，且**会先删掉顶层目录**（曾导致 `Cannot find module 'sonner'`）。稳妥流程与当时装 gsap 一致：
+⚠️ **两个 Nest 包锁精确版本，不要写 `^`**：当前 11.x 最新是 11.2.5，
+用 `^` 会解析到它，造成 `@nestjs/core@11.1.28` 与 `@nestjs/websockets@11.2.5`
+小版本错位 —— 这两个包通过内部 API 协作（网关注册、`ApplicationConfig`），
+错位属于「编译通过、运行时报奇怪错」那一类。查版本时也要指定大版本，
+`npm view @nestjs/websockets version` 会给你 12.x。
+
+⚠️ **装完必须验证，不能只看 `pnpm install` 报成功**。本次就撞到了：
+`pnpm install` 输出 `+16` 个包、exit 0，但**顶层的 4 个符号链接没建起来，
+而且顺带把 `@nestjs/core` 的顶层链接删了** —— 包都在 `.pnpm/` 里，只是顶层不可达。
+`@nestjs/core` 缺失会让后端起不来，而报错完全不会指向依赖问题。
+
+盘点 + 修复一条命令：
 
 ```bash
-# 1) 解包
-mkdir -p /tmp/ws && cd /tmp/ws
-tar -xzf <下载的 tgz> -C ex-websockets --one-top-level  ...
-
-# 2) 拷贝进 node_modules（三个包各自独立目录，别放同一个）
-cp -r ex-*/package "D:/项目/wisora-web/backend/node_modules/@nestjs/websockets"
-cp -r ex-*/package "D:/项目/wisora-web/backend/node_modules/@nestjs/platform-socket.io"
-cp -r ex-*/package "D:/项目/wisora-web/backend/node_modules/socket.io"
-
-# 3) 在 package.json 声明，保证换机器时 pnpm install 能正确还原
-#    "@nestjs/websockets": "^11.0.1",
-#    "@nestjs/platform-socket.io": "^11.0.1",
-#    "socket.io": "^4.8.1"
+cd D:/项目/wisora-web
+node scripts/fix-pnpm-links.cjs backend     # 或 frontend
 ```
 
-**替代方案（零新依赖，推荐先走这条）**：用 SSE，复用 ai 模块已经建好的一次性 ticket 机制。
+**必须建 junction，不要用 `cp -r` 拷贝**：拷贝会产生两份实体，Node 的
+realpath 解析结果不同 —— 对 `@nestjs/core` 这类有单例语义的包会变成
+两份实例、DI 容器分裂，报错指不到原因。（前端 sonner / gsap 当年是拷贝的，
+那三个是纯函数库、没有单例语义，所以侥幸没出问题。）
 
-| | WebSocket | SSE |
-| --- | --- | --- |
-| 新增依赖 | 3 个 | **0** |
-| 双向（输入状态） | ✅ | ❌ 输入状态要另走 REST |
-| 项目已有可复用件 | 无 | `ai/guards/stream-ticket.guard.ts`、`@SkipResponse()`、`ai.controller.ts` 的 `toSse` |
-| 鉴权 | 握手帧带令牌 | 一次性 ticket（30s，取完即焚） |
+验证脚本：
 
-SSE 版本只需要在 `chat.controller.ts` 里加一个长连接端点，形制照抄 `ai.controller.ts` 的 `@Sse()` + ticket 换票，前端 `subscribeChatEvents` 用 `EventSource` 接。**输入状态先不做**（Telegram 的「正在输入」体验，晚一点上不影响核心可用性）。
+```bash
+cd backend
+node test/smoke-ws.cjs        # require 链 + 版本对齐 + 真起服务端握手
+node test/probe-chat-ws.cjs   # 探测运行中的服务是否挂上了 chat 命名空间
+```
 
-下面的网关按 WebSocket 写。
+⚠️ 还要注意一处**安装后必须做的回归**：装上 `@nestjs/platform-socket.io` 后
+Nest 会**自动检测该适配器**，属于全局启动行为变更 —— 装完一定要重启后端
+确认日志干净、既有路由仍正常。
+
+> **替代方案（零新依赖）**：用 SSE，复用 ai 模块已经建好的一次性 ticket 机制。
+> 当时评估过，最终因为要双向的输入状态而选了 WebSocket。
+>
+> | | WebSocket | SSE |
+> | --- | --- | --- |
+> | 新增依赖 | 3 个 | **0** |
+> | 双向（输入状态） | ✅ | ❌ 输入状态要另走 REST |
+> | 项目已有可复用件 | 无 | `ai/guards/stream-ticket.guard.ts`、`@SkipResponse()`、`ai.controller.ts` 的 `toSse` |
+> | 鉴权 | 握手 auth 字段带令牌 | 一次性 ticket（30s，取完即焚） |
+>
+> 真要改走 SSE：在 `chat.controller.ts` 里加一个长连接端点，形制照抄
+> `ai.controller.ts` 的 `@Sse()` + ticket 换票，前端 `subscribeChatEvents`
+> 从 socket.io 换回 `EventSource` —— 只改 `request/chat.ts` 一个文件。
 
 ### 5.2 `src/chat/chat.gateway.ts`
 

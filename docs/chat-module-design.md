@@ -1,10 +1,7 @@
-# 聊天模块设计文档（前端已完成 / 后端待实现）
+# 聊天模块设计文档
 
-> 交付范围：**前端页面实现已完成并实测通过**（40/40）；本文档给出后端的完整设计、
-> 涉及文件路径、逐条改动内容与前后端接口约定。
->
-> 前端在**没有后端**的情况下可完整运行：数据来自 `src/request/chat.ts` 里的
-> 内存 mock 适配层。后端就绪后**只替换这一个文件的实现**，页面与 store 零改动。
+> 交付范围：前端页面与后端接口**均已落地并实测通过**。
+> 前端 40/40（离线）+ 29/29（真机）、后端 72/72，详见文末「落地记录」。
 
 ---
 
@@ -13,10 +10,15 @@
 | 项 | 状态 |
 | --- | --- |
 | 前端界面（会话列表 / 消息流 / 输入区 / 三个弹窗 / 响应式） | ✅ 已完成，40/40 实测通过 |
-| 笔记右键菜单 + 「分享给好友」 | ✅ 已完成（分享落到 mock 会话） |
-| 后端接口与数据模型 | ❌ 本次不写代码，见 §3 §4 |
-| 实时推送（WebSocket） | ❌ 待实现，协议见 §4.3 |
-| 前端替换 mock 的工作量 | 1 个文件（`src/request/chat.ts`），约 13 个函数体 |
+| 笔记右键菜单 + 「分享给好友」 | ✅ 已完成 |
+| 后端接口与数据模型 | ✅ 已完成，72/72 实测通过 |
+| 实时推送（WebSocket） | ✅ 已完成并实测（`chat` 命名空间） |
+| 前端 mock 适配层 | ✅ 已删除，改走真实接口 |
+
+> ⚠️ 本文档 §3 的模型名与最终实现有一处**必须**的差异：`Conversation` / `Message`
+> 已被 AI 助手模块占用，Prisma 的模型与枚举共用一个命名空间，重名会直接报
+> `Duplicate model`。实际实现统一加了 `Chat` 前缀。
+> 另外 §3 里 `ChatAttachment.messageId` 写成了非空 —— 那也是错的（见文末「落地时修正的两处」）。
 
 ---
 
@@ -462,3 +464,96 @@ J 控制台与网络    0 控制台错误、0 失败请求（证明不依赖后�
 另有一个需要后端才能跑的完整脚本：`D:/项目/_verify/test-chat-module.js`
 （覆盖 A 聊天页端到端 + B 笔记右键分享 → 聊天收到卡片 + C 深链 `?note=`）。
 **等 PG / Redis / 后端起来后直接跑即可**，它会用真实接口验证分享链路。
+
+---
+
+## 8. 落地记录（后端 + 前端接入完成后回填）
+
+### 8.1 脚本与结果
+
+| 脚本 | 覆盖 | 结果 |
+| --- | --- | --- |
+| `backend/test/verify-chat.cjs` | 后端接口层 | **72 / 0** |
+| `_verify/test-chat-live.js` | 浏览器端到端（真实后端） | **29 / 0** |
+| `_verify/test-chat-offline.js` | 纯前端（mock 阶段） | 40 / 0（mock 删除后不再适用） |
+| `backend/test/probe-chat-ws.cjs` | 裸 ws 探测网关命名空间 | 命名空间可达 |
+| `backend/test/seed-chat-demo.cjs` | 演示数据播种（`--me` / `--reset` / `--json`） | — |
+
+`verify-chat.cjs` 刻意覆盖的几类边界：
+
+- **错误码语义**：非成员访问会话返回 **404 而不是 403**（403 会暴露「资源存在」）
+- **未读计数只在成员维度累加**，且不给自己加
+- **单聊复用**：正反方向各建一次都返回同一条会话
+- **游标分页**：`limit=2 + before=<id>` 翻页不重不漏
+- **附件归属**：拿别人的附件 id 发消息 → 403；非会话成员读附件 → 404
+- **分享**：标题由后端按 noteId 取（不是前端传的）；分享别人的笔记 → 404
+- **成员级设置**：A 置顶不影响 B
+
+`test-chat-live.js` 里有两条断言值得单独说，因为它们专门抓「假通过」：
+
+- **图片 `naturalWidth > 0`** —— 只看 DOM 里有没有 `<img>` 是抓不到 bug 的；
+  附件接口需要 Authorization 头而 `<img>` 带不上，真出问题就是 401 加一张碎图
+- **对方发消息后页面不刷新即出现** —— 只有 WebSocket 真通了才会发生，
+  用轮询糊出来的实现过不了这条
+
+### 8.2 落地时修正的两处设计
+
+1. **模型名加 `Chat` 前缀**
+   `Conversation` / `Message` 已被 AI 助手模块占用。Prisma 的模型与枚举
+   共用一个命名空间，同名直接 `Duplicate model` 起不来。
+   实际：`ChatFriendship` / `ChatConversation` / `ChatConversationMember` /
+   `ChatMessage` / `ChatAttachment`，枚举同理加前缀。
+
+2. **`ChatAttachment.messageId` 必须可空**
+   上传与发送是两步（先 `POST /chat/attachments` 拿 id，再带 `attachmentId`
+   发消息）。非空约束会让第一步插不进去，整条链路走不通。
+   代价是会产生「传了没发」的孤儿附件，已配一个启动时挂载的
+   `setInterval` 清理任务（不引入 `@nestjs/schedule`）。
+
+### 8.3 两个实现细节与设计文档不同
+
+- **在线状态续期用 engine.io 心跳**，而不是自己 `setInterval` 管定时器 ——
+  心跳本来就是「连接还活着」的信号，省掉一套登记与清理
+- **推送只用 `pushToMembers`**（按 userId 房间定向投递），
+  只有 `presence` 用广播 —— 业务事件广播会把消息推给不相干的人
+
+### 8.4 测试抓到的一个真实竞态
+
+发消息时 **React 报 "Encountered two children with the same key"**，成因：
+
+```
+1. 乐观插入临时气泡 temp_X
+2. POST /messages 发出
+3. 服务端落库后先推一条 WebSocket 事件（真实 id 为 N）
+   → 事件处理按 id 去重，列表里没有 N，于是追加了一条 N
+4. POST 响应回来，把 temp_X 替换成 N
+   → 列表里出现两条 N
+```
+
+只在**发送方**出现，因为只有发送方同时收到「REST 响应」和「自己那条推送」。
+修法是在 `useChatStore` 里加 `reconcileMessage()`：替换 temp 的同时
+清掉同 id 的其它条目。
+
+### 8.5 演示数据
+
+`seed-chat-demo.cjs` 可以直接给任意账号造一批好友 / 会话 / 消息：
+
+```bash
+cd backend
+node test/seed-chat-demo.cjs --me you@example.com   # 造数据
+node test/seed-chat-demo.cjs --reset                # 清干净
+```
+
+它是**直接写库**的（不走 API）—— 因为目标账号可能是真实账号，
+脚本不知道密码、拿不到令牌。接口层的正确性由 `verify-chat.cjs` 覆盖。
+
+### 8.6 遗留
+
+- `frontend/pnpm-lock.yaml` 未同步 `socket.io-client`（安装被 safe-delete
+  守卫中断）。`package.json` 已声明，跑一次 `pnpm install` 即补齐；
+  只影响 `--frozen-lockfile` 场景
+- 前端暂未接「加载更早的消息」：`listMessages` 已支持 `before` 游标，
+  加个按钮即可
+- 输入状态（typing）的**发送端**未接：网关与 store 都已支持，
+  只差 Composer 里的节流上报
+
