@@ -36,8 +36,5 @@ dist-ssr
 # WorkBuddy 项目记忆（本地笔记，不进版本库）
 .workbuddy
 
-# 临时构建验证目录（沙箱删除失败残留，可手动删除）
-.verify-dist/
-
-# 临时构建验证目录（沙箱删除失败残留，可手动删除）
-.verify-chat-dist/
+# 临时构建验证目录（沙箱里删不掉，会残留；可手动删除）
+.verify-*dist/

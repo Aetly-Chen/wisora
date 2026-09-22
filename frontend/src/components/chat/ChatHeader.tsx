@@ -3,7 +3,7 @@ import { ArrowLeft, MoreVertical, Pin, PinOff, Volume2, VolumeX } from 'lucide-r
 import type { Conversation, Friend } from '@/types/chat';
 import { conversationPeer, conversationTitle } from '@/stores/useChatStore';
 import { ContextMenu } from '@/components/ContextMenu';
-import { PeerAvatar } from './PeerAvatar';
+import { Avatar } from '@/components/Avatar';
 
 /**
  * 会话头部。
@@ -76,7 +76,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
         </button>
       )}
 
-      <PeerAvatar
+      <Avatar
         id={peer?.id ?? conversation.id}
         name={title}
         size="sm"

@@ -2,12 +2,16 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 
-/** 后端返回的用户信息（登录响应与 /user/profile 同构） */
-export interface AuthUser {
-  id: string;
-  email: string;
-  nickname: string | null;
-}
+/**
+ * 用户信息。
+ *
+ * 复用接口层的定义而不是在这里再声明一份 —— 之前两处各写了一份，
+ * 字段一旦不一致，编译期发现不了，运行时才会露出（漏过 nickname）。
+ * 这里 re-export 是为了不打断既有的 `from '@/stores/useAppStore'` 引用。
+ */
+import type { AuthUser } from '../request/api';
+
+export type { AuthUser };
 
 interface UserState {
   userId: string;

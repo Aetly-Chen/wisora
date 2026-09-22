@@ -136,9 +136,9 @@ export interface Message {
 /**
  * 服务端推送事件。
  *
- * mock 阶段由适配层用定时器伪造；后端就绪后换成 WebSocket / SSE 的
- * 消息回调，**store 侧一行都不用改** —— 这是把实时能力抽象成
- * 订阅钩子的唯一目的。
+ * 与 chat.gateway.ts 的 EVENT_CHANNEL 载荷一一对应。
+ * 抽成联合类型而不是让 store 直接读 socket 回调，是为了让传输方式
+ * 可替换（socket.io / SSE 都行）而 store 侧一行都不用改。
  */
 export type ChatEvent =
   | { type: 'message'; message: Message }

@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useUserStore } from '@/stores/useAppStore';
 import { getUserProfile } from '@/request/api';
+import { getToken } from '@/request/storage';
 
 /**
  * 拿到当前登录用户 id，必要时回查资料补齐。
@@ -23,6 +24,17 @@ export function useCurrentUserId(): string {
 
   useEffect(() => {
     if (userId) return;
+
+    /*
+     * 没有令牌就别查。
+     *
+     * 退出登录时 logout() 会先删令牌再清用户状态，而清用户状态会让
+     * 所有用到这个 hook 的组件重渲染 —— 如果这里不判断，它会立刻拿着
+     * 已经不存在的令牌去请求 /user/profile：必然 401，还会连带触发
+     * 一次无意义的 /auth/refresh，在控制台留下两行红字。
+     * 未登录状态下打开页面同理。
+     */
+    if (!getToken()) return;
 
     let cancelled = false;
     void getUserProfile()

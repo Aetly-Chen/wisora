@@ -10,7 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { PeerAvatar } from './PeerAvatar';
+import { Avatar } from '@/components/Avatar';
 
 /**
  * 添加好友。
@@ -69,7 +69,7 @@ export const AddFriendDialog: React.FC<AddFriendDialogProps> = ({ open, onClose 
             添加好友
           </DialogTitle>
           <DialogDescription className="text-[12.5px] text-slate-500">
-            输入对方的 @账号或姓名来查找。
+            按昵称、邮箱或账号前缀查找。
           </DialogDescription>
         </DialogHeader>
 
@@ -83,7 +83,7 @@ export const AddFriendDialog: React.FC<AddFriendDialogProps> = ({ open, onClose 
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') void runSearch();
                 }}
-                placeholder="例如 yanzhou.shen"
+                placeholder="输入昵称或邮箱"
                 aria-label="搜索用户"
                 className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-[12.5px] text-slate-700 placeholder:text-slate-400 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100"
               />
@@ -120,7 +120,7 @@ export const AddFriendDialog: React.FC<AddFriendDialogProps> = ({ open, onClose 
                 key={friend.id}
                 className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 hover:bg-slate-50"
               >
-                <PeerAvatar
+                <Avatar
                   id={friend.id}
                   name={friend.name}
                   size="sm"

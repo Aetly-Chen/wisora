@@ -12,7 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { PeerAvatar } from './PeerAvatar';
+import { Avatar } from '@/components/Avatar';
 
 /**
  * 把笔记 / 目录分享给好友。
@@ -181,7 +181,7 @@ export const ShareToFriendDialog: React.FC<ShareToFriendDialogProps> = ({
                         checked ? 'bg-indigo-50/70' : 'hover:bg-slate-50'
                       }`}
                     >
-                      <PeerAvatar
+                      <Avatar
                         id={friend.id}
                         name={friend.name}
                         size="sm"

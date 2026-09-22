@@ -1,15 +1,24 @@
 /**
- * 聊天模块演示数据播种。
+ * 聊天模块的**测试夹具**：给一个 `.local` 测试账号造好友 / 会话 / 消息。
  *
- * 用途：给某个账号造一批好友 / 会话 / 消息，让聊天页有东西可看、可测。
- * 数据是**直接写库**的（不走 API）—— 因为目标账号可能是你自己的真实账号，
- * 脚本不知道你的密码，无法登录取令牌。
+ * 唯一的消费者是浏览器端到端脚本 `_verify/test-chat-live.js` ——
+ * 它需要「图片消息、文件消息、笔记卡片、群聊」这些真实用户不一定有的场景，
+ * 所以要有夹具。**不要拿它往真实账号里播数据。**
+ *
+ * ⚠️ 这里出过一次事故：把 --me 指向了真实账号，4 个虚构联系人
+ * （沈砚舟、林知微、何澈、邱迟）直接出现在用户的聊天列表里，
+ * 被当成了 bug。所以现在有两道限制：
+ *   1. 默认值就是测试账号，不再默认指向真实账号
+ *   2. `--me` 必须是 `.local` 域名，否则拒绝执行（`--force` 可绕过）
+ * 清理用 `test/purge-demo-chat.cjs`（默认预演，--apply 才动手）。
+ *
+ * 数据是**直接写库**的（不走 API）：脚本没有这些账号的密码，无法登录取令牌。
  * 接口层面的正确性由 `verify-chat.cjs` 单独覆盖（72 项断言）。
  *
  * 用法：
  *   cd backend
- *   node test/seed-chat-demo.cjs                          # 给默认账号造数据
- *   node test/seed-chat-demo.cjs --me 896306149@qq.com    # 指定账号
+ *   node test/seed-chat-demo.cjs                          # 默认测试账号
+ *   node test/seed-chat-demo.cjs --me xxx@wisora.local    # 指定测试账号
  *   node test/seed-chat-demo.cjs --json                   # 额外输出令牌等机器可读信息
  *   node test/seed-chat-demo.cjs --reset                  # 清掉全部演示数据
  *
@@ -27,7 +36,8 @@ const { Client } = require(
 const { JwtService } = require('@nestjs/jwt');
 require('dotenv/config');
 
-const DEFAULT_ME = '896306149@qq.com';
+/** 默认目标：测试账号。真实账号必须显式传 --me 并加 --force */
+const DEFAULT_ME = 'e2e-chat-demo@wisora.local';
 /** 演示账号统一用这个前缀，便于一键清理 */
 const PEER_PREFIX = 'demo-chat-';
 const PEER_DOMAIN = '@wisora.local';
@@ -44,6 +54,19 @@ const value = (name, fallback) => {
 const ME_EMAIL = value('me', DEFAULT_ME);
 const JSON_OUT = flag('json');
 const RESET = flag('reset');
+
+/*
+ * 保险：这个脚本会往目标账号里塞 4 个现实中不存在的联系人。
+ * 只允许指向 `.local` 测试账号 —— 上次把 --me 指向真实账号，
+ * 演示联系人就直接出现在用户的聊天列表里了。
+ * `--reset` 只删不建，不受限制。
+ */
+if (!RESET && !ME_EMAIL.endsWith(PEER_DOMAIN) && !flag('force')) {
+  console.error(`拒绝执行：--me 必须是 ${PEER_DOMAIN} 测试账号（当前：${ME_EMAIL}）`);
+  console.error('确实要往真实账号里播演示数据的话，加 --force，播完记得跑：');
+  console.error('  node test/purge-demo-chat.cjs --apply');
+  process.exit(1);
+}
 
 /** 演示好友。name 与 handle 都写死，保证每次播出来的界面一致 */
 const PEERS = [

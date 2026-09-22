@@ -18,7 +18,7 @@ import {
   isPreviewableImage,
 } from '@/lib/chat-utils';
 import { downloadChatAttachment } from '@/request/chat';
-import { PeerAvatar } from './PeerAvatar';
+import { Avatar } from '@/components/Avatar';
 import { ChatImage } from './ChatImage';
 
 /**
@@ -293,7 +293,7 @@ export const MessageList: React.FC<MessageListProps> = ({
                     {/* 对方消息左侧留头像位；非组尾用等宽占位，保证气泡对齐 */}
                     {!mine &&
                       (lastOfGroup ? (
-                        <PeerAvatar
+                        <Avatar
                           id={message.senderId}
                           name={sender?.name ?? '?'}
                           size="sm"

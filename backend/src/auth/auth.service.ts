@@ -19,6 +19,7 @@ import { JwtService } from '@nestjs/jwt';
 import { SendForgotPasswordCodeDto } from './dto/send-forgot-password-code.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import * as bcrypt from 'bcryptjs';
+import { toPublicUser } from '../common/user-shape';
 
 @Injectable()
 export class AuthService {
@@ -36,13 +37,18 @@ export class AuthService {
    * 如果只返回 token，前端还得再发一次请求查资料 ——
    * 而它手上此刻正好已经有一份完整的 user 记录，白跑一趟没必要。
    *
-   * @param user 用户信息
+   * @param user 用户记录。收整个对象而不是逐个字段：加字段时不必回头
+   *             改三处调用点，漏一处就是一个字段缺失（漏过 nickname）。
+   *             对外只放行 USER_PUBLIC_SELECT 里的字段 —— 整行里有 password 哈希。
    * @returns accessToken / refreshToken / user
    */
   private async generateTokens(user: {
     id: string;
     email: string;
-    nickname?: string | null;
+    nickname: string | null;
+    handle?: string | null;
+    bio?: string | null;
+    createdAt: Date;
   }) {
     const payload = {
       sub: user.id,
@@ -64,11 +70,15 @@ export class AuthService {
     return {
       accessToken,
       refreshToken,
-      user: {
+      // 与 GET /user/profile 共用同一个映射，两个接口的形状不会漂移
+      user: toPublicUser({
         id: user.id,
         email: user.email,
         nickname: user.nickname ?? null,
-      },
+        handle: user.handle ?? null,
+        bio: user.bio ?? null,
+        createdAt: user.createdAt,
+      }),
     };
   }
   async register(dto: RegisterDto) {

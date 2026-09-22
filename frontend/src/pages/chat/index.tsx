@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, MessageSquarePlus, UserPlus, X } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useChatStore, visibleConversations } from '@/stores/useChatStore';
 import { useUserStore } from '@/stores/useAppStore';
 import { useCurrentUserId } from '@/lib/use-current-user';
 import { ContextMenu, type ContextMenuItem } from '@/components/ContextMenu';
-import { PeerAvatar } from '@/components/chat/PeerAvatar';
+import { Avatar } from '@/components/Avatar';
 import { ConversationList } from '@/components/chat/ConversationList';
 import { ChatHeader } from '@/components/chat/ChatHeader';
 import { MessageList } from '@/components/chat/MessageList';
@@ -59,6 +59,7 @@ const ChatPage: React.FC = () => {
   // 缺用户资料时会按令牌回查一次，拿不到就走加载态
   const currentUserId = useCurrentUserId();
   const username = useUserStore((s) => s.username);
+  const email = useUserStore((s) => s.email);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showNewChat, setShowNewChat] = useState(false);
@@ -194,17 +195,25 @@ const ChatPage: React.FC = () => {
           }}
         />
 
-        {/* 当前用户：与 AI 助手页底部同一种呈现方式 */}
+        {/* 当前用户：点进个人资料。
+            与 AI 助手页底部同一种呈现方式，两处都通向 /profile —— 
+            同一个东西点了要有同一个结果。 */}
         <div className="border-t border-slate-200/80 p-3">
-          <div className="flex items-center gap-2.5 px-1.5 py-1">
-            <PeerAvatar id={meId || 'me'} name={username || '我'} size="sm" />
+          <Link
+            to="/profile"
+            title="个人资料"
+            className="flex items-center gap-2.5 rounded-xl px-1.5 py-1 transition-colors hover:bg-slate-900/[0.04]"
+          >
+            <Avatar id={meId || 'me'} name={username || '我'} size="sm" />
             <div className="min-w-0">
               <p className="truncate text-[12.5px] font-medium text-slate-800">
                 {username || '我'}
               </p>
-              <p className="text-[10.5px] text-slate-500">已登录</p>
+              <p className="truncate text-[10.5px] text-slate-500">
+                {email || '查看个人资料'}
+              </p>
             </div>
-          </div>
+          </Link>
         </div>
       </aside>
 

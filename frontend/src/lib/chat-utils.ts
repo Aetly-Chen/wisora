@@ -82,7 +82,7 @@ export function formatBytes(bytes: number): string {
 /**
  * 取名字的首字作为头像文字。
  *
- * 中文取最后两字（「陈亦航」→「亦航」）比取首字更易区分；
+ * 中文取最后两字（如「周慕云」→「慕云」）比取首字更易区分；
  * 英文取首字母。都不空时兜底成问号，避免渲染出空圆。
  */
 export function initials(name: string): string {

@@ -122,6 +122,14 @@ interface ChatState {
 
   init: (currentUserId: string) => Promise<void>;
   dispose: () => void;
+  /**
+   * 断开实时连接并清空全部状态。
+   *
+   * 退出登录时必须调：好友、会话、消息都留在内存里，
+   * 换个账号登录就会看到上一个人的聊天记录（并且 WS 还会带着
+   * 已失效的令牌不断重连）。
+   */
+  reset: () => void;
   setKeyword: (keyword: string) => void;
   setDraft: (conversationId: string, text: string) => void;
 
@@ -310,6 +318,26 @@ export const useChatStore = create<ChatState>((set, get) => ({
   dispose: () => {
     unsubscribe?.();
     unsubscribe = null;
+  },
+
+  reset: () => {
+    unsubscribe?.();
+    unsubscribe = null;
+    set({
+      meId: '',
+      friends: [],
+      conversations: [],
+      messagesByConversation: {},
+      activeId: undefined,
+      keyword: '',
+      listLoading: false,
+      messagesLoading: false,
+      upload: undefined,
+      typing: {},
+      drafts: {},
+      error: undefined,
+      notice: undefined,
+    });
   },
 
   setKeyword: (keyword) => set({ keyword }),

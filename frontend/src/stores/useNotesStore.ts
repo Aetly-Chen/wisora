@@ -49,6 +49,13 @@ interface NotesState {
   /** 一次性成功提示（如「已导入 3 个文件」），展示后由 clearNotice 清掉 */
   notice?: string;
 
+  /**
+   * 清空全部状态。
+   *
+   * 退出登录时必须调：笔记是写在内存里的，不清的话换个账号登录，
+   * 前一个人的笔记标题与正文会直接显示给新用户。
+   */
+  reset: () => void;
   loadNotes: (keyword?: string) => Promise<void>;
   setKeyword: (keyword: string) => void;
   toggleExpanded: (id: string) => void;
@@ -254,6 +261,24 @@ export const useNotesStore = create<NotesState>((set, get) => {
     saveState: 'idle',
     error: undefined,
     notice: undefined,
+
+    reset: () => {
+      // 先取消待执行的自动保存，否则定时器到点会把内容写进已登出的会话
+      cancelPending();
+      set({
+        notes: [],
+        keyword: '',
+        listLoading: false,
+        expanded: {},
+        activeId: undefined,
+        active: undefined,
+        detailLoading: false,
+        selectedId: undefined,
+        saveState: 'idle',
+        error: undefined,
+        notice: undefined,
+      });
+    },
 
     loadNotes: async (keyword) => {
       const kw = keyword ?? get().keyword;

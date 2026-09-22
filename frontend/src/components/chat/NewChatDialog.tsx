@@ -10,7 +10,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { PeerAvatar } from './PeerAvatar';
+import { Avatar } from '@/components/Avatar';
 
 /**
  * 新建聊天：单聊与群聊合一。
@@ -116,7 +116,7 @@ export const NewChatDialog: React.FC<NewChatDialogProps> = ({
                     }}
                     className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-slate-50"
                   >
-                    <PeerAvatar
+                    <Avatar
                       id={friend.id}
                       name={friend.name}
                       size="sm"
@@ -180,7 +180,7 @@ export const NewChatDialog: React.FC<NewChatDialogProps> = ({
                           checked ? 'bg-indigo-50/70' : 'hover:bg-slate-50'
                         }`}
                       >
-                        <PeerAvatar
+                        <Avatar
                           id={friend.id}
                           name={friend.name}
                           size="sm"

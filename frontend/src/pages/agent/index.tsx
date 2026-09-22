@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useUserStore } from "@/stores/useAppStore";
 import { getUserProfile } from "@/request/api";
 import { useAgentStore } from "@/stores/useAgentStore";
 import { VirtualList } from "@/components/VirtualList";
+import { Avatar } from "@/components/Avatar";
 import {
   Send,
   Plus,
@@ -461,7 +462,7 @@ const ConversationRow: React.FC<{
 );
 
 export const AgentPage: React.FC = () => {
-  const { username, userId, setUser } = useUserStore();
+  const { username, email, userId, setUser } = useUserStore();
   // 对话状态统一交给 store：流式 token 只更新最后一条助手消息
   const {
     messages,
@@ -690,14 +691,23 @@ export const AgentPage: React.FC = () => {
         </nav>
 
         <div className="p-3 border-t border-slate-200/80">
-          <div className="flex items-center gap-3 px-2 py-2 rounded-xl hover:bg-slate-200/60 transition-colors">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
-              {username?.[0]?.toUpperCase() ?? "U"}
+          {/* 点进个人资料。用共享的 Avatar 而不是自己拼一个渐变圆 ——
+              聊天页与顶部导航都用它，三处头像必须是同一套取色规则 */}
+          <Link
+            to="/profile"
+            title="个人资料"
+            className="flex items-center gap-2.5 px-2 py-2 rounded-xl hover:bg-slate-200/60 transition-colors"
+          >
+            <Avatar id={userId || "me"} name={username || "我"} size="sm" />
+            <div className="min-w-0">
+              <p className="truncate text-[13px] font-medium text-slate-800">
+                {username || "未登录"}
+              </p>
+              <p className="truncate text-[10.5px] text-slate-500">
+                {email || "查看个人资料"}
+              </p>
             </div>
-            <p className="flex-1 min-w-0 truncate text-sm font-medium text-slate-800">
-              {username || "未登录"}
-            </p>
-          </div>
+          </Link>
         </div>
       </aside>
 

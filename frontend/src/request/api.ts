@@ -36,11 +36,24 @@ export interface PageResult<T> {
 //   password: string;
 // }
 
-/** 登录 / 注册响应里携带的用户信息（与后端 generateTokens 的返回对应） */
+/**
+ * 用户公开信息。
+ *
+ * 登录响应里的 `user` 与 `GET /user/profile` 返回的是**同一个形状** ——
+ * 两端都由后端 `common/user-shape.ts` 的 USER_PUBLIC_SELECT 决定，
+ * 所以这里只需要一份类型。之前这里是按登录响应写的，字段比 profile
+ * 少三个，前端只能靠 `as` 糊过去。
+ */
 export interface AuthUser {
   id: string;
   email: string;
   nickname: string | null;
+  /** 账号标识，老数据可能为空 */
+  handle: string | null;
+  /** 个性签名 */
+  bio: string | null;
+  /** 注册时间（后端 Date 经 JSON 序列化后的 ISO 字符串） */
+  createdAt: string;
 }
 
 export interface LoginResult {

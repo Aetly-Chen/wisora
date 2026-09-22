@@ -4,7 +4,7 @@ import type { Conversation, Friend, Message } from '@/types/chat';
 import { formatListTime } from '@/lib/chat-utils';
 import { conversationPeer, conversationTitle } from '@/stores/useChatStore';
 import { VirtualList } from '@/components/VirtualList';
-import { PeerAvatar } from './PeerAvatar';
+import { Avatar } from '@/components/Avatar';
 
 /**
  * 左侧会话列表。
@@ -147,7 +147,7 @@ export const ConversationList: React.FC<ConversationListProps> = ({
                   : 'hover:bg-slate-900/[0.035]'
               }`}
             >
-              <PeerAvatar
+              <Avatar
                 id={peer?.id ?? conversation.id}
                 name={title}
                 presence={peer?.presence}
