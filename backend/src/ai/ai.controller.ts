@@ -27,7 +27,7 @@ import {
   type TicketPayload,
 } from './guards/stream-ticket.guard';
 import { ConversationRepository } from './memory/conversation.repository';
-import { RateLimitService } from './rate-limit.service';
+import { RateLimitService } from '../common/rate-limit/rate-limit.service';
 import { createUserScopedTools, type ToolWithPolicy } from './tools';
 import { RedisService } from '../redis/redis.service';
 import { PrismaService } from '../prisma/prisma.service';

@@ -1,19 +1,20 @@
 /**
  * 聊天接口层。
  *
- * ⚠️ 当前是**内存 mock 实现**，后端就绪后**只改本文件**：
- * 每个函数上方都标注了它对应的后端接口（方法 + 路径），
- * 把函数体换成 `request.xxx(...)` 即可，页面与 store 零改动。
- * 配套的假数据在 `chat.mock.ts`，届时一并删除。
+ * 这里是聊天模块**唯一**的数据出入口：组件与 store 都不直接碰 axios / socket，
+ * 换后端实现时只改本文件。之前用内存 mock 顶了一阵，现在已经是真实接口。
  *
- * 之所以不让组件直接摸 mock：接口边界一旦被绕过，
- * 后端接进来时就得回头改一堆组件，改动量与风险都不可控。
+ * 两条通道分工：
+ * - 会话、消息、好友、文件 → REST（走 request 实例，自带令牌注入与 401 刷新重放）
+ * - 实时事件 → WebSocket（socket.io，服务端 `chat` 命名空间）
  *
- * 密钥与身份说明：真实实现里 userId 由 JWT 决定（沿用 AuthModule 的
- * JwtAuthGuard），**不接受前端传入**，否则任何人都能冒充他人发消息。
- * mock 阶段由 store 调用 setCurrentUser 注入，仅用于区分「我」和「别人」。
+ * 为什么文件收发走 REST 而事件走 WS：上传需要有真实进度与 multipart，
+ * 走 WS 反而要自己切分片；而输入状态、已读回执这类是双向高频小包，REST 不合适。
  */
 
+import io, { type Socket } from 'socket.io-client';
+import request from './index';
+import { getToken } from './storage';
 import type {
   ChatAttachment,
   ChatEvent,
@@ -25,138 +26,100 @@ import type {
   ShareNotePayload,
   ShareNoteResult,
 } from '@/types/chat';
-import { ensureSeeded, mockDb, nextId, scheduleAutoReply, subscribe } from './chat.mock';
 import { CHAT_FILE_MAX_BYTES } from '@/lib/chat-utils';
 
-/*
- * 后端就绪后这里会引入 axios 实例：
- *   import request from './index';
- * 现在不引是因为 mock 阶段用不到，留着会变成"声明了却没用的导入"。
- */
-
-/** 模拟网络往返，让骨架屏与加载态真的被走到 */
-const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+const BASE = import.meta.env.VITE_BASE_API ?? '';
 
 /**
  * 注入当前登录用户。
  *
- * 真实实现是空操作：身份一律从令牌解析。
- * 保留这个函数是为了让 store 的初始化流程在两种实现下完全一致。
+ * 真实实现下是空操作：身份一律由后端从令牌解析，
+ * **不接受前端传入**（否则任何人都能冒充他人发消息）。
+ * 保留这个函数是为了让 store 的初始化流程不必区分两种实现。
  */
-export function setCurrentUser(userId: string): void {
-  ensureSeeded(userId);
+export function setCurrentUser(_userId: string): void {
+  // no-op
 }
 
 /* ------------------------------ 好友 ------------------------------ */
 
 /** GET /chat/friends */
-export async function listFriends(): Promise<Friend[]> {
-  await delay(220);
-  return mockDb.friends.filter((f) => f.isFriend).map((f) => ({ ...f }));
+export function listFriends(): Promise<Friend[]> {
+  return request.get<Friend[]>('/chat/friends', { loading: false });
 }
 
 /**
  * GET /chat/users?keyword=xxx
  *
- * 按 @handle 或昵称搜索。后端应限制返回条数（这里取 20），
- * 并对邮箱等敏感字段做脱敏：不是好友就不该看到对方的完整邮箱。
+ * 服务端按 @handle / 昵称 / 邮箱搜，限制 20 条；
+ * 非好友的邮箱会被脱敏（形如 y***@example.com）。
+ * 空关键词服务端直接返回空数组，不会把用户目录抖出来。
  */
-export async function searchUsers(keyword: string): Promise<Friend[]> {
-  await delay(260);
-  const q = keyword.trim().toLowerCase();
-  if (!q) return [];
-  return mockDb.friends
-    .filter(
-      (f) => f.handle.toLowerCase().includes(q) || f.name.includes(keyword.trim()),
-    )
-    .slice(0, 20)
-    .map((f) => ({ ...f }));
+export function searchUsers(keyword: string): Promise<Friend[]> {
+  return request.get<Friend[]>('/chat/users', {
+    params: { keyword },
+    loading: false,
+  });
 }
 
 /**
  * POST /chat/friends { userId }
  *
- * 加好友是双向还是单向由后端定；前端只按「已加/未加」渲染，
- * 不做「对方是否同意」的中间态，避免前端先假定一套审批流程。
+ * 服务端幂等：已加过返回既有关系，不报 409。
+ * 关系是双向的（A 加 B 会写两条），所以对方列表里也会立刻出现我。
  */
-export async function addFriend(friendId: string): Promise<Friend> {
-  await delay(320);
-  const friend = mockDb.findFriend(friendId);
-  if (!friend) throw new Error('用户不存在');
-  friend.isFriend = true;
-  return { ...friend };
+export function addFriend(friendId: string): Promise<Friend> {
+  return request.post<Friend>('/chat/friends', { userId: friendId }, { loading: false });
 }
 
 /* ------------------------------ 会话 ------------------------------ */
 
-/** GET /chat/conversations */
-export async function listConversations(): Promise<Conversation[]> {
-  await delay(280);
-  return mockDb.conversations.map((c) => ({ ...c }));
+/** GET /chat/conversations —— 已按「置顶优先 + 最后消息时间」排好序 */
+export function listConversations(): Promise<Conversation[]> {
+  return request.get<Conversation[]>('/chat/conversations', { loading: false });
 }
 
-/** GET /chat/conversations/:id/messages?before=&limit= */
-export async function listMessages(conversationId: string): Promise<Message[]> {
-  await delay(240);
-  return mockDb.conversationMessages(conversationId).map((m) => ({ ...m }));
+/**
+ * GET /chat/conversations/:id/messages
+ *
+ * 服务端按时间正序返回，默认 30 条（上限 100）。
+ * 分页用游标（`before=<messageId>`）而不是 offset —— 实时聊天里
+ * 消息在不断插入，offset 会让人翻页时看到重复或漏掉。
+ * 前端暂时只加载最近一页，接「加载更早」时把 before 传进来即可。
+ */
+export function listMessages(
+  conversationId: string,
+  opts: { before?: string; limit?: number } = {},
+): Promise<Message[]> {
+  return request.get<Message[]>(`/chat/conversations/${conversationId}/messages`, {
+    params: { before: opts.before, limit: opts.limit },
+    loading: false,
+  });
 }
 
 /**
  * POST /chat/conversations { kind: 'direct', friendId }
  *
- * 已存在与同一好友的单聊时，后端应返回**已有会话**而不是新建，
- * 否则会话列表里会出现多条与同一个人的单聊。
+ * 服务端会复用已有的单聊 —— 不然用户多点几次「发消息」，
+ * 就会和同一个人建出多条会话，列表里出现一堆重复。
  */
-export async function createDirectConversation(friendId: string): Promise<Conversation> {
-  await delay(240);
-
-  const existing = mockDb.findDirectWith(friendId);
-  if (existing) {
-    // 顺便把未读清掉：用户主动点开联系人，等同于读了
-    existing.unread = 0;
-    return { ...existing };
-  }
-
-  const conversation: Conversation = {
-    id: nextId('cnv'),
-    kind: 'direct',
-    title: null,
-    memberIds: [mockDb.meId, friendId],
-    lastMessage: null,
-    unread: 0,
-    pinned: false,
-    muted: false,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-  mockDb.conversations.push(conversation);
-  return { ...conversation };
+export function createDirectConversation(friendId: string): Promise<Conversation> {
+  return request.post<Conversation>(
+    '/chat/conversations',
+    { kind: 'direct', friendId },
+    { loading: false },
+  );
 }
 
 /** POST /chat/conversations { kind: 'group', title, memberIds } */
-export async function createGroupConversation(
+export function createGroupConversation(
   payload: CreateGroupPayload,
 ): Promise<Conversation> {
-  await delay(320);
-  if (payload.memberIds.length === 0) {
-    throw new Error('群聊至少要有一位成员');
-  }
-
-  const conversation: Conversation = {
-    id: nextId('cnv'),
-    kind: 'group',
-    title: payload.title.trim() || '未命名群聊',
-    // 成员列表里必须包含自己，否则「我」会看不到自己的消息
-    memberIds: [mockDb.meId, ...payload.memberIds],
-    lastMessage: null,
-    unread: 0,
-    pinned: false,
-    muted: false,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-  mockDb.conversations.push(conversation);
-  return { ...conversation };
+  return request.post<Conversation>(
+    '/chat/conversations',
+    { kind: 'group', title: payload.title, memberIds: payload.memberIds },
+    { loading: false },
+  );
 }
 
 /**
@@ -164,157 +127,167 @@ export async function createGroupConversation(
  *
  * 置顶与免打扰合成一个接口：它们都只是会话级开关，
  * 没必要为每个开关开一条路由。
+ * 服务端只改「我自己的成员记录」，不会影响同群的其他人。
  */
-export async function updateConversationFlags(
+export function updateConversationFlags(
   conversationId: string,
   flags: { pinned?: boolean; muted?: boolean },
 ): Promise<Conversation> {
-  await delay(160);
-  const conversation = mockDb.conversations.find((c) => c.id === conversationId);
-  if (!conversation) throw new Error('会话不存在或无权访问');
-  if (flags.pinned !== undefined) conversation.pinned = flags.pinned;
-  if (flags.muted !== undefined) conversation.muted = flags.muted;
-  return { ...conversation };
+  return request.patch<Conversation>(
+    `/chat/conversations/${conversationId}`,
+    flags,
+    { loading: false },
+  );
 }
 
-/** POST /chat/conversations/:id/read */
-export async function markConversationRead(conversationId: string): Promise<void> {
-  await delay(120);
-  const conversation = mockDb.conversations.find((c) => c.id === conversationId);
-  if (conversation) conversation.unread = 0;
+/** POST /chat/conversations/:id/read —— 未读清零并把对方的消息标为已读 */
+export function markConversationRead(conversationId: string): Promise<void> {
+  return request.post<void>(
+    `/chat/conversations/${conversationId}/read`,
+    undefined,
+    { loading: false },
+  );
 }
 
 /* ------------------------------ 消息与附件 ------------------------------ */
 
 /**
- * POST /chat/attachments（multipart/form-data）
+ * POST /chat/attachments（multipart/form-data，字段名 file）
  *
- * 先传文件拿到附件 id，再带 id 发消息 —— 拆两步是为了有真实的上传进度，
+ * 先传文件拿到附件 id，再带 attachmentId 发消息 —— 拆两步是为了有真实的上传进度，
  * 也为了让「发文件」和「发文本」共用同一个发消息接口。
  *
- * 校验放在前端只为提前拦住明显不合法的文件；**真正的白名单必须在后端**，
- * 前端按扩展名判断拦不住任何攻击者。
+ * 前端只做「明显不合法」的预检（体积、空文件），**真正的白名单在后端** ——
+ * 按扩展名判断拦不住任何攻击者。
  */
-export async function uploadAttachment(
+export function uploadAttachment(
   file: File,
   onProgress?: (percent: number) => void,
 ): Promise<ChatAttachment> {
   if (file.size > CHAT_FILE_MAX_BYTES) {
-    throw new Error(`单个文件不能超过 ${Math.round(CHAT_FILE_MAX_BYTES / 1024 / 1024)} MB`);
+    return Promise.reject(
+      new Error(`单个文件不能超过 ${Math.round(CHAT_FILE_MAX_BYTES / 1024 / 1024)} MB`),
+    );
   }
   if (file.size === 0) {
-    throw new Error('文件为空，无法发送');
+    return Promise.reject(new Error('文件为空，无法发送'));
   }
 
-  // 模拟分片上传的进度回调
-  const steps = 12;
-  for (let i = 1; i <= steps; i++) {
-    await delay(45);
-    onProgress?.(Math.round((i / steps) * 100));
-  }
+  const form = new FormData();
+  form.append('file', file);
 
-  const attachment: ChatAttachment = {
-    id: nextId('att'),
-    name: file.name,
-    size: file.size,
-    mimeType: file.type || 'application/octet-stream',
-  };
-
-  // 图片消息在气泡里直接显示缩略图；对象地址由调用方在卸载时释放
-  if (attachment.mimeType.startsWith('image/')) {
-    attachment.objectUrl = URL.createObjectURL(file);
-    attachment.previewUrl = attachment.objectUrl;
-  }
-
-  return attachment;
+  return request
+    .post<ChatAttachment>('/chat/attachments', form, {
+      loading: false,
+      /*
+       * 不要手写 Content-Type —— 让浏览器自己带 multipart 边界，
+       * 手写会漏掉 boundary，后端解析直接失败。
+       */
+      onUploadProgress: (e) => {
+        if (!onProgress) return;
+        const total = e.total ?? file.size;
+        if (!total) return;
+        onProgress(Math.min(100, Math.round((e.loaded / total) * 100)));
+      },
+    })
+    .then((attachment) => {
+      /*
+       * 本地图片立刻给一个 objectUrl 用于预览。
+       *
+       * 服务端只回 previewUrl（是需要鉴权的接口地址，<img> 带不上令牌），
+       * 而这张图就是用户刚从本地选的，没必要再取一次。
+       */
+      if (attachment.mimeType.startsWith('image/')) {
+        return { ...attachment, objectUrl: URL.createObjectURL(file) };
+      }
+      return attachment;
+    });
 }
 
 /**
  * POST /chat/conversations/:id/messages
  *
- * body: { text?, attachmentId?, note? } 三者至少有一个。
- * 后端应校验发送者属于该会话，且附件归属当前用户（防止拿别人的附件 id 转发）。
+ * body: { text?, attachmentId?, noteId? } 三者至少有一个。
+ *
+ * 注意这里要做**字段拍平**：store 传的是完整的 attachment / note 对象，
+ * 而后端只接受 id。笔记的标题等快照由服务端自己按 noteId 查 ——
+ * 让客户端传标题意味着可以伪造标题把别人的笔记发出去。
  */
 export async function sendMessage(payload: SendMessagePayload): Promise<Message> {
-  await delay(260);
+  const body: { text?: string; attachmentId?: string; noteId?: string } = {};
+  if (payload.text) body.text = payload.text;
+  if (payload.attachment) body.attachmentId = payload.attachment.id;
+  if (payload.note) body.noteId = payload.note.noteId;
 
-  const conversation = mockDb.conversations.find((c) => c.id === payload.conversationId);
-  if (!conversation) throw new Error('会话不存在或无权访问');
-  if (!conversation.memberIds.includes(mockDb.meId)) {
-    throw new Error('你不在该会话中');
+  const saved = await request.post<Message>(
+    `/chat/conversations/${payload.conversationId}/messages`,
+    body,
+    { loading: false },
+  );
+
+  /*
+   * 把本地 objectUrl 带回去。
+   *
+   * 服务端返回的附件只有 previewUrl（鉴权地址），而 store 会用这条返回值
+   * 替换掉乐观插入的气泡 —— 不补这一下，自己刚发的图会先黑一下再去取 Blob。
+   */
+  const localUrl = payload.attachment?.objectUrl;
+  if (localUrl && saved.attachment) {
+    return { ...saved, attachment: { ...saved.attachment, objectUrl: localUrl } };
   }
-
-  const text = payload.text?.trim() ?? '';
-  const kind = payload.note ? 'note' : payload.attachment ? deriveKind(payload) : 'text';
-  if (kind === 'text' && !text) throw new Error('消息内容不能为空');
-
-  const message: Message = {
-    id: nextId('msg'),
-    conversationId: payload.conversationId,
-    senderId: mockDb.meId,
-    kind,
-    text: text || null,
-    attachment: payload.attachment ?? null,
-    note: payload.note ?? null,
-    createdAt: new Date().toISOString(),
-    status: 'sent',
-  };
-
-  mockDb.messages.push(message);
-  mockDb.touchConversation(payload.conversationId, message);
-
-  // mock 专属：模拟对方读回执 + 自动回复。真实实现里这两件事都来自服务端推送
-  scheduleAutoReply(payload.conversationId);
-
-  return { ...message };
-}
-
-function deriveKind(payload: SendMessagePayload): 'image' | 'file' {
-  return payload.attachment?.mimeType.startsWith('image/') ? 'image' : 'file';
+  return saved;
 }
 
 /**
  * POST /chat/notes/share { noteId, toFriendIds[], comment? }
  *
- * 分享笔记 / 目录给好友。后端要为每个好友找到（或新建）单聊，
- * 再写入一条 kind=note 的消息。返回实际送达数用于提示，
- * 部分失败时也照常返回成功的那部分（前端提示"N 位好友已收到"）。
+ * 服务端为每个好友复用或新建单聊，各写一条 kind=note 的消息。
+ * 部分失败时照常返回成功的那部分（前端提示「N 位好友已收到」）。
  */
-export async function shareNote(payload: ShareNotePayload): Promise<ShareNoteResult> {
-  await delay(340);
+export function shareNote(payload: ShareNotePayload): Promise<ShareNoteResult> {
+  return request.post<ShareNoteResult>(
+    '/chat/notes/share',
+    {
+      noteId: payload.noteId,
+      toFriendIds: payload.toFriendIds,
+      comment: payload.comment,
+    },
+    { loading: false },
+  );
+}
 
-  if (payload.toFriendIds.length === 0) throw new Error('请至少选择一位好友');
+/* ------------------------------ 带鉴权的文件读取 ------------------------------ */
 
-  let messageCount = 0;
-  const conversationIds: string[] = [];
-
-  for (const friendId of payload.toFriendIds) {
-    const conversation = await createDirectConversation(friendId);
-
-    const message: Message = {
-      id: nextId('msg'),
-      conversationId: conversation.id,
-      senderId: mockDb.meId,
-      kind: 'note',
-      text: payload.comment?.trim() || null,
-      attachment: null,
-      note: {
-        noteId: payload.noteId,
-        title: payload.title,
-        kind: payload.kind,
-        childCount: payload.childCount,
-      },
-      createdAt: new Date().toISOString(),
-      status: 'sent',
-    };
-
-    mockDb.messages.push(message);
-    mockDb.touchConversation(conversation.id, message);
-    conversationIds.push(conversation.id);
-    messageCount += 1;
+/**
+ * 取附件二进制。
+ *
+ * 不能把 `/chat/attachments/:id/content` 直接塞给 <img src> 或 <a href> ——
+ * 该接口需要 Authorization 头，而 img / iframe / 导航跳转都带不上自定义头，
+ * 结果就是 401。所以统一「先 fetch 成 Blob，再转 objectURL」。
+ *
+ * 与笔记模块的 fetchAttachmentBlob 是同一套做法（那边是 /attachments/:id/content）。
+ */
+export async function fetchChatAttachmentBlob(id: string): Promise<Blob> {
+  const res = await fetch(`${BASE}/chat/attachments/${id}/content`, {
+    headers: { Authorization: `Bearer ${getToken() ?? ''}` },
+  });
+  if (!res.ok) {
+    throw new Error(`加载附件失败（HTTP ${res.status}）`);
   }
+  return res.blob();
+}
 
-  return { conversationCount: conversationIds.length, messageCount };
+/** 触发浏览器下载。同上，必须带着令牌自己取流 */
+export async function downloadChatAttachment(id: string, filename: string) {
+  const blob = await fetchChatAttachmentBlob(id);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 /* ------------------------------ 实时事件 ------------------------------ */
@@ -322,14 +295,36 @@ export async function shareNote(payload: ShareNotePayload): Promise<ShareNoteRes
 /**
  * 订阅服务端推送。
  *
- * mock 阶段由 `chat.mock.ts` 用定时器伪造；后端就绪后换成
- * WebSocket（推荐，双向且便于后续加输入状态）或 SSE。
+ * 用 socket.io 连服务端的 `chat` 命名空间。
  *
- * **store 侧不需要任何改动** —— 把实时能力收敛成这一个钩子，
- * 就是为了让协议替换不波及业务代码。
+ * 令牌通过握手载荷（auth）传递，**不放 query string** ——
+ * query 会进访问日志与代理记录。这一点与 ai 模块当初为 SSE
+ * 引入一次性 ticket 是同一个理由。
  *
- * 返回取消订阅函数，组件卸载时必须调用，否则会重复订阅。
+ * `auth` 传函数形式：socket.io 每次重连都会重新调用它，
+ * 这样访问令牌过期刷新后，重连拿到的是新令牌而不是握手时的旧值。
+ *
+ * 事件名固定 `event`，载荷是带 type 字段的 ChatEvent ——
+ * 与服务端 chat.gateway.ts 的 EVENT_CHANNEL 对应。
+ *
+ * 返回取消订阅函数，组件卸载时必须调用。
  */
 export function subscribeChatEvents(handler: (event: ChatEvent) => void): () => void {
-  return subscribe(handler);
+  const socket: Socket = io(`${BASE}/chat`, {
+    // 只用 websocket：省掉 polling 升级那一步，实时性更直接
+    transports: ['websocket'],
+    auth: (cb) => cb({ token: getToken() ?? '' }),
+  });
+
+  socket.on('event', (event: ChatEvent) => handler(event));
+
+  // 断线不静默：至少让开发者能在控制台看到，否则「消息不来了」无从下手
+  socket.on('connect_error', (err) => {
+    console.warn('[chat] 实时连接失败：', err.message);
+  });
+
+  return () => {
+    socket.off('event');
+    socket.disconnect();
+  };
 }

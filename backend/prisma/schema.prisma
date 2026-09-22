@@ -22,6 +22,20 @@ model User {
   conversations Conversation[]
   notes         Note[]
   attachments   Attachment[]
+
+  /// 唯一账号标识，用于 @handle 展示与搜索。
+  /// 可空：表里已有数据，非空加唯一约束会直接迁移失败
+  /// （Postgres 的唯一索引允许多个 NULL，所以不影响唯一性）。
+  /// 展示时为空则回退到邮箱前缀。
+  handle String? @unique
+  /// 个性签名 / 职位
+  bio    String?
+
+  friendships     ChatFriendship[]           @relation("ChatFriendshipOwner")
+  friendOf        ChatFriendship[]           @relation("ChatFriendshipTarget")
+  chatMemberships ChatConversationMember[]
+  chatMessages    ChatMessage[]
+  chatAttachments ChatAttachment[]
 }
 
 model Conversation {
@@ -103,4 +117,136 @@ model Attachment {
 
   @@index([userId, createdAt])
   @@index([noteId])
+}
+
+/* ==================================================================== */
+/* 聊天模块                                                              */
+/*                                                                       */
+/* 模型名统一加 Chat 前缀：Conversation / Message 已被 AI 助手模块占用，   */
+/* 而 Prisma 的模型与枚举都在同一命名空间，重名会直接报 Duplicate model。 */
+/* ==================================================================== */
+
+/// 好友关系。每人一行：A 加 B 会写 (A,B) 与 (B,A) 两条，双向可见
+model ChatFriendship {
+  id        String   @id @default(cuid())
+  userId    String
+  friendId  String
+  /// 备注名，为空时展示对方的 nickname
+  alias     String?
+  createdAt DateTime @default(now())
+
+  user   User @relation("ChatFriendshipOwner", fields: [userId], references: [id], onDelete: Cascade)
+  friend User @relation("ChatFriendshipTarget", fields: [friendId], references: [id], onDelete: Cascade)
+
+  /// 同一个好友只能加一次
+  @@unique([userId, friendId])
+  @@index([friendId])
+}
+
+enum ChatConversationKind {
+  DIRECT
+  GROUP
+}
+
+model ChatConversation {
+  id        String               @id @default(cuid())
+  kind      ChatConversationKind
+  /// 群聊的群名。单聊为 null，标题由前端按对方名字推导
+  title     String?
+  /// 群聊创建者，用于权限判断
+  ownerId   String?
+  /// 单聊去重键：两个成员 id 排序后 ':' 连接。群聊为 null。
+  /// 靠唯一约束去重，而不是「先查再建」—— 后者在并发下有窗口
+  directKey String?              @unique
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+
+  members  ChatConversationMember[]
+  messages ChatMessage[]
+
+  @@index([updatedAt])
+}
+
+/// 会话成员。把「置顶 / 免打扰 / 未读」放在成员维度而不是会话维度 ——
+/// 这些是每个人自己的状态，放会话上会导致 A 读了消息、B 的未读数也被清零
+model ChatConversationMember {
+  id             String    @id @default(cuid())
+  conversationId String
+  userId         String
+  pinned         Boolean   @default(false)
+  muted          Boolean   @default(false)
+  unread         Int       @default(0)
+  /// 最后已读的时间，用于算未读与已读回执
+  lastReadAt     DateTime?
+  joinedAt       DateTime  @default(now())
+  /// 退出 / 被移出群聊的时间；为 null 表示仍在群里
+  leftAt         DateTime?
+
+  conversation ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+  @@index([userId, pinned])
+}
+
+enum ChatMessageKind {
+  TEXT
+  IMAGE
+  FILE
+  NOTE
+}
+
+enum ChatMessageStatus {
+  SENT
+  READ
+}
+
+model ChatMessage {
+  id             String            @id @default(cuid())
+  conversationId String
+  senderId       String
+  kind           ChatMessageKind
+  /// 文本内容；附件与笔记卡片也可以带一句说明
+  text           String?
+  /// 分享的笔记快照（只存 id / 标题 / 类型 / 子页面数，不存正文）。
+  /// 存快照而不是每次联表：聊天记录是历史，笔记后来改名不该改写历史；
+  /// 而且列表一屏几百条，每条都 join 笔记表会变成 N+1
+  noteId         String?
+  noteTitle      String?
+  noteKind       String?
+  noteChildCount Int               @default(0)
+  status         ChatMessageStatus @default(SENT)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  conversation ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User             @relation(fields: [senderId], references: [id])
+  /// 一个附件只属于一条消息
+  attachment   ChatAttachment?
+
+  /// 拉历史消息按 (会话, 时间倒序) 分页，这个复合索引是必需的
+  @@index([conversationId, createdAt])
+}
+
+/// 聊天附件。与笔记的 Attachment 分表：
+/// 两者生命周期不同（删笔记不该删聊天记录里的文件），混在一张表会互相牵连
+model ChatAttachment {
+  id         String   @id @default(cuid())
+  /// 可空！上传与发送是两步：先 POST /chat/attachments 拿 id，
+  /// 再带 attachmentId 发消息时才建立关联。非空约束会让第一步插不进去。
+  /// 代价是会产生「传了没发」的孤儿附件，需要定时清理
+  messageId  String?  @unique
+  uploaderId String
+  filename   String
+  /// 存储相对路径。文件名用随机 UUID + 扩展名，杜绝路径穿越与同名覆盖
+  storageKey String   @unique
+  mimeType   String
+  size       Int
+  createdAt  DateTime @default(now())
+
+  message  ChatMessage? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  uploader User         @relation(fields: [uploaderId], references: [id])
+
+  /// 清理孤儿附件（上传了但没发出去）要靠这个索引
+  @@index([uploaderId, createdAt])
 }

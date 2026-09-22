@@ -151,6 +151,37 @@ let unsubscribe: (() => void) | null = null;
 /** 临时 id 计数，用于乐观插入的消息 */
 let tempCounter = 0;
 
+/**
+ * 用服务端返回的消息替换掉乐观插入的那条。
+ *
+ * 除了替换 temp，还必须**清掉同 id 的其它条目** —— 这里有个真实的竞态：
+ *
+ *   1. 乐观插入 temp_X
+ *   2. POST 发出
+ *   3. 服务端落库后先推了一条 WebSocket 事件（真实 id 为 N）
+ *      → 事件处理里按 id 去重，列表里没有 N，于是追加了一条 N
+ *   4. POST 响应回来，把 temp_X 替换成 N
+ *      → 列表里就出现了两条 N
+ *
+ * 症状是 React 报 "Encountered two children with the same key"，
+ * 界面上还可能重影。只在发送方出现，因为只有发送方同时收到
+ * 「REST 响应」和「自己那条 WS 推送」。
+ */
+function reconcileMessage(
+  saved: Message,
+  tempId: string,
+  list: Message[],
+): Message[] {
+  const replaced = list.map((m) => (m.id === tempId ? saved : m));
+  let kept = false;
+  return replaced.filter((m) => {
+    if (m.id !== saved.id) return true;
+    if (kept) return false;
+    kept = true;
+    return true;
+  });
+}
+
 export const useChatStore = create<ChatState>((set, get) => ({
   meId: '',
   friends: [],
@@ -357,8 +388,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set((state) => ({
         messagesByConversation: {
           ...state.messagesByConversation,
-          [conversationId]: (state.messagesByConversation[conversationId] ?? []).map((m) =>
-            m.id === tempId ? saved : m,
+          [conversationId]: reconcileMessage(
+            saved,
+            tempId,
+            state.messagesByConversation[conversationId] ?? [],
           ),
         },
         conversations: state.conversations.map((c) =>
@@ -426,8 +459,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set((state) => ({
         messagesByConversation: {
           ...state.messagesByConversation,
-          [conversationId]: (state.messagesByConversation[conversationId] ?? []).map(
-            (m) => (m.id === tempId ? saved : m),
+          [conversationId]: reconcileMessage(
+            saved,
+            tempId,
+            state.messagesByConversation[conversationId] ?? [],
           ),
         },
         conversations: state.conversations.map((c) =>

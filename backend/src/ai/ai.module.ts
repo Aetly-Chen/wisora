@@ -6,7 +6,9 @@ import { ChatModelFactory } from './llm/llm.provider';
 import { ToolRegistry } from './tools/tool.registry';
 import { registerAllTools } from './tools';
 import { ConversationRepository } from './memory/conversation.repository';
-import { RateLimitService } from './rate-limit.service';
+// RateLimitService 已移到 common：chat 也要用它，
+// 留在 ai 里会让 chat 反向依赖 ai
+import { RateLimitService } from '../common/rate-limit/rate-limit.service';
 import { StreamTicketGuard } from './guards/stream-ticket.guard';
 import { PrismaModule } from '../prisma/prisma.module';
 import { PrismaService } from '../prisma/prisma.service';
@@ -26,7 +28,6 @@ import { NotesModule } from '../notes/notes.module';
     AiService,
     ToolRegistry,
     ConversationRepository,
-    RateLimitService,
     StreamTicketGuard,
     ChatModelFactory,
   ],

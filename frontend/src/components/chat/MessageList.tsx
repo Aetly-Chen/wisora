@@ -17,7 +17,9 @@ import {
   formatDayDivider,
   isPreviewableImage,
 } from '@/lib/chat-utils';
+import { downloadChatAttachment } from '@/request/chat';
 import { PeerAvatar } from './PeerAvatar';
+import { ChatImage } from './ChatImage';
 
 /**
  * 消息流。
@@ -89,17 +91,17 @@ const FileCard: React.FC<{ message: Message; mine: boolean }> = ({ message, mine
           {FILE_KIND_LABEL[kind]} · {formatBytes(attachment.size)}
         </p>
       </div>
-      <a
-        href={attachment.objectUrl ?? attachment.previewUrl ?? '#'}
-        download={attachment.name}
-        onClick={(e) => {
-          // mock 阶段没有真实下载地址，没有对象地址时不跳空白页
-          if (!attachment.objectUrl) e.preventDefault();
-        }}
+      {/*
+        下载必须走接口取流，不能用 <a href={previewUrl} download> ——
+        附件接口需要 Authorization 头，而导航跳转带不上自定义头，会 401。
+      */}
+      <button
+        type="button"
+        onClick={() => void downloadChatAttachment(attachment.id, attachment.name)}
         className="shrink-0 rounded-lg px-2 py-1 text-[11.5px] font-medium text-indigo-600 transition-colors hover:bg-indigo-50"
       >
         下载
-      </a>
+      </button>
     </div>
   );
 };
@@ -319,12 +321,7 @@ export const MessageList: React.FC<MessageListProps> = ({
                         {message.kind === 'image' && message.attachment && (
                           <div className="space-y-1.5">
                             {isPreviewableImage(message.attachment) ? (
-                              <img
-                                src={message.attachment.previewUrl}
-                                alt={message.attachment.name}
-                                loading="lazy"
-                                className="max-h-64 w-full rounded-lg object-cover"
-                              />
+                              <ChatImage attachment={message.attachment} />
                             ) : (
                               <div className="flex h-32 items-center justify-center rounded-lg bg-slate-100 text-[12px] text-slate-400">
                                 图片预览不可用
