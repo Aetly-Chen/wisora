@@ -110,8 +110,15 @@ export const Composer: React.FC<ComposerProps> = ({
         if (disabled) return;
         pickFiles(e.dataTransfer.files);
       }}
-      className={`shrink-0 border-t border-tg-border-subtle bg-tg-surface px-3 py-2.5 transition-colors sm:px-5 ${
-        dragging ? 'bg-tg-brand-tint' : ''
+      /*
+       * 底色两个分支必须互斥。
+       * 写成「固定的 bg-tg-surface + 拖拽时再加 bg-tg-brand-tint」时，
+       * 同一个元素上会有两个 background-color 工具类，谁生效只看
+       * Tailwind 的生成顺序 —— 实测 bg-tg-surface 赢，拖拽高亮整块不显示
+       * （而"松开即可发送该文件"的文案会变，所以很容易以为拖拽态是好的）。
+       */
+      className={`shrink-0 border-t border-tg-border-subtle px-3 py-2.5 transition-colors sm:px-5 ${
+        dragging ? 'bg-tg-brand-tint' : 'bg-tg-surface'
       }`}
     >
       <div className="mx-auto max-w-3xl">
