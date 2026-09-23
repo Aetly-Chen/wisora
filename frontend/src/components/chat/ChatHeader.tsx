@@ -1,12 +1,18 @@
 import React, { useRef, useState } from 'react';
 import { ArrowLeft, MoreVertical, Pin, PinOff, Volume2, VolumeX } from 'lucide-react';
 import type { Conversation, Friend } from '@/types/chat';
+import { peerAvatarClass } from '@/lib/chat-utils';
 import { conversationPeer, conversationTitle } from '@/stores/useChatStore';
 import { ContextMenu } from '@/components/ContextMenu';
 import { Avatar } from '@/components/Avatar';
 
 /**
- * 会话头部。
+ * 会话头部（Telegram 版）。
+ *
+ * 三件事按 Telegram 的比例来：头像用 48px（和会话列表同一档，
+ * 切换会话时头像位置不会跳）、名字 15px、状态行 13px。
+ * 头部底色是纯白，只有底边一条 hairline，不做阴影 ——
+ * 加了阴影之后会和下面的壁纸一起形成两层"浮起来"的东西。
  *
  * 副标题按会话类型给不同信息：
  * - 单聊：在线状态（在线 / 离开 / 离线），比显示"最后上线时间"更省空间
@@ -64,36 +70,44 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
           : '离线';
 
   return (
-    <div className="flex shrink-0 items-center gap-2.5 border-b border-slate-200/80 px-3 py-2.5">
+    <div className="flex shrink-0 items-center gap-3 border-b border-tg-border-subtle bg-tg-surface px-3 py-2 sm:px-4">
       {onBack && (
         <button
           type="button"
           onClick={onBack}
           aria-label="返回会话列表"
-          className="-ml-1 shrink-0 rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 md:hidden"
+          className="-ml-1 shrink-0 rounded-full p-2 text-tg-text-muted transition-colors hover:bg-tg-surface-hover md:hidden"
         >
-          <ArrowLeft className="h-4 w-4" />
+          <ArrowLeft className="h-5 w-5" />
         </button>
       )}
 
       <Avatar
         id={peer?.id ?? conversation.id}
         name={title}
-        size="sm"
+        size="lg"
         presence={peer?.presence}
         group={isGroup}
+        fill={peerAvatarClass(peer?.id ?? conversation.id)}
       />
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
-          <h2 className="truncate text-[14px] font-semibold text-slate-900">{title}</h2>
+          <h2 className="truncate text-[15px] font-medium text-tg-text">
+            {title}
+          </h2>
           {conversation.muted && (
-            <VolumeX className="h-3.5 w-3.5 shrink-0 text-slate-300" aria-label="免打扰" />
+            <VolumeX
+              className="h-3.5 w-3.5 shrink-0 text-tg-text-soft"
+              aria-label="免打扰"
+            />
           )}
         </div>
         <p
-          className={`truncate text-[11.5px] ${
-            typingName ? 'text-indigo-600' : 'text-slate-500'
+          className={`truncate text-[13px] ${
+            typingName
+              ? 'text-tg-brand'
+              : 'text-tg-text-muted'
           }`}
         >
           {subtitle}
@@ -110,9 +124,9 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
           const rect = moreButtonRef.current?.getBoundingClientRect();
           setMenuAt(rect ? { x: rect.right - 184, y: rect.bottom + 6 } : { x: 0, y: 0 });
         }}
-        className="shrink-0 rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
+        className="shrink-0 rounded-full p-2 text-tg-text-muted transition-colors hover:bg-tg-surface-hover"
       >
-        <MoreVertical className="h-4 w-4" />
+        <MoreVertical className="h-5 w-5" />
       </button>
 
       <ContextMenu

@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Avatar } from '@/components/Avatar';
+import { peerAvatarClass } from '@/lib/chat-utils';
 
 /**
  * 添加好友。
@@ -65,10 +66,10 @@ export const AddFriendDialog: React.FC<AddFriendDialogProps> = ({ open, onClose 
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-md gap-3 p-0">
         <DialogHeader className="px-5 pt-5">
-          <DialogTitle className="text-[15px] font-semibold text-slate-900">
+          <DialogTitle className="text-[15px] font-medium text-tg-text">
             添加好友
           </DialogTitle>
-          <DialogDescription className="text-[12.5px] text-slate-500">
+          <DialogDescription className="text-[13px] text-tg-text-muted">
             按昵称、邮箱或账号前缀查找。
           </DialogDescription>
         </DialogHeader>
@@ -76,7 +77,7 @@ export const AddFriendDialog: React.FC<AddFriendDialogProps> = ({ open, onClose 
         <div className="px-5">
           <div className="flex gap-2">
             <div className="relative flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-tg-text-muted" />
               <input
                 value={keyword}
                 onChange={(e) => setKeyword(e.target.value)}
@@ -85,13 +86,13 @@ export const AddFriendDialog: React.FC<AddFriendDialogProps> = ({ open, onClose 
                 }}
                 placeholder="输入昵称或邮箱"
                 aria-label="搜索用户"
-                className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-[12.5px] text-slate-700 placeholder:text-slate-400 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                className="w-full rounded-[10px] border border-tg-border bg-tg-surface py-2 pl-9 pr-3 text-[13px] text-tg-text-body placeholder:text-tg-text-muted focus:border-tg-brand focus:outline-none focus:ring-2 focus:ring-tg-brand-soft"
               />
             </div>
             <Button
               variant="brand"
               size="sm"
-              className="rounded-lg text-[12.5px]"
+              className="rounded-[10px] bg-tg-brand-press text-[13px] hover:bg-tg-brand-deep"
               disabled={!keyword.trim() || searching}
               onClick={() => void runSearch()}
             >
@@ -105,42 +106,45 @@ export const AddFriendDialog: React.FC<AddFriendDialogProps> = ({ open, onClose 
             <div className="space-y-1 pt-1">
               {[0, 1].map((i) => (
                 <div key={i} className="flex items-center gap-2.5 px-2.5 py-2">
-                  <div className="h-7 w-7 animate-pulse rounded-full bg-slate-900/[0.05]" />
-                  <div className="h-3 w-1/3 animate-pulse rounded bg-slate-900/[0.05]" />
+                  <div className="h-7 w-7 animate-pulse rounded-full bg-black/[0.06]" />
+                  <div className="h-3 w-1/3 animate-pulse rounded bg-black/[0.06]" />
                 </div>
               ))}
             </div>
           ) : results.length === 0 ? (
-            <p className="py-8 text-center text-[12.5px] text-slate-400">
+            <p className="py-8 text-center text-[13px] text-tg-text-muted">
               {searched ? '没有找到该用户' : '输入账号后点搜索'}
             </p>
           ) : (
             results.map((friend) => (
               <div
                 key={friend.id}
-                className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 hover:bg-slate-50"
+                className="flex items-center gap-2.5 rounded-[10px] px-2.5 py-2 hover:bg-tg-surface-hover"
               >
                 <Avatar
                   id={friend.id}
                   name={friend.name}
-                  size="sm"
+                  size="md"
                   presence={friend.presence}
+                  fill={peerAvatarClass(friend.id)}
                 />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[13px] font-medium text-slate-800">
+                  <p className="truncate text-[13px] font-medium text-tg-text-body">
                     {friend.name}
                   </p>
-                  <p className="truncate text-[11.5px] text-slate-500">
+                  <p className="truncate text-[11.5px] text-tg-text-muted">
                     @{friend.handle} · {friend.bio}
                   </p>
                 </div>
                 {friend.isFriend ? (
-                  <span className="shrink-0 text-[11.5px] text-slate-400">已是好友</span>
+                  <span className="shrink-0 text-[11.5px] text-tg-text-muted">
+                    已是好友
+                  </span>
                 ) : (
                   <Button
                     variant="outline"
                     size="sm"
-                    className="shrink-0 rounded-lg border-slate-200 text-[11.5px]"
+                    className="shrink-0 rounded-[10px] border-tg-border text-[11.5px] text-tg-brand-deep hover:bg-tg-brand-soft hover:text-tg-brand-deep"
                     disabled={addingId === friend.id}
                     onClick={() => {
                       setAddingId(friend.id);

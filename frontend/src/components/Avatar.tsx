@@ -43,6 +43,14 @@ interface AvatarProps {
   presence?: Presence;
   /** 群聊头像：用中性底色 + 图标，与个人头像区分开 */
   group?: boolean;
+  /**
+   * 覆盖底色。
+   *
+   * 聊天模块要的是 Telegram 那套纯色块（不是渐变），而纯色块与渐变
+   * 是两条完整的 class，没法只替换其中一个 token，所以这里整体替换。
+   * 不传时保持项目原有的渐变，导航栏与个人资料页不受影响。
+   */
+  fill?: string;
   className?: string;
 }
 
@@ -52,6 +60,7 @@ export const Avatar: React.FC<AvatarProps> = ({
   size = 'md',
   presence = 'offline',
   group = false,
+  fill,
   className = '',
 }) => (
   <div className={`relative shrink-0 ${className}`}>
@@ -63,9 +72,7 @@ export const Avatar: React.FC<AvatarProps> = ({
       className={`flex items-center justify-center rounded-full font-semibold text-white ${
         SIZE_CLASS[size]
       } ${
-        group
-          ? 'bg-gradient-to-tr from-slate-500 to-slate-600'
-          : `bg-gradient-to-tr ${avatarTone(id)}`
+        fill ?? (group ? 'bg-gradient-to-tr from-slate-500 to-slate-600' : `bg-gradient-to-tr ${avatarTone(id)}`)
       }`}
       aria-hidden
     >

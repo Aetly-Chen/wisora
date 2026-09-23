@@ -56,7 +56,7 @@ export const ChatImage: React.FC<{
 
   if (failed) {
     return (
-      <div className="flex h-32 w-56 items-center justify-center gap-2 rounded-lg bg-slate-100 text-[12px] text-slate-400">
+      <div className="flex h-32 w-56 items-center justify-center gap-2 rounded-lg bg-black/[0.05] text-[12px] text-tg-text-muted">
         <ImageOff className="h-4 w-4" />
         图片加载失败
       </div>
@@ -65,7 +65,7 @@ export const ChatImage: React.FC<{
 
   if (!src) {
     return (
-      <div className="flex h-32 w-56 items-center justify-center rounded-lg bg-slate-100 text-slate-400">
+      <div className="flex h-32 w-56 items-center justify-center rounded-lg bg-black/[0.05] text-tg-text-muted">
         <Loader2 className="h-4 w-4 animate-spin" />
       </div>
     );

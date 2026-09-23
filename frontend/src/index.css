@@ -52,10 +52,128 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+
+  /*
+   * Telegram 令牌注册成主题色，从而得到 `bg-tg-surface` / `border-tg-border`
+   * 这类**具名工具类**。
+   *
+   * 为什么不直接用任意值写法 `bg-[color:var(--tg-surface)]`：
+   * - `border-[color:var(--x)]` 与 `ring-[color:var(--x)]` 在 Tailwind v4 下
+   *   **根本不会生成规则**（bg- / text- 可以，border- / ring- 不行）。
+   *   实测：`bg-[color:var(--tg-brand-press)]` 生效，而 `border-*` / `ring-*`
+   *   始终回落到默认描边色。这种失效不报错，只能靠 getComputedStyle 发现。
+   * - 具名工具类还顺带让 focus: / hover: / disabled: 等变体全部可用。
+   *
+   * 命名规则是机械的：令牌 `--tg-text-muted` 对应 `--color-tg-text-muted`，
+   * 于是类名就是 `text-tg-text-muted`。不去做"美化改名"是为了让整批
+   * 替换可以脚本化，避免手工映射出错。
+   */
+  --color-tg-brand: var(--tg-brand);
+  --color-tg-brand-soft: var(--tg-brand-soft);
+  --color-tg-brand-tint: var(--tg-brand-tint);
+  --color-tg-brand-press: var(--tg-brand-press);
+  --color-tg-brand-deep: var(--tg-brand-deep);
+  --color-tg-bubble-in: var(--tg-bubble-in);
+  --color-tg-bubble-out: var(--tg-bubble-out);
+  --color-tg-meta-out: var(--tg-meta-out);
+  --color-tg-tick-read: var(--tg-tick-read);
+  --color-tg-online: var(--tg-online);
+  --color-tg-away: var(--tg-away);
+  --color-tg-danger: var(--tg-danger);
+  --color-tg-text: var(--tg-text);
+  --color-tg-text-body: var(--tg-text-body);
+  --color-tg-text-muted: var(--tg-text-muted);
+  --color-tg-text-soft: var(--tg-text-soft);
+  --color-tg-text-faint: var(--tg-text-faint);
+  --color-tg-text-on-wall: var(--tg-text-on-wall);
+  --color-tg-surface: var(--tg-surface);
+  --color-tg-surface-hover: var(--tg-surface-hover);
+  --color-tg-surface-soft: var(--tg-surface-soft);
+  --color-tg-border: var(--tg-border);
+  --color-tg-border-subtle: var(--tg-border-subtle);
 }
 
-* {
-  @apply border-border;
+/*
+ * ------------------------------------------------------------------
+ * Telegram 主题令牌（聊天页专用）
+ * ------------------------------------------------------------------
+ *
+ * 为什么放在 :root 而不是 .tg-app 里：shadcn 的 Dialog 走 Radix Portal，
+ * 渲染到 document.body，不在聊天页的 DOM 子树内。令牌若挂在 .tg-app 上，
+ * 弹窗里取到的就是空值，颜色会整片塌掉。
+ *
+ * 令牌统一带 --tg- 前缀，作用域靠"只有聊天模块引用"来保证；
+ * 其它页面继续用上面的 --background / --foreground 那套暖白基底。
+ *
+ * 取色来源：Telegram 官方各端客户端的浅色主题。品牌蓝取 #2aabee
+ * （网页端与图标用色），自己消息的浅绿气泡取 #effdde，对方白色。
+ */
+:root {
+  /* 强调色：链接、在线点、焦点环、进度条 */
+  --tg-brand: #2aabee;
+  --tg-brand-soft: rgb(42 171 238 / 0.12);
+  --tg-brand-tint: #daf0fa;
+
+  /*
+   * 实底按钮用的两档蓝。Telegram 原版是白字压在 #2aabee 上，
+   * 对比度只有 2.6:1，正文读不清；这两档是同一色相的加深版，
+   * 把白字拉到 3.9:1（图标）与 4.9:1（正文），观感仍是 Telegram 蓝。
+   */
+  --tg-brand-press: #0088cc;
+  --tg-brand-deep: #0077b3;
+
+  /* 气泡 */
+  --tg-bubble-out: #effdde;
+  --tg-bubble-in: #ffffff;
+  /* 自己气泡里的时间与已发送勾：绿气泡上的灰字读不清，用同色系深绿 */
+  --tg-meta-out: #4a7a3a;
+  --tg-tick-read: #2f7a2c;
+
+  /* 语义色 */
+  --tg-online: #4fae4e;
+  --tg-away: #f59e0b;
+  --tg-danger: #e53935;
+
+  /* 文本 */
+  --tg-text: #000000;
+  --tg-text-body: #222222;
+  --tg-text-muted: #707579;
+  --tg-text-soft: #a8b3bd;
+  --tg-text-faint: #cccccc;
+  /*
+   * 壁纸上的次级文字。
+   * 调色板里的 #707579 压在中等饱和度的渐变上只有 3.5:1，
+   * 这里换成往壁纸的蓝青方向偏过的深色，同样不抢戏但过得了 4.5:1。
+   */
+  --tg-text-on-wall: #2b353c;
+
+  /* 表面与描边 */
+  --tg-surface: #ffffff;
+  --tg-surface-hover: #f4f4f5;
+  --tg-surface-soft: #fafafa;
+  --tg-border: #dadce0;
+  --tg-border-subtle: #f4f4f5;
+}
+
+/*
+ * 聊天的会话行选中的实底蓝：#0077b3 白字 4.9:1。
+ * 更接近 Telegram 原版的 #2aabee 只有 2.6:1，正文不达标。
+ */
+
+/*
+ * 默认描边色。
+ *
+ * ⚠️ **必须放在 @layer base 里**。Tailwind v4 把工具类放进 @layer utilities，
+ * 而**未分层的 CSS 优先级高于任何分层 CSS**（与时序、选择器权重都无关）。
+ * 这条规则原先写在最外层，于是 `* { border-color }` 压掉了全站所有的
+ * `border-<color>` 工具类 —— 包括 `border-red-500`、`border-indigo-600`
+ * 这类看起来"一定生效"的写法，实际全站描边一直是这一个灰色。
+ * 收进 base 层之后，工具类才能正常覆盖它。
+ */
+@layer base {
+  * {
+    @apply border-border;
+  }
 }
 
 html {
@@ -194,4 +312,61 @@ html:has(.no-scrollbar-page)::-webkit-scrollbar {
 .md-body img {
   max-width: 100%;
   border-radius: 8px;
+}
+
+/*
+ * ------------------------------------------------------------------
+ * Telegram 壁纸
+ * ------------------------------------------------------------------
+ *
+ * Telegram 的默认聊天背景是「算法生成的多色渐变 + 可选的涂鸦图案」。
+ * 这里复刻这两层：
+ *
+ * 1. 渐变：155° 的五段柔光，蓝 → 藕 → 灰绿 → 沙 → 淡紫。
+ *    刻意压得很浅 —— 气泡是白色和浅绿，背景一浓，气泡边界就糊了。
+ * 2. 涂鸦：24×24 的线稿图形（纸飞机、星、心、对话气泡、时钟、
+ *    闪电、信封、音符）铺满 240×240 的瓦片，整组透明度 6%。
+ *    原版的涂鸦是 Telegram 自己的插画集，这里是一组同风格线稿，
+ *    属于近似而非原图。
+ *
+ * 挂在滚动容器「外面」而不是里面：背景要在消息滚动时保持不动，
+ * 挂在滚动容器上会跟着内容一起滚。
+ */
+:root {
+  --tg-doodle: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240' viewBox='0 0 240 240'><g fill='none' stroke='%23000000' stroke-width='1.15' stroke-linecap='round' stroke-linejoin='round' opacity='.06'><g transform='translate(14 18) rotate(-12 12 12)'><path d='M3 11.6 L21 4 L14.4 20.6 L11 13.2 Z'/><path d='M11 13.2 L21 4'/></g><g transform='translate(136 10) rotate(14 12 12)'><path d='M12 3.6 l2.6 5.5 6 .8 -4.4 4.2 1.1 6 -5.3 -2.9 -5.3 2.9 1.1 -6 -4.4 -4.2 6 -.8 Z'/></g><g transform='translate(66 78) rotate(-9 12 12)'><path d='M12 20.2 C5.2 14.8 4.4 9.6 7.8 7.4 c2.2 -1.4 4.2 .5 4.2 .5 s2 -1.9 4.2 -.5 c3.4 2.2 2.6 7.4 -4.2 12.8 Z'/></g><g transform='translate(160 92) rotate(11 12 12)'><rect x='3.6' y='5' width='16.8' height='11.6' rx='3.2'/><path d='M8 16.6 v4 l4.2 -4'/></g><g transform='translate(20 128) rotate(7 12 12)'><circle cx='12' cy='12' r='8.4'/><path d='M12 7.4 v4.9 l3.3 2'/></g><g transform='translate(108 122) rotate(-16 12 12)'><path d='M13.6 2.8 L6 13.4 h5.2 L9.4 21.4 l7.6 -10.6 h-5.2 Z'/></g><g transform='translate(48 168) rotate(12 12 12)'><rect x='3.6' y='6.2' width='16.8' height='11.6' rx='2.4'/><path d='M4.8 8.4 l7.2 5.2 7.2 -5.2'/></g><g transform='translate(160 166) rotate(-11 12 12)'><path d='M9.4 18 V7.2 l7.4 -2 V16.4'/><circle cx='6.9' cy='18' r='2.5'/><circle cx='14.3' cy='16.4' r='2.5'/></g></g></svg>");
+}
+
+.tg-wallpaper {
+  background-color: #9dbccb;
+  background-image: var(--tg-doodle),
+    linear-gradient(
+      155deg,
+      #a9cbdd 0%,
+      #8dc0b4 28%,
+      #bfca93 55%,
+      #d2c191 78%,
+      #9dbbd6 100%
+    );
+  background-repeat: repeat, no-repeat;
+  background-size: 240px 240px, cover;
+  background-position: 0 0, center;
+}
+
+/*
+ * 浏览器自带的那层表面也归主题管：选区与光标颜色。
+ * 默认的蓝色选区压在这套配色上会显得是另一个产品。
+ */
+.tg-app {
+  caret-color: var(--tg-brand-deep);
+}
+
+.tg-app ::selection {
+  background: rgb(42 171 238 / 0.24);
+}
+
+/*
+ * 壁纸上的提示文字。见 --tg-text-on-wall 的说明。
+ */
+.tg-wallpaper-text {
+  color: var(--tg-text-on-wall);
 }

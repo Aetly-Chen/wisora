@@ -574,7 +574,153 @@ node test/purge-demo-chat.cjs --apply              # 清掉（默认只预演）
 界面上的残留也一并清了：加好友弹窗的 placeholder 曾写着
 `例如 yanzhou.shen`，那是演示账号沈砚舟的 handle。
 
-### 8.6 遗留
+### 8.6 视觉层还原为 Telegram（2026-09-23 追加）
+
+#### 先纠正一个前提：此前并不存在「Telegram 版本」
+
+用户反馈「聊天页原本按 Telegram 风格设计，现在被改成了别的样式」，要求改回去。
+但查过 `git log --follow` 之后可以确认：**仓库里从来没有过一个 Telegram 风格的实现**，
+所以这不是回退，而是第一次真正按 Telegram 实现。
+
+与样式相关的提交只有 `13c0fbb`（初版）→ `0ed1eb8`（接真实接口）→ `14105d7`（清假数据），
+三次之间与视觉有关的差异只有两处：`PeerAvatar` → `Avatar` 的改名上移，
+以及 `ChatImage` 的附件取流修复。页面自诞生起一直在用项目的暖白 + `slate` + `indigo`。
+
+也就是说，差距是**初始需求（"风格参考 Telegram，适配现有视觉"）与实际交付之间的落差**，
+不是新旧两版实现。这种差距没法用 `git checkout` 解决，只能重新实现一遍视觉层。
+
+#### 做法：一层只作用于 `/chat` 的令牌
+
+| 文件 | 改动 |
+| --- | --- |
+| `frontend/src/index.css` | `:root` 新增 `--tg-*` 令牌；`@theme inline` 把它们注册成主题色（得到 `bg-tg-*` / `border-tg-*` 具名工具类）；新增 `.tg-wallpaper`（渐变 + 涂鸦图案）与 `.tg-app`（选区、光标色）；**把全局 `* { @apply border-border }` 收进 `@layer base`（修全站描边失效，见下）** |
+| `frontend/src/lib/chat-utils.ts` | 新增 `peerAvatarClass` / `peerNameClass`（Telegram 7 色成员板，与既有 `avatarTone` 并存） |
+| `frontend/src/components/Avatar.tsx` | 新增可选 `fill` 属性：传入则整条替换底色，不传保持原有渐变 |
+| `chat/ConversationList.tsx` | 行高 68→72、头像 48px、选中行实底蓝反白、绿色未读角标、右下角铅笔悬浮按钮 |
+| `chat/ChatHeader.tsx` | 48px 头像、15px 名字、13px 状态、纯白底只留一条 hairline |
+| `chat/MessageList.tsx` | 浅绿/白气泡、SVG 尾巴、时间戳浮入末行、日期胶囊、群聊昵称按人上色 |
+| `chat/Composer.tsx` | 白色输入域 + 圆形蓝底纸飞机按钮 |
+| `chat/ChatImage.tsx` | 占位底色换令牌 |
+| `pages/chat/index.tsx` | 侧栏 320px、壁纸挂 `<main>`、空态与提示条换令牌 |
+| `chat/NewChatDialog.tsx` / `chat/AddFriendDialog.tsx` | 换令牌（这两个只在聊天页使用） |
+
+**令牌为什么放 `:root` 而不是页面级作用域**：shadcn 的 Dialog 走 Radix Portal
+渲染到 `document.body`，不在聊天页的 DOM 子树内。令牌若挂在 `.tg-app` 上，
+弹窗里取到的就是空值，颜色会整片塌掉。作用域靠"只有聊天模块引用 `--tg-` 前缀"来保证。
+
+**`ShareToFriendDialog` 改完又改回去了**：它只被笔记页调用（`pages/notes/index.tsx`），
+属于 `/notes` 的流程。跟着变蓝会让那个页面出现第二个强调色 ——
+"和全站统一"在这里比"聊天相关就一起改"更重要。
+
+#### 刻意不照抄原版的四处取值
+
+| 位置 | 原版 | 实际取值 | 原因 |
+| --- | --- | --- | --- |
+| 选中行实底 | `#2aabee` | `#0077b3` | 原版白字压上去只有 2.6:1，正文不达标；加深后 4.9:1 |
+| 实底按钮 | `#2aabee` | `#0088cc` | 同上。白图标需要 3:1，加深后 3.9:1 |
+| 群聊昵称 | 与头像同色 | 同色相加深版 | 原版 `#7bc862` 当正文在白底上只有 2.2:1，加深后全部过 4.5:1 |
+| 壁纸 | Telegram 自有涂鸦插画集 | 同风格线稿（纸飞机/星/心/气泡/时钟/闪电/信封/音符） | 原版素材是 Telegram 的资产，这里是一组近似而非原图 |
+
+#### 自己发的气泡整个透明（Tailwind 的构建期陷阱）
+
+```tsx
+// ✗ 不报错，但类名不会被生成，气泡直接变透明
+className={`bg-[color:var(--tg-bubble-${mine ? 'out' : 'in'})]`}
+
+// ✓ 两个分支写成完整字面量
+mine ? 'bg-[color:var(--tg-bubble-out)]' : 'bg-[color:var(--tg-bubble-in)]'
+```
+
+Tailwind 是**构建期扫源码文本**生成工具类的，看不见模板拼接的结果。
+当时 `-in` 之所以看着正常，只是因为别处恰好有一个字面量 `bg-[color:var(--tg-bubble-in)]`
+（正在输入指示器用了它），而 `-out` 没有任何字面量出处。
+
+**排查手法**：DOM 里的 class 名是对的，但 `getComputedStyle(el).backgroundColor`
+是 `rgba(0,0,0,0)` —— 就说明这个工具类根本没被生成。这和"类名写错了"是两种不同的故障，
+只看截图容易误判成样式冲突。
+
+#### 另外两个真机截图才发现的问题
+
+1. **壁纸第一版压得太浅**。初版做成"极淡"的渐变，结果 `#effdde` 的自己消息气泡
+   与背景几乎同色，气泡边界整个消失。Telegram 原版的壁纸本来就是中等饱和度的，
+   白气泡与浅绿气泡都靠它才立得住。已改为蓝 → 青绿 → 橄榄的五段渐变。
+2. **时间戳单独占一行**。原先每个气泡底部都有一条只放时间的空行，整屏显得松散。
+   Telegram 是短消息的时间贴着文字右端、排不下才换行，改用 `float-right` 实现；
+   卡片类消息（图片/文件/笔记）仍走块级，因为卡片自己占满宽度。
+
+#### 第二个更严重的坑：全站的描边色一直是同一个灰
+
+做令牌替换时发现 `border-[color:var(--tg-border)]` 不生效。顺着查到根因，
+问题不在令牌写法，而在 `index.css` 里那条最外层的全局规则：
+
+```css
+* { @apply border-border; }   /* ← 未分层 */
+```
+
+Tailwind v4 把工具类放进 `@layer utilities`，而 **CSS 级联层里未分层的规则
+优先级高于任何分层规则** —— 这与选择器权重无关，`*`（权重 0）照样压住
+`.border-red-500`（权重 0-1-0）。实测确认：`border-slate-300`、`border-indigo-600`、
+`border-red-500`、`border-transparent` 全部回落到默认灰 `#e2e8f0`。
+
+**这是一个先于本次改动就存在的全站性缺陷**，只是默认灰看起来"本来就该是灰的"，
+所以一直没被发现。影响面不只是聊天页：全站的错误态描边（`border-red-200`）、
+焦点态描边（`focus:border-indigo-300`）、分隔线（`border-transparent`）都从未生效过。
+
+修法是把它收进 base 层：
+
+```css
+@layer base {
+  * { @apply border-border; }
+}
+```
+
+#### 令牌改用「具名工具类」而不是任意值
+
+修好分层之后又发现：`border-[color:var(--x)]` 与 `ring-[color:var(--x)]`
+在 Tailwind v4 下**根本不生成规则**（`bg-` / `text-` 的这个写法是可以的，
+`border-` / `ring-` 不行，且完全不报错）。
+
+因此把令牌注册进 `@theme inline` 变成主题色，代码里改用具名工具类：
+
+| 之前 | 之后 |
+| --- | --- |
+| `bg-[color:var(--tg-surface)]` | `bg-tg-surface` |
+| `text-[color:var(--tg-text-muted)]` | `text-tg-text-muted` |
+| `border-[color:var(--tg-border)]` | `border-tg-border` |
+| `focus:ring-[color:var(--tg-brand-soft)]` | `focus:ring-tg-brand-soft` |
+
+命名是机械映射（令牌 `--tg-text-muted` → `--color-tg-text-muted` → `text-tg-text-muted`），
+整批替换脚本化完成，共 158 处、8 个文件。具名工具类还顺带让
+`focus:` / `hover:` / `disabled:` 等变体全部可用（任意值写法在变体下更不可靠）。
+
+> 这两处都是**不报错的失效**：编译通过、Lint 通过、页面也都渲染出来了，
+> 只有把 `getComputedStyle` 的实际值打出来才看得见。判断依据：
+> 类名在 DOM 上是对的，但计算值是"没生效的样子"（背景透明、描边回默认灰）。
+
+#### 真机验证
+
+`tsc -b`、eslint（改动文件零告警）、`vite build` 全部通过。真机走查覆盖
+1440×900 桌面（单聊 + 群聊）与 390×844 移动端（列表抽屉 + 会话态），
+并用 `getComputedStyle` 核对实际色值（自己气泡 `rgb(239,253,222)`、对方 `rgb(255,255,255)`）、
+选中行反白、未读角标、群聊昵称与头像同色系、气泡尾巴。
+
+走查数据用**新增的** `backend/test/seed-chat-visual.cjs` 生成（`viz-*` 独立命名空间，
+自带 `--cleanup`），走查完已清空并核实库里 `viz-*` 用户/会话/消息均为 0。
+
+> ⚠️ 该脚本用裸 `pg` 写时间字段时**必须传 ISO 字符串**：Prisma 的 `DateTime` 落库是
+> `timestamp without time zone`，node-postgres 会把 `Date` 按**本地时间**序列化，
+> 偏移被 PG 丢弃后读取时又当成 UTC，整体差 8 小时。
+
+#### 一处需要澄清的 `§1.1` 过时项
+
+`§1.1` 是初版设计稿，其中两行已不成立，以实际代码为准：
+
+- `frontend/src/request/chat.mock.ts` —— **已删除**（见 §0）
+- `frontend/src/components/chat/PeerAvatar.tsx` —— 已上移并改名为
+  `frontend/src/components/Avatar.tsx`（它同时出现在顶部导航与个人资料页，
+  放在 `chat/` 下会让导航反向依赖聊天模块）
+
+### 8.7 遗留
 
 - `frontend/pnpm-lock.yaml` 未同步 `socket.io-client`（安装被 safe-delete
   守卫中断）。`package.json` 已声明，在**普通终端**里跑一次
@@ -585,4 +731,16 @@ node test/purge-demo-chat.cjs --apply              # 清掉（默认只预演）
   加个按钮即可
 - 输入状态（typing）的**发送端**未接：网关与 store 都已支持，
   只差 Composer 里的节流上报
+- **群聊昵称会撞色**：成员配色是 `id` 哈希取 7 色，4 人小群天然不撞的概率只有约 35%
+  （`7×6×5×4 / 7⁴ ≈ 35%`）。Telegram 是按成员在群里的序号分配来保证不撞的，
+  改成那样需要按会话计算颜色映射，代价是会破坏现在"同一个人在所有视图同色"
+  这条性质（也即会话列表里的头像色与群聊里的昵称色始终一致）。暂未改动。
+- **移动端冷启动直接进入第一个会话**，而不是先看到会话列表。
+  来源是 `useChatStore.init` 里那句"首次进入默认选中第一个会话，避免右侧一片空白"，
+  在桌面端是合理的，在移动端与 Telegram 的行为不一致（Telegram 先给列表）。
+  属既有行为，本次未动。
+- **后端在磁盘上有两份**：实际运行的是 `D:\项目\wisora-web\backend`
+  （实测进程即 `node D:\项目\wisora-web\backend\dist\src\main`），
+  `D:\项目\wisora` 是迁移前的旧独立副本。改代码一律改 monorepo 里的 `backend/`；
+  旧副本是否删除待确认。
 

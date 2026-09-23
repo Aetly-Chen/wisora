@@ -126,6 +126,65 @@ export function avatarTone(id: string): string {
   return AVATAR_TONES[hash % AVATAR_TONES.length];
 }
 
+/* --------------------------- Telegram 成员配色 --------------------------- */
+
+/**
+ * Telegram 的成员配色板。
+ *
+ * 官方按用户 id 稳定分配这 7 个色相，**头像底色与群聊里的昵称同色**。
+ * 同一个人在两处必须是同一个颜色，否则这套配色就失去了
+ * 「不用看名字也能分辨谁是谁」的作用。
+ *
+ * 与上面的 AVATAR_TONES 并存而不是替换：那套是渐变的、压过饱和度的，
+ * 给全局导航栏与个人资料页用；这套是 Telegram 的纯色块，
+ * 只给聊天模块用。两者的取色函数分开，互不影响。
+ */
+const PEER_AVATAR_CLASS = [
+  'bg-[#e17076]',
+  'bg-[#faa774]',
+  'bg-[#a695e7]',
+  'bg-[#7bc862]',
+  'bg-[#6ec9cb]',
+  'bg-[#65aadd]',
+  'bg-[#ee7aae]',
+] as const;
+
+/**
+ * 昵称文字用的加深版。
+ *
+ * 头像上是白字压纯色，可以直接用原色；但同一套原色当正文放到白底上，
+ * #7bc862 只有 2.2:1，读不清。所以昵称取同色相的加深版：
+ * 保住「谁是什么颜色」的可辨识度，同时把对比度全部拉到 4.5:1 以上。
+ */
+const PEER_NAME_CLASS = [
+  'text-[#b3363f]',
+  'text-[#a25b1c]',
+  'text-[#6b52c9]',
+  'text-[#457a2d]',
+  'text-[#26777a]',
+  'text-[#2b6ea8]',
+  'text-[#b53b70]',
+] as const;
+
+/** 与 avatarTone 同一套哈希：换个函数取同一个下标，两处颜色才对得上 */
+function peerIndex(id: string): number {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = (hash * 31 + id.charCodeAt(i)) % 100_000;
+  }
+  return hash % PEER_AVATAR_CLASS.length;
+}
+
+/** 头像底色（纯色块，白字）。群聊头像也走这里，用会话 id 取色 */
+export function peerAvatarClass(id: string): string {
+  return PEER_AVATAR_CLASS[peerIndex(id)];
+}
+
+/** 群聊里昵称的颜色 */
+export function peerNameClass(id: string): string {
+  return PEER_NAME_CLASS[peerIndex(id)];
+}
+
 /* ------------------------------ 文件 ------------------------------ */
 
 /**

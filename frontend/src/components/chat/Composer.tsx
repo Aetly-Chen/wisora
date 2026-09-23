@@ -3,7 +3,12 @@ import { Loader2, Paperclip, Send, Upload, X } from 'lucide-react';
 import { CHAT_FILE_MAX_BYTES, formatBytes } from '@/lib/chat-utils';
 
 /**
- * 输入区。
+ * 输入区（Telegram 版）。
+ *
+ * 形态照 Telegram：一条白色圆角输入域，回形针在域内左侧，
+ * 右侧是圆形的蓝底纸飞机按钮。整个输入区站在白色条带上，
+ * 壁纸只铺到这一条的上沿为止 —— 输入框压在渐变壁纸上时，
+ * 白底输入域和背景的边界会糊在一起。
  *
  * 四个不写会出问题的点：
  *
@@ -105,32 +110,36 @@ export const Composer: React.FC<ComposerProps> = ({
         if (disabled) return;
         pickFiles(e.dataTransfer.files);
       }}
-      className={`shrink-0 border-t border-slate-200/80 px-3 py-2.5 transition-colors sm:px-5 ${
-        dragging ? 'bg-indigo-50/60' : ''
+      className={`shrink-0 border-t border-tg-border-subtle bg-tg-surface px-3 py-2.5 transition-colors sm:px-5 ${
+        dragging ? 'bg-tg-brand-tint' : ''
       }`}
     >
       <div className="mx-auto max-w-3xl">
         {upload ? (
           /* 上传中：用进度条替换整个输入行，避免用户以为卡住了 */
-          <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2.5">
-            <Upload className="h-4 w-4 shrink-0 text-indigo-500" />
+          <div className="flex items-center gap-3 rounded-[14px] border border-tg-border bg-tg-surface px-3 py-2.5">
+            <Upload className="h-4 w-4 shrink-0 text-tg-brand-press" />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[12.5px] text-slate-700">{upload.name}</p>
-              <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-slate-100">
+              <p className="truncate text-[13px] text-tg-text-body">
+                {upload.name}
+              </p>
+              <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-tg-surface-hover">
                 <div
-                  className="h-full rounded-full bg-indigo-500 transition-[width] duration-150"
+                  className="h-full rounded-full bg-tg-brand transition-[width] duration-150"
                   style={{ width: `${upload.percent}%` }}
                 />
               </div>
             </div>
-            <span className="shrink-0 font-mono text-[11px] text-slate-500">
+            <span className="shrink-0 font-mono text-[11.5px] text-tg-text-muted">
               {upload.percent}%
             </span>
           </div>
         ) : (
           <div
-            className={`flex items-end gap-2 rounded-2xl border bg-white px-2 py-1.5 transition-shadow focus-within:border-slate-300 focus-within:shadow-md ${
-              dragging ? 'border-indigo-300' : 'border-slate-200/80'
+            className={`flex items-end gap-1 rounded-[14px] border bg-tg-surface px-1.5 py-1 transition-colors ${
+              dragging
+                ? 'border-tg-brand'
+                : 'border-tg-border focus-within:border-tg-brand'
             }`}
           >
             <button
@@ -139,9 +148,9 @@ export const Composer: React.FC<ComposerProps> = ({
               disabled={disabled}
               title={`发送文件（单文件不超过 ${formatBytes(CHAT_FILE_MAX_BYTES)}）`}
               aria-label="发送文件"
-              className="shrink-0 rounded-full p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+              className="shrink-0 rounded-full p-2 text-tg-text-muted transition-colors hover:bg-tg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
             >
-              <Paperclip className="h-4 w-4" />
+              <Paperclip className="h-5 w-5" />
             </button>
 
             <input
@@ -163,7 +172,7 @@ export const Composer: React.FC<ComposerProps> = ({
               placeholder={disabled ? '选择一个会话后开始输入' : '输入消息，Enter 发送'}
               onChange={(e) => onChange(e.target.value)}
               onKeyDown={handleKeyDown}
-              className="min-w-0 flex-1 resize-none border-0 bg-transparent py-2 text-[13px] leading-relaxed text-slate-800 placeholder:text-slate-400 focus:outline-none disabled:cursor-not-allowed"
+              className="min-w-0 flex-1 resize-none border-0 bg-transparent py-2.5 text-[14px] leading-[1.4] text-tg-text-body placeholder:text-tg-text-muted focus:outline-none disabled:cursor-not-allowed"
             />
 
             {value.trim() && (
@@ -171,18 +180,22 @@ export const Composer: React.FC<ComposerProps> = ({
                 type="button"
                 onClick={() => onChange('')}
                 aria-label="清空输入"
-                className="shrink-0 rounded-full p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                className="shrink-0 rounded-full p-2 text-tg-text-muted transition-colors hover:bg-tg-surface-hover"
               >
-                <X className="h-3.5 w-3.5" />
+                <X className="h-4 w-4" />
               </button>
             )}
 
+            {/*
+              发送按钮走加深档蓝：Telegram 原版用 #2aabee，白图标压上去
+              只有 2.6:1，连图形要求的 3:1 都不到。
+            */}
             <button
               type="button"
               onClick={onSubmit}
               disabled={!canSend}
               aria-label="发送"
-              className="shrink-0 rounded-full bg-indigo-600 p-2 text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+              className="mb-0.5 shrink-0 rounded-full bg-tg-brand-press p-2.5 text-white transition-colors hover:bg-tg-brand-deep disabled:cursor-not-allowed disabled:bg-tg-surface-hover disabled:text-tg-text-faint"
             >
               {sending ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -193,7 +206,7 @@ export const Composer: React.FC<ComposerProps> = ({
           </div>
         )}
 
-        <p className="mt-1.5 px-1 text-[10.5px] text-slate-400">
+        <p className="mt-1.5 px-1 text-[11.5px] text-tg-text-muted">
           {dragging
             ? '松开即可发送该文件'
             : 'Enter 发送，Shift + Enter 换行；也可以把文件拖到这里'}
