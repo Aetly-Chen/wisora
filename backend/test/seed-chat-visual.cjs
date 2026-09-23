@@ -15,6 +15,8 @@
  */
 
 const path = require('node:path');
+const zlib = require('node:zlib');
+const fs = require('node:fs');
 
 const ROOT = path.join(__dirname, '..');
 const { Client } = require(
@@ -70,6 +72,8 @@ const DIRECT_MESSAGES = [
   { from: 'a', kind: 'TEXT', at: 296, text: '对，就是这样。而且那一侧的圆角要归零，否则尾巴跟圆角会打架' },
   { from: 'b', kind: 'FILE', at: 240, text: '这是上次那个时序图' },
   { from: 'a', kind: 'NOTE', at: 232, text: '顺手把笔记也发你' },
+  /* 图片消息带附言：说明文字只能出现一次（曾经在气泡里重复渲染两遍） */
+  { from: 'b', kind: 'IMAGE', at: 226, text: '截图给你看下时间戳的位置' },
   {
     from: 'a',
     kind: 'TEXT',
@@ -114,6 +118,83 @@ async function cleanup(db) {
    * 上面按成员反查的方式找不到它，必须按前缀再清一次。
    */
   await db.query(`DELETE FROM "ChatConversation" WHERE id LIKE 'viz-conv-%'`);
+
+  // 借来的测试图片也要删掉，别在用户的上传目录里留垃圾
+  const uploads = path.join(ROOT, 'uploads');
+  try {
+    for (const f of fs.readdirSync(uploads)) {
+      if (f.startsWith('viz-image-')) fs.unlinkSync(path.join(uploads, f));
+    }
+  } catch {
+    /* 目录不存在就算了 */
+  }
+}
+
+/**
+ * 生成一张真正能解码的 PNG 当作测试图片。
+ *
+ * 为什么不从 uploads/ 里借一个现成的：那个目录里恰好有几个只有
+ * 12 字节（只有 PNG magic、没有像素数据）的测试残留文件，借过来
+ * 图片永远停在"解码失败"态，验证不到真实的图片气泡布局。
+ * 自己生成一张才能保证 fixture 是自洽的，也不用去读用户的文件。
+ */
+function makeSamplePng(width, height) {
+  const raw = Buffer.alloc((width * 3 + 1) * height);
+  for (let y = 0; y < height; y++) {
+    const rowStart = y * (width * 3 + 1);
+    raw[rowStart] = 0; // 每行的 filter type：0 = None
+    for (let x = 0; x < width; x++) {
+      const p = rowStart + 1 + x * 3;
+      raw[p] = 60 + Math.round((x / width) * 150);
+      raw[p + 1] = 90 + Math.round((y / height) * 110);
+      raw[p + 2] = 210 - Math.round((x / width) * 100);
+    }
+  }
+
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 2; // color type: truecolor RGB
+
+  return Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    pngChunk('IHDR', ihdr),
+    pngChunk('IDAT', zlib.deflateSync(raw)),
+    pngChunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+
+const CRC_TABLE = (() => {
+  const table = new Int32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[n] = c;
+  }
+  return table;
+})();
+
+function crc32(buf) {
+  let c = 0xffffffff;
+  for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type, data) {
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(data.length);
+  const tag = Buffer.from(type, 'ascii');
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(Buffer.concat([tag, data])));
+  return Buffer.concat([length, tag, data, crc]);
+}
+
+/** 把测试图片写进 uploads/，文件名带 viz-image- 前缀以便清理 */
+function writeSampleImage(storageKey) {
+  const uploads = path.join(ROOT, 'uploads');
+  fs.mkdirSync(uploads, { recursive: true });
+  fs.writeFileSync(path.join(uploads, storageKey), makeSamplePng(320, 200));
 }
 
 /** 建会话 + 成员 + 消息。返回会话 id */
@@ -180,21 +261,28 @@ async function buildConversation(
       ],
     );
 
-    if (raw.kind === 'FILE') {
+    if (raw.kind === 'FILE' || raw.kind === 'IMAGE') {
+      const isImage = raw.kind === 'IMAGE';
+      const filename = isImage ? '时间戳位置截图.png' : '票据鉴权时序图.pdf';
+      const mimeType = isImage ? 'image/png' : 'application/pdf';
+      const size = isImage ? 0 : 248_320;
+      /*
+       * 图片要真的能取到文件，否则 ChatImage 只会停在失败态，
+       * 验证不到"图片 + 附言"这个气泡布局。这里从 uploads/ 里
+       * 借一个已存在的 PNG 复制成测试文件（只读原文件）。
+       */
+      const storageKey = isImage
+        ? `viz-image-${index}.png`
+        : `viz/attachment-${index}.pdf`;
+
       await db.query(
         `INSERT INTO "ChatAttachment"
            (id,"messageId","uploaderId",filename,"storageKey","mimeType",size,"createdAt")
          VALUES(gen_random_uuid(),$1,$2,$3,$4,$5,$6,$7)`,
-        [
-          messageId,
-          raw.from,
-          '票据鉴权时序图.pdf',
-          `viz/${messageId}.pdf`,
-          'application/pdf',
-          248_320,
-          createdAt,
-        ],
+        [messageId, raw.from, filename, storageKey, mimeType, size, createdAt],
       );
+
+      if (isImage) writeSampleImage(storageKey);
     }
   }
 

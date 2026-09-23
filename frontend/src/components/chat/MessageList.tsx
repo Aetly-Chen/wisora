@@ -462,7 +462,6 @@ export const MessageList: React.FC<MessageListProps> = ({
                                   图片预览不可用
                                 </div>
                               )}
-                              {message.text && <p>{message.text}</p>}
                             </div>
                           )}
 
@@ -471,14 +470,16 @@ export const MessageList: React.FC<MessageListProps> = ({
                           )}
 
                           {message.kind === 'note' && (
-                            <div className="space-y-1.5">
-                              <NoteCard message={message} mine={mine} onOpenNote={onOpenNote} />
-                              {message.text && <p className="px-0.5 text-[13px]">{message.text}</p>}
-                            </div>
+                            <NoteCard message={message} mine={mine} onOpenNote={onOpenNote} />
                           )}
 
                           {/*
-                           * 时间与状态
+                           * 时间、状态与说明文字
+                           *
+                           * 说明文字（附件消息的附言）**只在这里渲染一次**。
+                           * 之前把附言同时写在「图片块里」和这里，图片消息的
+                           * 附言会重复显示两遍 —— 所以现在统一收到这一个分支，
+                           * 各类型自己的块里不再碰 message.text。
                            *
                            * 纯文本气泡用 float-right 把时间塞进最后一行的行尾 ——
                            * Telegram 就是这样，短消息的时间就贴着文字右端，
@@ -486,7 +487,7 @@ export const MessageList: React.FC<MessageListProps> = ({
                            * 每个气泡都会多出一条几乎空白的行，整屏立刻变松散。
                            *
                            * 卡片类（图片 / 文件 / 笔记）不适用：卡片自己占满宽度，
-                           * 时间只能另起一行，所以那种情况走下面的块级版本。
+                           * 时间只能另起一行，所以走下面的块级版本。
                            */}
                           {message.kind === 'text' ? (
                             <p className="whitespace-pre-wrap break-words">
@@ -497,8 +498,10 @@ export const MessageList: React.FC<MessageListProps> = ({
                             </p>
                           ) : (
                             <>
-                              {message.kind === 'image' && message.text && (
-                                <p className="whitespace-pre-wrap break-words">{message.text}</p>
+                              {message.text && (
+                                <p className="mt-1.5 whitespace-pre-wrap break-words">
+                                  {message.text}
+                                </p>
                               )}
                               <div className="mt-1 flex justify-end">{meta}</div>
                             </>
