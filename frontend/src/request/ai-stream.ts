@@ -118,21 +118,37 @@ export async function streamChat(params: StreamChatParams): Promise<void> {
     handlers,
   } = params;
 
-  const { ticket } = await createChatTicket(allowWrite);
+  let res: Response;
+  try {
+    const { ticket } = await createChatTicket(allowWrite);
 
-  const qs = new URLSearchParams({ ticket, q: question });
-  if (conversationId) qs.set("conversationId", conversationId);
-  if (model) qs.set("model", model);
+    const qs = new URLSearchParams({ ticket, q: question });
+    if (conversationId) qs.set("conversationId", conversationId);
+    if (model) qs.set("model", model);
 
-  const res = await fetch(`${BASE}/ai/chat/stream?${qs.toString()}`, {
-    method: "GET",
-    headers: {
-      Accept: "text/event-stream",
-      // 带上 token 便于网关/代理层识别（后端校验实际用 ticket）
-      Authorization: `Bearer ${getToken() ?? ""}`,
-    },
-    signal,
-  });
+    res = await fetch(`${BASE}/ai/chat/stream?${qs.toString()}`, {
+      method: "GET",
+      headers: {
+        Accept: "text/event-stream",
+        // 带上 token 便于网关/代理层识别（后端校验实际用 ticket）
+        Authorization: `Bearer ${getToken() ?? ""}`,
+      },
+      signal,
+    });
+  } catch (err) {
+    /*
+     * fetch 自己 reject 时抛的是 TypeError("Failed to fetch")，是浏览器原文。
+     * 它会一路冒到 store 的 error 上、原样显示在错误条里 ——
+     * 中文用户看不出发生了什么，所以在这里换成可读说明。
+     *
+     * 用户主动中断（切会话 / 点停止）抛的是 AbortError，必须原样放行：
+     * 调用方靠它区分「中断」和「真失败」。
+     */
+    if ((err as Error)?.name === "AbortError") throw err;
+    throw new Error("连接中断，没能连上服务器。请检查网络后重试", {
+      cause: err,
+    });
+  }
 
   if (!res.ok || !res.body) {
     const text = await res.text().catch(() => "");

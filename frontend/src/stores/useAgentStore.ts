@@ -114,7 +114,13 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     const text = question.trim();
     if (!text || get().isStreaming) return;
 
-    controller = new AbortController();
+    /*
+     * 本轮自己的 controller。留一份本地引用用于判断「这一轮还算不算数」：
+     * 切会话 / 新建会话 / 点停止 都会 abort 掉 controller，
+     * 之后仍在路上的回调不能再往界面写东西，否则会写进别的会话里。
+     */
+    const myController = new AbortController();
+    controller = myController;
 
     // 本轮之前还没有 conversationId → 服务端会新建会话，
     // 结束后需要刷新侧边栏列表（标题由问题前 30 字生成）
@@ -126,8 +132,18 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       content: text,
       timestamp: new Date(),
     };
-    // 助手占位消息，后续 token 往这里累加
-    const assistantId = generateId();
+    /*
+     * 助手占位气泡，后续 token 往这里累加。
+     *
+     * 用 let 而不是 const：工具调用会把助手输出切成两段（工具执行前的话、
+     * 工具执行后的答案），两段必须落在工具卡片的两侧，所以调完工具要换气泡。
+     */
+    let currentAssistantId = generateId();
+    /*
+     * 工具调用后置为 true。新气泡**延后到真有内容时才建** ——
+     * 模型调完工具就直接收尾的情况不少，那样会留下一个空气泡。
+     */
+    let needNewAssistant = false;
 
     set((state) => ({
       messages: [
@@ -137,7 +153,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           : state.messages),
         userMessage,
         {
-          id: assistantId,
+          id: currentAssistantId,
           role: "ai",
           content: "",
           timestamp: new Date(),
@@ -147,13 +163,33 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       error: undefined,
     }));
 
-    /** 往最后一条助手消息追加内容 */
+    /**
+     * 往「当前」助手气泡追加内容。
+     *
+     * 工具调用之后当前气泡已经换成新的了，新气泡按需在这里创建 ——
+     * 延后到真有内容时才建，避免模型「调完工具就收尾」时留下一个空气泡。
+     *
+     * 已经 abort 的轮次直接丢弃：此时会话可能已经被切走，
+     * 继续写就会把上一轮的内容灌进新会话，甚至凭空多出一个气泡。
+     */
     const appendToAssistant = (
       updater: (msg: AgentMessage) => Partial<AgentMessage>,
     ) => {
+      if (myController.signal.aborted) return;
+      if (needNewAssistant) {
+        const id = generateId();
+        currentAssistantId = id;
+        needNewAssistant = false;
+        set((state) => ({
+          messages: [
+            ...state.messages,
+            { id, role: "ai", content: "", timestamp: new Date() },
+          ],
+        }));
+      }
       set((state) => ({
         messages: state.messages.map((m) =>
-          m.id === assistantId ? { ...m, ...updater(m) } : m,
+          m.id === currentAssistantId ? { ...m, ...updater(m) } : m,
         ),
       }));
     };
@@ -178,22 +214,49 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             })),
 
           onToolCall: ({ id, name, args }) =>
-            set((state) => ({
-              messages: [
-                ...state.messages,
-                {
-                  id: `tool-${id}`,
-                  role: "tool",
-                  // 不再把工具名拼进 content：它单独放在 toolName 里，
-                  // 由页面查「工具名 → 中文动作」映射后渲染。
-                  // 拼进文案的话，改文案就会连带影响显示逻辑。
-                  content: args ? `参数：${args}` : "",
-                  timestamp: new Date(),
-                  toolStatus: "calling",
-                  toolName: name,
-                },
-              ],
-            })),
+            set((state) => {
+              /*
+               * 工具调用把助手输出切成两段：工具执行前说的话、工具执行后的答案。
+               * 真实先后是「话 → 工具 → 答案」，所以工具卡片必须夹在两段之间。
+               *
+               * 原先的做法是把工具消息直接 append 到数组末尾。而助手气泡是
+               * 发送时就建好的、位置在工具之前，后续 token 又继续灌进同一个气泡，
+               * 于是最终呈现成「答案在工具上面」，和真实先后正好相反 ——
+               * 看起来像回答先出现、然后才去调工具。
+               */
+              const current = state.messages.find(
+                (m) => m.id === currentAssistantId,
+              );
+              /*
+               * 判空只看 content，不看 reasoning —— reasoning 目前只被
+               * 采集、页面并不渲染（见 pages/agent/index.tsx 里没有引用）。
+               * 把它算作「有内容」的话，模型先输出思考再调工具时，
+               * 工具卡片上方会留下一个什么都看不见的空壳气泡。
+               */
+              const stillEmpty = !current || !current.content.trim();
+              // 模型先调工具、还没开口：删掉那个空占位，别在工具上方留个空气泡
+              const base = stillEmpty
+                ? state.messages.filter((m) => m.id !== currentAssistantId)
+                : state.messages;
+              // 后续内容另起一个气泡，落在工具卡片之后
+              needNewAssistant = true;
+              return {
+                messages: [
+                  ...base,
+                  {
+                    id: `tool-${id}`,
+                    role: "tool",
+                    // 不再把工具名拼进 content：它单独放在 toolName 里，
+                    // 由页面查「工具名 → 中文动作」映射后渲染。
+                    // 拼进文案的话，改文案就会连带影响显示逻辑。
+                    content: args ? `参数：${args}` : "",
+                    timestamp: new Date(),
+                    toolStatus: "calling",
+                    toolName: name,
+                  },
+                ],
+              };
+            }),
 
           onToolResult: ({ id, ok, name, result }) => {
             set((state) => ({
@@ -238,12 +301,24 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         error: aborted ? undefined : (err as Error)?.message || "生成失败",
       });
       if (aborted) {
-        // 中断时把已生成的部分保留下来，并标注
-        appendToAssistant((m) =>
-          m.content
-            ? { meta: "（已停止生成）" }
-            : { content: "（已停止生成）" },
-        );
+        /*
+         * 中断时把已生成的部分保留下来并标注。
+         *
+         * 这里**不走 appendToAssistant**：那个 helper 会按需新建气泡，
+         * 而中断的常见原因恰恰是「切到别的会话 / 点了新聊天」——
+         * 那种情况下本次气泡已经不在列表里了，新建就会在新会话里
+         * 凭空多出一个只写着「已停止生成」的气泡。
+         * 所以这里只改「本来就在列表里的那一个」，找不到就什么都不做。
+         */
+        set((state) => ({
+          messages: state.messages.map((m) =>
+            m.id === currentAssistantId
+              ? m.content
+                ? { ...m, meta: "（已停止生成）" }
+                : { ...m, content: "（已停止生成）" }
+              : m,
+          ),
+        }));
       }
     } finally {
       controller = null;

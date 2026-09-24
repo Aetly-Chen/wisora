@@ -105,6 +105,21 @@ async function cleanupUser(db, userId) {
      )`,
     [userId],
   );
+  /*
+   * AI 助手那侧的 "Conversation" 对 User 是 RESTRICT（不是 Cascade），
+   * 漏了这一步删人会直接报外键错误。
+   * 走查 AI 助手页时必然会产生会话，所以这里必须清 ——
+   * 先删会话本身，Message 由数据库级联带走。
+   */
+  await db.query(`DELETE FROM "Conversation" WHERE "userId" = $1`, [userId]);
+  /*
+   * Note 与 Attachment 对 User 同样是 RESTRICT。
+   * 之前只清聊天数据时用不着，一旦走查笔记页（拖拽导入、AI 写笔记）
+   * 就会在这里撞外键。Attachment 先删：它同时挂在 Note 上，
+   * 而且可以存在没有 note 的孤儿附件，靠 Note 的级联清不干净。
+   */
+  await db.query(`DELETE FROM "Attachment" WHERE "userId" = $1`, [userId]);
+  await db.query(`DELETE FROM "Note" WHERE "userId" = $1`, [userId]);
   await db.query(`DELETE FROM "User" WHERE id = $1`, [userId]);
 }
 
