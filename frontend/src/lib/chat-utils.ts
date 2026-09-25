@@ -6,7 +6,7 @@
  * 各写一份必然出现「同一个时间在列表显示昨天、在气泡显示 09-17」。
  */
 
-import type { ChatAttachment } from '@/types/chat';
+import type { ChatAttachment, Conversation } from '@/types/chat';
 
 /* ------------------------------ 时间 ------------------------------ */
 
@@ -183,6 +183,59 @@ export function peerAvatarClass(id: string): string {
 /** 群聊里昵称的颜色 */
 export function peerNameClass(id: string): string {
   return PEER_NAME_CLASS[peerIndex(id)];
+}
+
+/**
+ * 会话内取色用的下标。
+ *
+ * **群聊按「在 memberIds 里的下标」分配**：同一个群里成员不撞色 ——
+ * 而这套配色存在的唯一意义就是「不读名字也能分辨谁是谁」。
+ * 用 id 哈希的话，往 7 个槽里哈希等价于生日问题：
+ * 4 人小群「四人不撞」的概率只有 7·6·5·4 / 7⁴ ≈ 35%，
+ * 也就是约 65% 的四人群会出现两人同色。成员超过 7 人时仍会绕回，
+ * 但那是这套 7 色板的天然上限。
+ *
+ * **单聊不走下标**：DM 里只有一个对方，不存在撞色问题，
+ * 而按下标会让所有 DM 的对方都拿到同一个颜色。
+ * 所以单聊继续用 id 哈希，保证每个人在任何 DM 视图里颜色恒定。
+ *
+ * 依赖 `memberIds` 的顺序稳定 —— 后端已按 joinedAt 排序返回
+ * （见 `CONVERSATION_SHAPE`），否则每次请求颜色都会变。
+ */
+function peerIndexIn(
+  conversation: Pick<Conversation, 'kind' | 'memberIds'>,
+  userId: string,
+): number {
+  if (conversation.kind === 'group') {
+    const i = conversation.memberIds.indexOf(userId);
+    if (i >= 0) return i % PEER_AVATAR_CLASS.length;
+  }
+  return peerIndex(userId);
+}
+
+/**
+ * 会话内的成员头像底色。
+ *
+ * 与 `peerAvatarClass` 的区别：这个在**群聊**里按会话内序号取色（不撞色），
+ * 单聊退回 id 哈希。消息流里的对方头像用这个 ——
+ * 只有「多个人同时出现在一屏」时撞色才是个问题。
+ *
+ * 列表 / 头部那两处（显示会话本身的图标）继续用 `peerAvatarClass(id)`：
+ * 群聊显示的是群自己的图标，不是某个成员。
+ */
+export function peerAvatarClassIn(
+  conversation: Pick<Conversation, 'kind' | 'memberIds'>,
+  userId: string,
+): string {
+  return PEER_AVATAR_CLASS[peerIndexIn(conversation, userId)];
+}
+
+/** 会话内的成员昵称颜色。与 `peerAvatarClassIn` 同源，保证同一个人两处同色 */
+export function peerNameClassIn(
+  conversation: Pick<Conversation, 'kind' | 'memberIds'>,
+  userId: string,
+): string {
+  return PEER_NAME_CLASS[peerIndexIn(conversation, userId)];
 }
 
 /* ------------------------------ 文件 ------------------------------ */

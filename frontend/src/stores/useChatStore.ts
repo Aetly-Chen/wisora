@@ -120,7 +120,13 @@ interface ChatState {
   error?: string;
   notice?: string;
 
-  init: (currentUserId: string) => Promise<void>;
+  /**
+   * 拉好友与会话、订阅实时事件。
+   *
+   * `autoSelect` 由**调用方**决定：冷启动要不要自动进第一个会话，
+   * 取决于当前是桌面还是移动端布局，而只有页面知道这件事（见 `pages/chat`）。
+   */
+  init: (currentUserId: string, options: { autoSelect: boolean }) => Promise<void>;
   dispose: () => void;
   /**
    * 断开实时连接并清空全部状态。
@@ -205,7 +211,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   error: undefined,
   notice: undefined,
 
-  init: async (currentUserId) => {
+  init: async (currentUserId, { autoSelect }) => {
     setCurrentUser(currentUserId);
     set({ meId: currentUserId, listLoading: true, error: undefined });
 
@@ -214,8 +220,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
         listFriends(),
         listConversations(),
       ]);
-      // 首次进入默认选中第一个会话，避免右侧一片空白
-      const activeId = get().activeId ?? conversations[0]?.id;
+      /*
+       * 冷启动默认选中第一个会话，避免右侧一片空白 —— 但**只在桌面**这么做。
+       *
+       * 移动端布局是「消息区是底层、会话列表是抽屉」，一选中就直接进了某个
+       * 会话、抽屉还是关着的，用户看不到列表（Telegram 是先给列表）。
+       * 而且自动选中的是列表里第一个（置顶/最近活跃），
+       * 排在下面的未读会话在移动端就完全看不到了。
+       *
+       * 这里不自己判断断点：store 拿不到布局语义，而且窗口 resize 时会飘。
+       */
+      const activeId =
+        get().activeId ?? (autoSelect ? conversations[0]?.id : undefined);
       set({ friends, conversations, activeId, listLoading: false });
 
       if (activeId) await get().openConversation(activeId);

@@ -56,7 +56,13 @@ export const ShareToFriendDialog: React.FC<ShareToFriendDialogProps> = ({
 
   // 打开时补齐初始化：用户可能从没进过聊天页，好友列表此时是空的
   useEffect(() => {
-    if (target && !meId && currentUserId) void ensureInit(currentUserId);
+    if (target && !meId && currentUserId) {
+      /*
+       * autoSelect 必须显式传 false：这里只是要一份好友列表来渲染选择项，
+       * 不应该顺手替用户打开某个会话 —— 这是个从笔记页弹出来的分享框。
+       */
+      void ensureInit(currentUserId, { autoSelect: false });
+    }
   }, [target, meId, currentUserId, ensureInit]);
 
   // 关闭时清空，下次打开是干净状态

@@ -53,8 +53,18 @@ export const CONVERSATION_SHAPE = {
   title: true,
   createdAt: true,
   updatedAt: true,
-  // 成员 id：与列表一起返回，否则前端渲染每行都要再发一次请求
-  members: { where: { leftAt: null }, select: { userId: true } },
+  /*
+   * 成员 id：与列表一起返回，否则前端渲染每行都要再发一次请求。
+   *
+   * 必须显式按 joinedAt 排序：前端要拿这个数组的**下标**给群成员分配颜色
+   * （这样同一个群里成员不撞色）。SQL 不保证无 ORDER BY 的顺序，
+   * 顺序一飘，颜色就跟着飘。
+   */
+  members: {
+    where: { leftAt: null },
+    orderBy: { joinedAt: 'asc' },
+    select: { userId: true },
+  },
   // 最后一条消息：列表用它渲染摘要
   messages: {
     orderBy: { createdAt: 'desc' },

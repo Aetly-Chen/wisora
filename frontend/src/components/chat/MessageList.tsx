@@ -16,8 +16,8 @@ import {
   formatClock,
   formatDayDivider,
   isPreviewableImage,
-  peerAvatarClass,
-  peerNameClass,
+  peerAvatarClassIn,
+  peerNameClassIn,
 } from '@/lib/chat-utils';
 import { downloadChatAttachment } from '@/request/chat';
 import { Avatar } from '@/components/Avatar';
@@ -415,7 +415,7 @@ export const MessageList: React.FC<MessageListProps> = ({
                           name={sender?.name ?? '?'}
                           size="lg"
                           className="mb-0.5"
-                          fill={peerAvatarClass(message.senderId)}
+                          fill={peerAvatarClassIn(conversation, message.senderId)}
                         />
                       ) : (
                         <span className="h-12 w-12 shrink-0" aria-hidden />
@@ -425,7 +425,8 @@ export const MessageList: React.FC<MessageListProps> = ({
                       {/* 群聊里只在每组的首条显示发送者名，颜色按人固定 */}
                       {isGroup && !mine && startOfGroup && (
                         <span
-                          className={`mb-0.5 pl-1.5 text-[13px] font-medium ${peerNameClass(
+                          className={`mb-0.5 pl-1.5 text-[13px] font-medium ${peerNameClassIn(
+                            conversation,
                             message.senderId,
                           )}`}
                         >

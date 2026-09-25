@@ -79,7 +79,19 @@ const ChatPage: React.FC = () => {
   // 初始化：拉好友与会话，并订阅实时事件
   useEffect(() => {
     if (!currentUserId) return;
-    void init(currentUserId);
+    /*
+     * 冷启动要不要自动进第一个会话 —— **只在桌面**这么做。
+     *
+     * 移动端布局是「消息区是底层、会话列表是抽屉」：一选中就直接进了某个
+     * 会话，用户连列表都没看到（Telegram 在手机上是先给列表）。
+     * 而且自动选中的是列表里第一个（置顶/最近活跃），
+     * 排在下面的未读会话在移动端就完全看不到了。
+     *
+     * 断点必须和布局用的 Tailwind `md` 一致（768px），
+     * 否则会出现「按桌面判定、按移动端渲染」的错位。
+     */
+    const isDesktop = window.matchMedia('(min-width: 768px)').matches;
+    void init(currentUserId, { autoSelect: isDesktop });
     return () => dispose();
   }, [currentUserId, init, dispose]);
 
@@ -138,9 +150,26 @@ const ChatPage: React.FC = () => {
     >
       {/* ================= 左：会话列表 ================= */}
       <aside
+        /*
+         * 移动端的显隐条件：**没有选中会话时必须显示列表**。
+         *
+         * 这一条不能只靠 sidebarOpen 那个手动开关：移动端冷启动不自动选中会话
+         * （见上面 init 的说明），此时开关是关的、消息区又是空的，
+         * 用户会看到「选择一个会话开始」却找不到列表。
+         * 列表在移动端就是根视图 —— 没有选中会话可看时，它就该在场。
+         *
+         * 宽度分两种：它是**根视图**（没有打开的会话）时占满屏；
+         * 从会话里点「返回」打开的抽屉仍保持 320px —— 那种情况有遮罩压暗，
+         * 露出的一条是有意为之的层次；而根视图没有遮罩，
+         * 320px 会在右边漏出一条没被压暗的空白，看着像布局坏了。
+         *
+         * 桌面端不受影响：`md:static md:flex` 由 CSS 断点直接接管。
+         */
         className={`${
-          sidebarOpen ? 'flex' : 'hidden'
-        } absolute inset-y-0 left-0 z-30 w-[320px] shrink-0 flex-col border-r border-tg-border-subtle bg-tg-surface md:static md:flex`}
+          !activeId || sidebarOpen ? 'flex' : 'hidden'
+        } absolute inset-y-0 left-0 z-30 ${
+          activeId ? 'w-[320px]' : 'w-full md:w-[320px]'
+        } shrink-0 flex-col border-r border-tg-border-subtle bg-tg-surface md:static md:flex`}
       >
         <div className="flex items-center gap-1 px-3 py-2.5">
           <button
@@ -230,8 +259,12 @@ const ChatPage: React.FC = () => {
         </div>
       </aside>
 
-      {/* 移动端展开列表时的遮罩 */}
-      {sidebarOpen && (
+      {/*
+        移动端展开列表时的遮罩。
+        只在「已经有一个打开的会话」时才铺 —— 没有选中会话时列表就是根视图，
+        它后面是空状态，既没什么可压暗的，点了也无处可退。
+      */}
+      {sidebarOpen && activeId && (
         <div
           className="absolute inset-0 z-20 bg-black/30 md:hidden"
           onClick={() => setSidebarOpen(false)}
@@ -288,7 +321,7 @@ const ChatPage: React.FC = () => {
               选择一个会话开始
             </h2>
             <p className="mt-1.5 max-w-xs text-[13px] leading-relaxed tg-wallpaper-text">
-              左侧是全部会话。也可以在笔记里右键一篇笔记，直接分享给好友。
+              从会话列表里挑一个开始。也可以在笔记里右键一篇，直接分享给好友。
             </p>
             <div className="mt-5 flex items-center gap-2">
               <button
