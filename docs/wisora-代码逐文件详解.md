@@ -739,7 +739,7 @@ CONVERSATION_SHAPE.members = { where: { leftAt: null }, select: { userId: true }
 | `ai.service.ts` | **Agent Loop 与 SSE 桥接**：把 LLM 流翻译成 `StreamEvent`。`toSse` / `runAgent` / `accumulateUsage` / `logRun` / `invokeTool` / `executeWithRetry` / `toText`；常量 `MAX_ITERATIONS = 8`、`HEARTBEAT_INTERVAL_MS = 15000` | 被 `chatStream` 调用；用 `ChatModelFactory`、`ToolRegistry`、`DEFAULT_SYSTEM_PROMPT` |
 | `guards/stream-ticket.guard.ts` | SSE 一次性票据鉴权。Redis key `ai:ticket:${ticket}`，**GET 后立即 DEL** | 挂在 `/ai/chat/stream` |
 | `llm/llm.provider.ts` | `ChatModelFactory`：按模型名缓存 `ChatOpenAI` 实例；读 `OPENAI_BASE_URL` / `OPENAI_API_KEY` / `CHAT_MODEL_NAME` / `CHAT_MODEL_OPTIONS` / `CHAT_MODEL_TEMPERATURE` / `CHAT_STREAM_TIMEOUT_MS`；`resolve()` 做**白名单校验** | 被 `AiService`、`AiController` 调用 |
-| `memory/conversation.repository.ts` | **双层会话记忆**：Redis 热缓存 + Prisma 持久化。`createConversation` / `updateModelIfChanged` / `listConversations` / `assertOwned` / `appendMessage` / `loadHistory` / `softDeleteConversation`；`HISTORY_LIMIT=20`、`CACHE_TTL_SECONDS=1800`、key `ai:conv:${id}` | 被 `AiController` 调用 |
+| `memory/conversation.repository.ts` | **双层会话记忆**：Redis 热缓存 + Prisma 持久化。`createConversation` / `updateModelIfChanged` / `listConversations` / `assertOwned` / `appendMessage` / `loadHistory`（**给 LLM 上下文**）/ `listAllMessages`（**给界面回看**）/ `softDeleteConversation`；`HISTORY_LIMIT=20`、`CACHE_TTL_SECONDS=1800`、key `ai:conv:${id}` | 被 `AiController` 调用 |
 | `prompts/system.prompt.ts` | `DEFAULT_SYSTEM_PROMPT` 常量（回答风格 / 工具使用 / 身份说明 / 笔记操作四段） | 被 `runAgent` 用作 SystemMessage |
 | `tools/tool.registry.ts` | 工具注册表。`register` / `list` / `get` / `policy`；`ToolPolicy{timeoutMs, retries, roles?, write?}`；默认 `timeoutMs=15000`、`retries=1` | 被 `ai.module.ts`、`tools/index.ts`、`AiService` 调用 |
 | `tools/index.ts` | 工具总出口。`registerAllTools()`（**只注册全局的 `query_user`**）+ `createUserScopedTools(prisma, userId, notes)`（9 个**请求级**工具） | 被 `ai.module.ts.onModuleInit` 与 `ai.controller.ts` 调用 |
@@ -949,6 +949,28 @@ async appendMessage(conversationId, msg) {
 
 **Redis 异常时静默降级**：`loadHistory` 的缓存读写包了 try/catch，失败就直查 DB。这是对的 —— 缓存不该成为可用性的单点。
 
+**⚠️ 但这份热缓存只能服务 LLM 上下文，不能当界面的数据源。** 2026-09-28 才把这两件事拆开：
+
+| 用途 | 方法 | 数据范围 |
+|---|---|---|
+| 喂给模型做多轮上下文 | `loadHistory()` | 最近 20 条；优先读 Redis 热缓存 |
+| 界面回看历史 | `listAllMessages()` | **全量**；直查 Prisma，不读缓存 |
+
+复用 `loadHistory` 给界面会踩两个坑：① 只返回 20 条；② 更隐蔽的是热缓存 TTL 到期后
+下一条消息会让它**从空数组重建**（`appendMessage` 读到 miss 就 `list = []` 再 push 这一条），
+此时界面只看到最后一轮对话，前面的历史像是丢了。20 条是给上下文窗口的预算，
+不是给界面看的。
+
+`listAllMessages` 的排序是 `[{ createdAt: 'asc' }, { id: 'asc' }]`：工具轮次是
+`void appendMessage` **并发**落库的，同一毫秒内两条很常见，只按 `createdAt` 排结果会飘
+（表现为历史里"结果"卡片跑到"参数"卡片前面）。实测真实写入路径下 `id` 序与写入顺序一致
+（46/46 相符），加它当兜底。
+
+另外：工具轮次在库里是**两行**（`tool_call` 存「工具名 + 参数」、`tool_result` 存结果），
+而流式过程中界面上只有**一张卡片**。所以回显时前端 `mapHistoryMessages` 要按 `toolCallId`
+把两行合成一张 —— **且不能依赖哪一行先到**（同上，并发写入），改成按 content 形状认身份：
+调用行必定以工具名开头。详见 §2 的 `stores/useAgentStore.ts`。
+
 另一个细节：`chatStream` 在组装历史时**过滤掉了 `tool` 角色**，只保留 `user` 与「有内容的 assistant」。因为工具轮次依赖 `tool_calls` 配对，单独把 tool 消息塞进上下文会破坏配对关系，导致上游 API 报错。
 
 ### 深读：LLM 提供方
@@ -1032,7 +1054,15 @@ resolve(requested?: string) {
 | `border-[color:var(--x)]` 不生成规则 | 描边色回落到默认值，**不报错** | Tailwind v4 下 `bg-` / `text-` 的这个写法可以，`border-` / `ring-` 不行 | 把令牌注册进 `@theme inline`，改用具名工具类 `border-tg-border` |
 | 变量插值进类名 | 类名不生成，气泡直接透明 | Tailwind 构建期扫**源码文本**，看不见 `` `bg-tg-bubble-${cond?'out':'in'}` `` 这种拼接 | 两个分支写成完整字面量 |
 
-**④ 其余全局层**：`.md-body`（手写 Markdown 排版）、`.tg-wallpaper`（渐变 + 涂鸦壁纸）、`.tg-app`（选区与光标色）、`html:has(.no-scrollbar-page)`（首页隐藏滚动条）。
+**④ 其余全局层**：`.md-body`（手写 Markdown 排版）、`.tg-wallpaper`（渐变 + 涂鸦壁纸）、`.tg-app`（选区与光标色）、`html:has(.no-scrollbar-page)`（首页隐藏滚动条）、
+`.chat-scroll`（**让消息区滚动条不占布局宽度**）。
+
+> `.chat-scroll` 的存在理由值得单独记一句：它是滚动容器，而 Windows 默认滚动条 15px 会计进
+> 内容盒 —— 于是「消息列」的居中基准比输入区窄 15px，所有消息整体左移 8px、右侧气泡比输入框
+> 右边缘短 8px。CSS 里读不到滚动条宽度，`scrollbar-gutter: stable both-edges` 只能预留固定值
+> （窗口一窄反而把内容多推 15px），所以只能 `scrollbar-width: none` + `::-webkit-scrollbar
+> { width: 0 }` 让它彻底不占位。代价是滚动条不可见（滚轮 / 触摸 / 键盘 / 日期分隔 /
+> 消息区自带的「回到最新」按钮都还在）。
 
 > 排查手法：DOM 里 class 名是对的，但 `getComputedStyle` 的值是「没生效的样子」→ 就是工具类没被生成或被压掉。**只看截图容易误判成样式冲突。**
 
@@ -1253,7 +1283,7 @@ const headerTransparent = pathname === '/';
 
 | 路径（`frontend/src/lib/`） | 注释 | 联动 |
 |---|---|---|
-| `chat-utils.ts` | 聊天纯函数：时间格式化（`formatClock` / `formatDayDivider` / `formatListTime`）、`formatBytes`、`initials`、`avatarTone`、**成员配色**（`PEER_AVATAR_CLASS` 7 色 + `peerIndex` / `peerAvatarClass` / `peerIndexIn` / `peerAvatarClassIn`）、`fileKind` / `FILE_KIND_LABEL` / `CHAT_FILE_MAX_BYTES=50MB` / `isPreviewableImage` | 被 `components/chat/*` 与 `request/chat.ts` 使用 |
+| `chat-utils.ts` | 聊天纯函数：时间格式化（`formatClock` / `formatDayDivider` / `formatListTime`）、`formatBytes`、`initials`、`avatarTone`、**成员配色**（`PEER_AVATAR_CLASS` 7 色 + `peerIndex` / `peerAvatarClass` / `peerIndexIn` / `peerAvatarClassIn`）、`fileKind` / `FILE_KIND_LABEL` / `CHAT_FILE_MAX_BYTES=50MB` / `isPreviewableImage`、**布局常量 `CHAT_COLUMN`**（头部/消息列/输入区共用的列宽，三处必须一致） | 被 `components/chat/*` 与 `request/chat.ts` 使用 |
 | `html-to-markdown.ts` | **自研浏览器端 HTML→Markdown 转换**（不引 turndown）。`htmlToMarkdown` / `extractHtmlTitle`；内部 `inline` / `block` / `list` / `table` / `pre` / `tidy` / `escapeLineStart`；`SKIP_TAGS` / `CONTAINER_TAGS`；基于 `DOMParser` | 被 `import-note.ts` 调用 |
 | `import-note.ts` | 导入文件识别与读取。`detectImportKind` / `readNoteFile`；`MAX_IMPORT_BYTES = 2MB`、`MAX_TITLE_LENGTH = 80`；`titleFromMarkdown` / `fallbackTitle` | 被 `useNotesStore.importFiles` 调用 |
 | `logout.ts` | **退出登录**：先断 WS、reset 三个内存 store，再清令牌与用户态 | 被 `Header` 等调用 |
@@ -1502,7 +1532,7 @@ return <div className="md-body" dangerouslySetInnerHTML={{ __html: html }} />;
 | 路径（`frontend/src/components/chat/`） | 注释 | 被谁用 |
 |---|---|---|
 | `ConversationList.tsx` | 左侧会话列表。`ROW_HEIGHT=72`；`VirtualList` 承载；`messagePreview` 按 kind 生成 `[文件]`/`[图片]`/`[笔记]` 摘要；选中行实底 `bg-tg-brand-deep`（子元素要逐个换色 —— 父级 `color` 继承不到 `text-*` 工具类）；免打扰未读只画小圆点；右下角悬浮新建按钮 | `pages/chat` |
-| `ChatHeader.tsx` | 会话头部。群聊副标题取前 3 名成员 + 「等 N 人」；单聊显示在线/离开/离线；「更多」复用 `ContextMenu`；返回键 `md:hidden` | `pages/chat` |
+| `ChatHeader.tsx` | 会话头部。群聊副标题取前 3 名成员 + 「等 N 人」；单聊显示在线/离开/离线；「更多」复用 `ContextMenu`；返回键 `md:hidden`。**两层结构**：外层满宽铺底色与下边框，内层用 `CHAT_COLUMN` —— 头部必须和消息列、输入区共用同一列，否则三个左基准线对不齐 | `pages/chat` |
 | `MessageList.tsx` | **消息流**。`GROUP_WINDOW_MS=5min`（5 分钟内同一人的连续消息合并成组）、`BOTTOM_THRESHOLD=80`、`TAIL_W/H=7/16`；`items` 在 `useMemo` 里预处理出日期分隔与 `startOfGroup`/`endOfGroup`；`BubbleTail`（SVG 贝塞尔弧）；**只在用户本来就在底部时才自动滚**；时间戳用 `float-right` 浮进末行 | `pages/chat` |
 | `Composer.tsx` | 输入区。`MAX_TEXTAREA_HEIGHT=160` 自增高有上限；**用 `e.nativeEvent.isComposing \|\| keyCode === 229` 防中文输入法提前发送**；`dragDepth` 拖拽计数；上传中整行换成进度条 | `pages/chat` |
 | `NewChatDialog.tsx` | 新建单聊 / 群聊二合一。`Tabs` 切换；群聊需至少 1 人（禁用态体现约束） | `pages/chat` |
@@ -1766,7 +1796,12 @@ pages/notes 右键「分享给好友」→ ShareToFriendDialog
 | `chat-module-design.md` §8.7 | 视觉层遗留项 | §8.6 记录了 Telegram 视觉层落地，§8.7 遗留已更新 |
 | `chat-backend-implementation.md` §5.1 | WebSocket 依赖安装结论 | 已安装（`socket.io` / `socket.io-client`），网关已上线 |
 
-**② 代码里有、文档尚未记录的部分**
+**② 代码里有、而设计文档没有单独成节的改动**
+
+> 下表是这份文档（2026-09-25 成稿）当时的核对结果。此后 `chat-module-design.md` 新增了
+> §8.6–§8.8、`ai-notes-agent-plan.md` §9 也补齐了落地记录，所以**下表中绝大多数现在已经
+> 回填到那两处**。目前仍然只在代码里、文档没写的是：`cleanupOrphans` 的实现细节，
+> 以及 lockfile 那次补齐。
 
 | 代码事实 | 说明 |
 |---|---|
