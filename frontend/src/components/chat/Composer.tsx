@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Loader2, Paperclip, Send, Upload, X } from 'lucide-react';
-import { CHAT_FILE_MAX_BYTES, formatBytes } from '@/lib/chat-utils';
+import { CHAT_COLUMN, CHAT_FILE_MAX_BYTES, formatBytes } from '@/lib/chat-utils';
 
 /**
  * 输入区（Telegram 版）。
@@ -121,7 +121,7 @@ export const Composer: React.FC<ComposerProps> = ({
         dragging ? 'bg-tg-brand-tint' : 'bg-tg-surface'
       }`}
     >
-      <div className="mx-auto max-w-3xl">
+      <div className={CHAT_COLUMN}>
         {upload ? (
           /* 上传中：用进度条替换整个输入行，避免用户以为卡住了 */
           <div className="flex items-center gap-3 rounded-[14px] border border-tg-border bg-tg-surface px-3 py-2.5">

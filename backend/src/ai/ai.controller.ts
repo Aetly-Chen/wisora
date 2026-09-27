@@ -210,7 +210,13 @@ export class AiController {
     // 先校验归属再取历史，避免读到别人的会话
     await this.conversations.assertOwned(userId, id);
 
-    const messages = await this.conversations.loadHistory(id);
+    /*
+     * 与 SSE 开流用的 loadHistory **刻意分开**：
+     * 那个是给 LLM 的上下文窗口（最近 20 条 + Redis 热缓存），
+     * 这个是给界面回看的完整历史。复用会让界面也只看到 20 条，
+     * 且缓存过期后只剩最后一轮（详见 listAllMessages 的注释）。
+     */
+    const messages = await this.conversations.listAllMessages(id);
     return { conversationId: id, messages };
   }
 

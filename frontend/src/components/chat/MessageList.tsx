@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import type { Conversation, Friend, Message } from '@/types/chat';
 import {
+  CHAT_COLUMN,
   FILE_KIND_LABEL,
   fileKind,
   formatBytes,
@@ -314,11 +315,12 @@ export const MessageList: React.FC<MessageListProps> = ({
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="h-full overflow-y-auto px-3 py-3 sm:px-5"
+        /* chat-scroll：见 index.css —— 滚动条不占布局宽度，否则消息列会整体左移 */
+        className="chat-scroll h-full overflow-y-auto px-3 py-3 sm:px-5"
         data-testid="chat-message-list"
       >
         {loading ? (
-          <div className="mx-auto max-w-3xl space-y-4 pt-4">
+          <div className={`${CHAT_COLUMN} space-y-4 pt-4`}>
             {[0, 1, 2].map((i) => (
               <div key={i} className="flex items-end gap-2">
                 <div
@@ -345,7 +347,7 @@ export const MessageList: React.FC<MessageListProps> = ({
            * 不这么做的话，短会话的消息会停在顶部、下方留一大片空白 ——
            * 与用户「消息从底部往上堆」的预期相反，滚动时也会先看到空白。
            */
-          <div className="mx-auto flex min-h-full max-w-3xl flex-col justify-end">
+          <div className={`${CHAT_COLUMN} flex min-h-full flex-col justify-end`}>
             {items.map((item) => {
               const { message, dayDivider, startOfGroup, endOfGroup } = item;
               const mine = message.senderId === meId;

@@ -14,7 +14,6 @@ import {
   Square,
   X,
   MessageSquare,
-  Clock,
   Sparkles,
   PanelLeft,
   ArrowLeft,
@@ -477,6 +476,7 @@ export const AgentPage: React.FC = () => {
     openConversation,
     removeConversation,
     conversationId,
+    loadingHistory,
     model,
     models,
     setModel,
@@ -675,19 +675,11 @@ export const AgentPage: React.FC = () => {
             />
           </div>
 
-          <div className="shrink-0">
-            <div className="mb-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-              工具
-            </div>
-            <button
-              type="button"
-              onClick={() => setSidebarOpen(false)}
-              className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-slate-200/60"
-            >
-              <Clock className="h-4 w-4 shrink-0 text-slate-400" />
-              <span>历史记录</span>
-            </button>
-          </div>
+          {/*
+            这里原先有一块「工具 → 历史记录」的按钮，点了只是收起侧边栏，
+            和上面那一列会话列表重复 —— 而且什么都不打开，是个死控件。
+            历史记录本身就在上方「最近」那一列里，所以整块去掉。
+          */}
         </nav>
 
         <div className="p-3 border-t border-slate-200/80">
@@ -731,7 +723,34 @@ export const AgentPage: React.FC = () => {
           <PanelLeft className="w-5 h-5" />
         </button>
 
-        {!hasStarted ? (
+        {loadingHistory ? (
+          /*
+           * 历史加载中。
+           *
+           * 这一段是必须的：openConversation 会先把 messages 清空再拉历史，
+           * 而 hasStarted 的判断在空数组上为真（messages[0] 是 undefined），
+           * 于是切会话的那一刻消息区是一片空白 ——
+           * 看起来像"这个会话没有记录"，而实际只是还没到。
+           */
+          <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 lg:px-8 pt-14 md:pt-6 pb-6">
+            <div className="max-w-3xl mx-auto space-y-4" aria-busy>
+              {[0, 1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  className={`flex ${i % 2 === 1 ? "justify-end" : ""}`}
+                >
+                  <div
+                    className="h-14 animate-pulse rounded-2xl bg-slate-200/70"
+                    style={{ width: i % 2 === 1 ? "34%" : "54%" }}
+                  />
+                </div>
+              ))}
+              <p className="pt-2 text-center text-xs text-slate-400">
+                正在加载历史记录…
+              </p>
+            </div>
+          </div>
+        ) : !hasStarted ? (
           /* Empty state */
           <div className="flex-1 min-h-0 overflow-y-auto flex flex-col items-center justify-center px-4 py-16">
             <motion.div

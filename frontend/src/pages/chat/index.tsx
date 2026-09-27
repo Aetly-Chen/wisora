@@ -151,25 +151,20 @@ const ChatPage: React.FC = () => {
       {/* ================= 左：会话列表 ================= */}
       <aside
         /*
-         * 移动端的显隐条件：**没有选中会话时必须显示列表**。
+         * 移动端是**两个整屏视图的切换**，不是「列表压在会话上的抽屉」。
          *
-         * 这一条不能只靠 sidebarOpen 那个手动开关：移动端冷启动不自动选中会话
-         * （见上面 init 的说明），此时开关是关的、消息区又是空的，
-         * 用户会看到「选择一个会话开始」却找不到列表。
-         * 列表在移动端就是根视图 —— 没有选中会话可看时，它就该在场。
+         * 显隐条件：没有选中会话、或用户主动打开了列表，就显示列表。
+         * 冷启动时不自动选中会话（见上面 init 的说明），所以第一屏就是列表 ——
+         * 「先进列表、点一条进会话」。
          *
-         * 宽度分两种：它是**根视图**（没有打开的会话）时占满屏；
-         * 从会话里点「返回」打开的抽屉仍保持 320px —— 那种情况有遮罩压暗，
-         * 露出的一条是有意为之的层次；而根视图没有遮罩，
-         * 320px 会在右边漏出一条没被压暗的空白，看着像布局坏了。
-         *
-         * 桌面端不受影响：`md:static md:flex` 由 CSS 断点直接接管。
+         * 宽度一律占满屏（`w-full md:w-[320px]`）：
+         * 抽屉形态（320px + 遮罩）在 390px 的屏幕上会露出 70px 被压暗的会话，
+         * 看着像布局坏了；而且那正是「要点开侧边栏才能选好友」的来源。
+         * 桌面端由 `md:` 接管，仍是 320px 的固定左栏。
          */
         className={`${
           !activeId || sidebarOpen ? 'flex' : 'hidden'
-        } absolute inset-y-0 left-0 z-30 ${
-          activeId ? 'w-[320px]' : 'w-full md:w-[320px]'
-        } shrink-0 flex-col border-r border-tg-border-subtle bg-tg-surface md:static md:flex`}
+        } absolute inset-y-0 left-0 z-30 w-full shrink-0 flex-col border-r border-tg-border-subtle bg-tg-surface md:static md:flex md:w-[320px]`}
       >
         <div className="flex items-center gap-1 px-3 py-2.5">
           <button
@@ -203,15 +198,23 @@ const ChatPage: React.FC = () => {
             >
               <MessageSquarePlus className="h-5 w-5" />
             </button>
-            {/* 移动端抽屉的关闭按钮 */}
-            <button
-              type="button"
-              onClick={() => setSidebarOpen(false)}
-              aria-label="收起会话列表"
-              className="rounded-full p-2 text-tg-text-muted transition-colors hover:bg-tg-surface-hover md:hidden"
-            >
-              <X className="h-5 w-5" />
-            </button>
+            {/*
+              移动端：从会话里点「返回」打开列表后，这里给一条退回该会话的路。
+              没有打开的会话时不渲染 —— 那时列表本身就是根视图，
+              没有可「收起」的东西，按钮点了也不会有任何反应（死控件）。
+              回到会话也可以直接点那一行，那条路径不重新拉消息。
+            */}
+            {activeId && (
+              <button
+                type="button"
+                onClick={() => setSidebarOpen(false)}
+                aria-label="返回当前会话"
+                title="返回当前会话"
+                className="rounded-full p-2 text-tg-text-muted transition-colors hover:bg-tg-surface-hover md:hidden"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -260,17 +263,8 @@ const ChatPage: React.FC = () => {
       </aside>
 
       {/*
-        移动端展开列表时的遮罩。
-        只在「已经有一个打开的会话」时才铺 —— 没有选中会话时列表就是根视图，
-        它后面是空状态，既没什么可压暗的，点了也无处可退。
+        移动端不再需要遮罩：列表已经是整屏视图，两个状态互斥，没有"压在会话上"的半透明层。
       */}
-      {sidebarOpen && activeId && (
-        <div
-          className="absolute inset-0 z-20 bg-black/30 md:hidden"
-          onClick={() => setSidebarOpen(false)}
-          aria-hidden
-        />
-      )}
 
       {/* ================= 右：会话区 ================= */}
       <main className="tg-wallpaper flex min-w-0 flex-1 flex-col">
@@ -312,7 +306,9 @@ const ChatPage: React.FC = () => {
             />
           </>
         ) : (
-          /* 没有选中会话：给一个能立刻行动的引导，而不是空白 */
+          /* 没有选中会话：给一个能立刻行动的引导，而不是空白。
+             注意这一屏在移动端看不到 —— 那时列表是整屏根视图，会把这里盖住；
+             所以"查看会话列表"之类的按钮不必在这里放。 */
           <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
             <div className="flex h-14 w-14 items-center justify-center rounded-full bg-white/70">
               <MessageSquarePlus className="h-6 w-6 text-tg-brand-press" />
@@ -321,7 +317,7 @@ const ChatPage: React.FC = () => {
               选择一个会话开始
             </h2>
             <p className="mt-1.5 max-w-xs text-[13px] leading-relaxed tg-wallpaper-text">
-              从会话列表里挑一个开始。也可以在笔记里右键一篇，直接分享给好友。
+              从左侧的会话列表里挑一个开始。也可以在笔记里右键一篇，直接分享给好友。
             </p>
             <div className="mt-5 flex items-center gap-2">
               <button
@@ -333,10 +329,10 @@ const ChatPage: React.FC = () => {
               </button>
               <button
                 type="button"
-                onClick={() => setSidebarOpen(true)}
-                className="rounded-full bg-white/85 px-4 py-2 text-[13px] font-medium text-tg-text-body transition-colors hover:bg-white md:hidden"
+                onClick={() => setShowAddFriend(true)}
+                className="rounded-full bg-white/85 px-4 py-2 text-[13px] font-medium text-tg-text-body transition-colors hover:bg-white"
               >
-                查看会话列表
+                添加好友
               </button>
             </div>
           </div>

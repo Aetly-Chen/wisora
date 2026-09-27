@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type {
   AgentMessage,
   ConversationSummary,
+  HistoryMessage,
   StreamEvent,
 } from "../types/agent";
 import {
@@ -53,6 +54,100 @@ function welcomeMessage(): AgentMessage {
     content: WELCOME_CONTENT,
     timestamp: new Date(),
   };
+}
+
+/**
+ * 把落库的消息序列还原成界面消息。
+ *
+ * ## 工具轮次要按 toolCallId 合并成一张卡片
+ *
+ * 库里一次工具调用是**两行**（见 backend/src/ai/ai.controller.ts 的 chatStream：
+ * `tool_call` 行存「工具名 + 参数」，`tool_result` 行存结果），
+ * 而流式过程中界面上只有**一张卡片**（onToolResult 更新的是同一个 id）。
+ * 不合并的话，历史里一次调用会显示成两张卡片，
+ * 而且第二张会把"结果"当成参数糊在卡片体里 —— 与刚刚流式看过的样子对不上。
+ *
+ * 合并放在前端而不是改库：那两行本身是合理的审计记录（参数与结果都有用），
+ * 且**已经存下来的历史**也只有在前端合并才能正确回显，
+ * 否则要配一次数据迁移。
+ *
+ * ## 不依赖"哪一行先到"
+ *
+ * 两行是 `void appendMessage` 并发写的，同一毫秒内落库很常见，
+ * 排序即便稳定也可能出现结果行排在调用行前面。所以这里**不看顺序**，
+ * 而是按内容的形状认身份：调用行的 content 是 `${工具名} ${参数}`，
+ * 必定以工具名开头；结果行不会（结果是模型工具返回的自然语言）。
+ * 两个部件哪个先到就填哪个，卡片文案始终是「参数 → 结果」。
+ *
+ * ## 顺序
+ *
+ * 其余消息保持后端给的顺序（后端按 `createdAt, id` 排序，
+ * 在真实写入路径下 id 与写入顺序一致，实测 46/46 相符）；
+ * 结果行并进调用行所在的位置，不另起一张，
+ * 这样「模型说的话 → 工具卡片 → 模型后面的话」的先后才不会乱。
+ */
+function mapHistoryMessages(messages: HistoryMessage[]): AgentMessage[] {
+  const out: AgentMessage[] = [];
+  /** toolCallId → 卡片在 out 里的下标 + 已经拿到的两个部件 */
+  const cards = new Map<string, { index: number; args?: string; result?: string }>();
+
+  /** 与流式路径 onToolCall / onToolResult 的文案保持一致 */
+  const renderCard = (c: { args?: string; result?: string }) =>
+    [c.args ? `参数：${c.args}` : "", c.result ? `结果：${c.result}` : ""]
+      .filter(Boolean)
+      .join("\n");
+
+  for (const m of messages) {
+    if (m.role === "system") continue; // system 提示词不展示
+
+    const timestamp = m.createdAt ? new Date(m.createdAt) : new Date();
+
+    if (m.role === "tool") {
+      const callId = m.toolCallId ?? undefined;
+
+      // 认身份：content 以工具名开头的才是"调用"那一行
+      const toolName = m.name ?? "";
+      const isCall = toolName !== "" && m.content.startsWith(toolName);
+      const value = isCall ? m.content.slice(toolName.length).trim() : m.content;
+
+      const existing = callId ? cards.get(callId) : undefined;
+      if (existing) {
+        // 第二行：补上还缺的那个部件
+        if (isCall) existing.args = value;
+        else existing.result = value;
+        out[existing.index] = {
+          ...out[existing.index],
+          content: renderCard(existing),
+        };
+        continue;
+      }
+
+      const card: { index: number; args?: string; result?: string } = {
+        index: out.length,
+        ...(isCall ? { args: value } : { result: value }),
+      };
+      if (callId) cards.set(callId, card);
+      out.push({
+        id: m.id,
+        role: "tool",
+        content: renderCard(card),
+        timestamp,
+        // 历史里的工具轮次都已经结束了
+        toolStatus: "done",
+        toolName: m.name ?? undefined,
+      });
+      continue;
+    }
+
+    out.push({
+      id: m.id,
+      role: m.role === "assistant" ? "ai" : "user",
+      content: m.content,
+      timestamp,
+    });
+  }
+
+  return out;
 }
 
 interface AgentState {
@@ -121,10 +216,6 @@ export const useAgentStore = create<AgentState>((set, get) => ({
      */
     const myController = new AbortController();
     controller = myController;
-
-    // 本轮之前还没有 conversationId → 服务端会新建会话，
-    // 结束后需要刷新侧边栏列表（标题由问题前 30 字生成）
-    const isNewConversation = !get().conversationId;
 
     const userMessage: AgentMessage = {
       id: generateId(),
@@ -289,8 +380,12 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             }
             set({ isStreaming: false });
 
-            // 新会话已由服务端创建，刷新侧边栏让它出现在列表里
-            if (isNewConversation) void get().loadConversations();
+            /*
+             * 每轮结束都刷一次侧边栏，不只是新会话那一次。
+             * 会话列表按 updatedAt 倒序，刚聊过的那个应该升到最上面 ——
+             * 只在新建时刷新的话，列表顺序会一直停在进入页面那一刻。
+             */
+            void get().loadConversations();
           },
         },
       });
@@ -405,33 +500,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
     try {
       const { messages } = await getConversationMessages(id);
-
-      // system 不展示；其余（user/assistant/tool）按原顺序回显。
-      // 用类型谓词过滤，让 TS 把 'system' 从联合类型里排除掉。
-      const mapped: AgentMessage[] = messages
-        .filter(
-          (m): m is typeof m & { role: "user" | "assistant" | "tool" } =>
-            m.role !== "system",
-        )
-        .map((m) => ({
-          id: m.id,
-          role: m.role === "assistant" ? ("ai" as const) : m.role,
-          /*
-           * 工具轮次落库时，调用那条的 content 是「工具名 + 参数」。
-           * 工具名已经从 m.name 取出来单独渲染了，这里把前缀去掉，
-           * 否则历史回显会出现「查看笔记目录 / create_my_notes {...}」的重复。
-           */
-          content:
-            m.role === "tool" && m.name && m.content.startsWith(m.name)
-              ? m.content.slice(m.name.length).trim()
-              : m.content,
-          timestamp: m.createdAt ? new Date(m.createdAt) : new Date(),
-          // 历史里的工具轮次都是已完成的
-          ...(m.role === "tool"
-            ? { toolStatus: "done" as const, toolName: m.name ?? undefined }
-            : {}),
-        }));
-
+      const mapped = mapHistoryMessages(messages);
       set({ messages: mapped.length > 0 ? mapped : [welcomeMessage()] });
     } catch (err) {
       set({

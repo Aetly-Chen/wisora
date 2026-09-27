@@ -167,6 +167,41 @@ export class ConversationRepository {
     return list;
   }
 
+  /**
+   * 界面回看用的**完整**历史。
+   *
+   * 为什么不能复用 loadHistory：
+   * 1. 它优先读 Redis 热缓存，而那份缓存是 `appendMessage` 写穿的，
+   *    每条消息都 `slice(-HISTORY_LIMIT)` —— **只有最近 20 条**。
+   * 2. 更糟的是缓存过期（TTL 30 分钟）之后，下一条消息会让它从空数组重建：
+   *    `appendMessage` 读到 miss 就 `list = []` 再 push 这一条，
+   *    于是缓存里只剩最后 1~2 条。界面此时去读，就只看到最后一轮对话，
+   *    前面的历史"凭空消失"。
+   * 3. 即便缓存 miss 走到 Prisma，`take: -HISTORY_LIMIT` 也只取 20 条。
+   *
+   * 20 条是给 LLM 上下文窗口的预算，不是给界面看的 —— 两者必须分开。
+   *
+   * 排序显式给 `createdAt asc` + `id asc`：工具轮次是 `void appendMessage`
+   * 并发落库的（同一毫秒内两条很常见），只按 createdAt 排结果会飘，
+   * 表现是历史里"结果"卡片跑到"参数"卡片前面。
+   */
+  async listAllMessages(conversationId: string): Promise<ChatMessage[]> {
+    const messages = await this.prisma.message.findMany({
+      where: { conversationId },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
+
+    return messages.map((m) => ({
+      id: m.id,
+      role: m.role as ChatMessage['role'],
+      content: m.content,
+      toolCalls: m.toolCalls ?? undefined,
+      toolCallId: m.toolCallId ?? undefined,
+      name: m.name ?? undefined,
+      createdAt: m.createdAt,
+    }));
+  }
+
   async softDeleteConversation(userId: string, conversationId: string) {
     await this.prisma.conversation.updateMany({
       where: { id: conversationId, userId, deletedAt: null },

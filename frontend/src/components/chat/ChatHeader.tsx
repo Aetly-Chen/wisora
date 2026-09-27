@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { ArrowLeft, MoreVertical, Pin, PinOff, Volume2, VolumeX } from 'lucide-react';
 import type { Conversation, Friend } from '@/types/chat';
-import { peerAvatarClass } from '@/lib/chat-utils';
+import { CHAT_COLUMN, peerAvatarClass } from '@/lib/chat-utils';
 import { conversationPeer, conversationTitle } from '@/stores/useChatStore';
 import { ContextMenu } from '@/components/ContextMenu';
 import { Avatar } from '@/components/Avatar';
@@ -70,85 +70,92 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
           : '离线';
 
   return (
-    <div className="flex shrink-0 items-center gap-3 border-b border-tg-border-subtle bg-tg-surface px-3 py-2 sm:px-4">
-      {onBack && (
-        <button
-          type="button"
-          onClick={onBack}
-          aria-label="返回会话列表"
-          className="-ml-1 shrink-0 rounded-full p-2 text-tg-text-muted transition-colors hover:bg-tg-surface-hover md:hidden"
-        >
-          <ArrowLeft className="h-5 w-5" />
-        </button>
-      )}
+    /*
+     * 分两层：外层只负责满宽的底色与下边框（分隔线要横贯整个会话区），
+     * 内层用与消息列、输入区相同的列约束 —— 否则头像和名字会贴在窗口最左边，
+     * 而下面的消息和输入框在中间，三条左基准线对不齐。
+     */
+    <div className="shrink-0 border-b border-tg-border-subtle bg-tg-surface px-3 py-2 sm:px-5">
+      <div className={`${CHAT_COLUMN} flex items-center gap-3`}>
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            aria-label="返回会话列表"
+            className="-ml-1 shrink-0 rounded-full p-2 text-tg-text-muted transition-colors hover:bg-tg-surface-hover md:hidden"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+        )}
 
-      <Avatar
-        id={peer?.id ?? conversation.id}
-        name={title}
-        size="lg"
-        presence={peer?.presence}
-        group={isGroup}
-        fill={peerAvatarClass(peer?.id ?? conversation.id)}
-      />
+        <Avatar
+          id={peer?.id ?? conversation.id}
+          name={title}
+          size="lg"
+          presence={peer?.presence}
+          group={isGroup}
+          fill={peerAvatarClass(peer?.id ?? conversation.id)}
+        />
 
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <h2 className="truncate text-[15px] font-medium text-tg-text">
-            {title}
-          </h2>
-          {conversation.muted && (
-            <VolumeX
-              className="h-3.5 w-3.5 shrink-0 text-tg-text-soft"
-              aria-label="免打扰"
-            />
-          )}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <h2 className="truncate text-[15px] font-medium text-tg-text">
+              {title}
+            </h2>
+            {conversation.muted && (
+              <VolumeX
+                className="h-3.5 w-3.5 shrink-0 text-tg-text-soft"
+                aria-label="免打扰"
+              />
+            )}
+          </div>
+          <p
+            className={`truncate text-[13px] ${
+              typingName
+                ? 'text-tg-brand'
+                : 'text-tg-text-muted'
+            }`}
+          >
+            {subtitle}
+          </p>
         </div>
-        <p
-          className={`truncate text-[13px] ${
-            typingName
-              ? 'text-tg-brand'
-              : 'text-tg-text-muted'
-          }`}
+
+        <button
+          ref={moreButtonRef}
+          type="button"
+          aria-label="会话设置"
+          aria-haspopup="menu"
+          aria-expanded={!!menuAt}
+          onClick={() => {
+            const rect = moreButtonRef.current?.getBoundingClientRect();
+            setMenuAt(rect ? { x: rect.right - 184, y: rect.bottom + 6 } : { x: 0, y: 0 });
+          }}
+          className="shrink-0 rounded-full p-2 text-tg-text-muted transition-colors hover:bg-tg-surface-hover"
         >
-          {subtitle}
-        </p>
+          <MoreVertical className="h-5 w-5" />
+        </button>
+
+        <ContextMenu
+          open={!!menuAt}
+          x={menuAt?.x ?? 0}
+          y={menuAt?.y ?? 0}
+          onClose={() => setMenuAt(null)}
+          items={[
+            {
+              id: 'pin',
+              label: conversation.pinned ? '取消置顶' : '置顶会话',
+              icon: conversation.pinned ? PinOff : Pin,
+              onSelect: onTogglePin,
+            },
+            {
+              id: 'mute',
+              label: conversation.muted ? '取消免打扰' : '开启免打扰',
+              icon: conversation.muted ? Volume2 : VolumeX,
+              onSelect: onToggleMute,
+            },
+          ]}
+        />
       </div>
-
-      <button
-        ref={moreButtonRef}
-        type="button"
-        aria-label="会话设置"
-        aria-haspopup="menu"
-        aria-expanded={!!menuAt}
-        onClick={() => {
-          const rect = moreButtonRef.current?.getBoundingClientRect();
-          setMenuAt(rect ? { x: rect.right - 184, y: rect.bottom + 6 } : { x: 0, y: 0 });
-        }}
-        className="shrink-0 rounded-full p-2 text-tg-text-muted transition-colors hover:bg-tg-surface-hover"
-      >
-        <MoreVertical className="h-5 w-5" />
-      </button>
-
-      <ContextMenu
-        open={!!menuAt}
-        x={menuAt?.x ?? 0}
-        y={menuAt?.y ?? 0}
-        onClose={() => setMenuAt(null)}
-        items={[
-          {
-            id: 'pin',
-            label: conversation.pinned ? '取消置顶' : '置顶会话',
-            icon: conversation.pinned ? PinOff : Pin,
-            onSelect: onTogglePin,
-          },
-          {
-            id: 'mute',
-            label: conversation.muted ? '取消免打扰' : '开启免打扰',
-            icon: conversation.muted ? Volume2 : VolumeX,
-            onSelect: onToggleMute,
-          },
-        ]}
-      />
     </div>
   );
 };
