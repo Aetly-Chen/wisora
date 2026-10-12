@@ -11,6 +11,7 @@ import { NotesModule } from './notes/notes.module';
 import { ChatModule } from './chat/chat.module';
 import { StorageModule } from './common/storage/storage.module';
 import { RateLimitModule } from './common/rate-limit/rate-limit.module';
+import { RagModule } from './rag/rag.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { RateLimitModule } from './common/rate-limit/rate-limit.module';
      */
     StorageModule,
     RateLimitModule,
+    RagModule,
   ],
   controllers: [AppController],
   providers: [AppService],

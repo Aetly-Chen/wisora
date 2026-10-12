@@ -1,5 +1,6 @@
 import { StructuredToolInterface } from '@langchain/core/tools';
 import { NotesService } from '../../notes/notes.service';
+import { NoteSearchService } from '../../rag/note-search.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ToolRegistry, type ToolPolicy } from './tool.registry';
 import { createQueryUserTool } from './user-info.tool';
@@ -17,6 +18,7 @@ import {
   createUpdateNoteTool,  
   createWriteNoteTool,  
 } from './notes.tool';
+import { createSearchNotesTool } from './search-notes.tool';
 
 
 export * from './tool.registry';
@@ -69,6 +71,7 @@ export function createUserScopedTools(
   prisma: PrismaService,
   userId: string,
   notes: NotesService,
+  search: NoteSearchService,
 ): ToolWithPolicy[] {
   return [
     /* ---------- 会话（原有，未改动） ---------- */
@@ -93,6 +96,11 @@ export function createUserScopedTools(
     {
       tool: createReadNoteTool(notes, userId),
       policy: { timeoutMs: 10_000, retries: 1 },
+    },
+    // 语义检索要多走一次 embedding 调用，比纯查库慢，超时给宽一些
+    {
+      tool: createSearchNotesTool(search, userId),
+      policy: { timeoutMs: 20_000, retries: 1 },
     },
 
     /* ---------- 笔记：写 ---------- */

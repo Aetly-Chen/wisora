@@ -91,6 +91,9 @@ model Note {
 
   attachments Attachment[]
 
+  /// RAG 切块（见 NoteChunk）
+  chunks      NoteChunk[]
+
   @@index([userId, deletedAt, updatedAt])
   @@index([parentId])
 }
@@ -117,6 +120,37 @@ model Attachment {
 
   @@index([userId, createdAt])
   @@index([noteId])
+}
+
+/// 笔记切块 + 向量：RAG 检索的底座。一篇笔记切成若干块，每块一行。
+///
+/// 为什么不用 pgvector：本机 Postgres 是便携版、没装该扩展，而 Windows 上
+/// pgvector 没有官方预编译包（要么编 C++，要么换 Docker 镜像）。实测在 Node 里
+/// 暴力算余弦（1024 维）2 万条只要 35ms —— 个人笔记到不了这个量级，
+/// 所以向量直接存二进制、检索时在内存里算，零新依赖。
+/// 等到向量超过 10 万条、或需要在 SQL 层做「向量 + 业务条件」联合过滤时再迁。
+model NoteChunk {
+  id        String   @id @default(cuid())
+  noteId    String
+  /// 检索必须按它过滤，否则会把别人的笔记块召回给当前用户
+  userId    String
+  /// 块在笔记内的序号，出问题时用于回溯定位
+  seq       Int
+  /// 块所属的小节标题，会和正文拼在一起送去编码 ——
+  /// 脱离上下文的块要靠它才被正确理解
+  title     String
+  /// 块正文
+  content   String
+  /// 向量：Float32Array 的原始字节（1024 维 = 4096 字节）。
+  /// 不用数字数组，是因为那个要序列化成 JSON 文本，体积是二进制的 3~5 倍
+  embedding Bytes
+  createdAt DateTime @default(now())
+
+  /// 笔记走软删除，Cascade 不会触发，所以检索时还要 join 回来过滤 deletedAt
+  note Note @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  @@index([noteId])
+  @@index([userId])
 }
 
 /* ==================================================================== */

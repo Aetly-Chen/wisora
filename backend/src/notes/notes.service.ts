@@ -1,5 +1,6 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { NoteIndexService } from '../rag/note-index.service';
 import type { CreateNoteDto, UpdateNoteDto } from './dto/note.dto';
 
 /** 列表项：不返回正文，避免列表接口拖着几十 KB 的 Markdown */
@@ -67,7 +68,37 @@ const MAX_DEPTH = 6;
 
 @Injectable()
 export class NotesService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(NotesService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly index: NoteIndexService,
+  ) {}
+
+  /**
+   * 后台重建某篇笔记的检索索引。
+   *
+   * 三条约束缺一不可：
+   * 1. **不 await** —— 保存笔记的响应不该等一次 embedding 调用（几百毫秒到几秒）；
+   * 2. **失败只记日志** —— 索引是派生数据，它挂了不该让「保存成功」变成报错；
+   * 3. **必须 .catch()** —— 被 void 掉的 Promise 一旦 reject 就是
+   *    unhandledRejection，在 Node 里足够把进程带走。
+   */
+  private reindexLater(noteId: string): void {
+    void this.index.reindexNote(noteId).catch((err: unknown) => {
+      this.logger.warn(
+        `重建索引失败 noteId=${noteId}：${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
+  }
+
+  private dropIndexLater(noteIds: string[]): void {
+    void this.index.removeChunks(noteIds).catch((err: unknown) => {
+      this.logger.warn(
+        `清理索引失败：${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
+  }
 
   /**
    * 归属校验，不归属则抛 404。
@@ -172,7 +203,7 @@ export class NotesService {
   async create(userId: string, dto: CreateNoteDto) {
     const parentId = await this.resolveParent(userId, dto.parentId);
 
-    return this.prisma.note.create({
+    const note = await this.prisma.note.create({
       data: {
         userId,
         parentId,
@@ -181,6 +212,9 @@ export class NotesService {
       },
       select: DETAIL_SELECT,
     });
+
+    this.reindexLater(note.id);
+    return note;
   }
 
   /**
@@ -270,11 +304,20 @@ export class NotesService {
     if (dto.content !== undefined) data.content = dto.content;
     if (dto.pinned !== undefined) data.pinned = dto.pinned;
 
-    return this.prisma.note.update({
+    const note = await this.prisma.note.update({
       where: { id: noteId },
       data,
       select: DETAIL_SELECT,
     });
+
+    /*
+     * 只有标题或正文变了才值得重建 —— 单独改置顶不影响被检索的内容，
+     * 白跑一次 embedding 纯属浪费（而且它是按块计费的）。
+     */
+    if (dto.title !== undefined || dto.content !== undefined) {
+      this.reindexLater(noteId);
+    }
+    return note;
   }
 
   /**
@@ -315,6 +358,13 @@ export class NotesService {
       where: { id: { in: ids }, userId },
       data: { deletedAt: new Date() },
     });
+
+    /*
+     * 笔记走软删除，NoteChunk 上的 Cascade 根本不会触发，必须显式清。
+     * 不清的后果不是"搜不到"，而是**搜出已经删掉的内容** ——
+     * 检索侧虽然有 note.deletedAt 兜底，但正确性不该只押在一处。
+     */
+    this.dropIndexLater(ids);
 
     return { deleted: true, count: ids.length };
   }

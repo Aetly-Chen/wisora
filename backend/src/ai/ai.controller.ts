@@ -32,6 +32,7 @@ import { createUserScopedTools, type ToolWithPolicy } from './tools';
 import { RedisService } from '../redis/redis.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotesService } from '../notes/notes.service';
+import { NoteSearchService } from '../rag/note-search.service';
 import {
   availableModelNames,
   ChatModelFactory,
@@ -54,7 +55,8 @@ export class AiController {
     private readonly rateLimit: RateLimitService,
     private readonly prisma: PrismaService,
     private readonly models: ChatModelFactory,
-     private readonly notes: NotesService,  
+     private readonly notes: NotesService,
+    private readonly search: NoteSearchService,  
 
   ) {}
 
@@ -167,7 +169,7 @@ export class AiController {
       : [];
 
     // 按本次请求创建用户专属工具（带 userId 过滤，防止越权访问他人会话）
-    const userTools = createUserScopedTools(this.prisma, userId, this.notes);
+    const userTools = createUserScopedTools(this.prisma, userId, this.notes, this.search);
 
     // 白名单校验：不在 CHAT_MODEL_OPTIONS 里的名字会被回落到默认模型
     const resolvedModel = this.models.resolve(model);
