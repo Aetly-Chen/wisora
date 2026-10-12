@@ -6,6 +6,19 @@ const MAX_IMPORT_BYTES = 2 * 1024 * 1024;
 /** 标题最多取这么多个字符，避免把一整段正文塞进标题 */
 const MAX_TITLE_LENGTH = 80;
 
+/**
+ * 「猜标题」的长度上限。
+ *
+ * 只在第一行没有 `#` 前缀时才会用到它。第一行必须短到这个程度，
+ * 才敢认为它就是标题 —— 再长就明显是正文首段了。
+ * 从网页复制出来的 Markdown 常常整段没有换行，第一行就是几百字的正文；
+ * 早先无脑取前 80 字当标题，结果标题成了「标题 + 正文开头」的缝合怪。
+ */
+const MAX_TITLE_GUESS_LENGTH = 40;
+
+/** 句末标点：第一行里出现它，说明这是句子而不是标题 */
+const SENTENCE_END = /[。！？；!?;]/;
+
 export type ImportableKind = 'markdown' | 'html' | 'text';
 
 /**
@@ -44,6 +57,10 @@ function fallbackTitle(filename: string): string {
  * 若用的是开头的 `# 标题`，一并把这一行从正文里去掉 ——
  * 笔记标题已经显示在编辑器上方了，正文里再来一个一模一样的 H1
  * 就是重复。
+ *
+ * 没有 `#` 时只做「保守猜测」：第一行必须**又短、又不含句末标点**才当标题。
+ * 猜不出来就返回空标题，由调用方退回文件名 ——
+ * 宁可标题难看，也不能把正文首段塞进标题里。
  */
 function titleFromMarkdown(text: string): { title: string; content: string } {
   const lines = text.split('\n');
@@ -62,11 +79,13 @@ function titleFromMarkdown(text: string): { title: string; content: string } {
     };
   }
 
-  if (first.trim()) {
-    return {
-      title: first.trim().slice(0, MAX_TITLE_LENGTH),
-      content: text.trim(),
-    };
+  const candidate = first.trim();
+  if (
+    candidate.length > 0 &&
+    candidate.length <= MAX_TITLE_GUESS_LENGTH &&
+    !SENTENCE_END.test(candidate)
+  ) {
+    return { title: candidate, content: text.trim() };
   }
 
   return { title: '', content: text.trim() };
