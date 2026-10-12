@@ -2,7 +2,7 @@
 
 > 面向读者：项目的作者本人（用于系统复习、面试准备与后续维护）。
 > 覆盖范围：`backend/src` 下 **93 个手写 `.ts`**（另有 19 个 Prisma 生成文件）+ `frontend/src` 下 **71 个 `.ts` / `.tsx`**。
-> 版本基准：2026-10-13 的工作区状态（`src/rag/` 与 `search_my_notes` 已在工作区、尚未提交）。
+> 版本基准：2026-10-13 的工作区状态（`src/rag/` 与 `search_my_notes` 已提交，见 `7bea922`）。
 >
 > 本文所有路径、类名、方法名、常量值均来自实际代码读取，不是设计意图的复述。
 > 凡「文档这么写、代码不是这样」的地方，集中在 **Part 4** 列出。
@@ -13,7 +13,7 @@
 
 - **Part 1 / Part 2** 是逐文件的：每个模块先给一张**文件清单表**（路径 → 注释 → 联动），再对其中最核心的文件做**深读**。表格用于查，深读用于懂。
 - **Part 3** 是横切的：把模块之间的调用链串成 4 条主干链路，回答「它们怎么联动」。
-- **Part 4** 把 `docs/` 里 6 份设计文档与代码逐一对照，列出同步的、滞后的、以及已经被代码反超的地方。
+- **Part 4** 把 `docs/` 里 7 份文档（另加本文）与代码逐一对照，列出同步的、滞后的、以及已经被代码反超的地方。
 
 一个约定：本文里的「**路径**」一律相对仓库根 `D:\项目\wisora-web`。
 
@@ -41,17 +41,17 @@ wisora-web/
 │  ├─ prisma/schema.prisma        ← 11 张表 / 3 个枚举，全项目数据形状的来源
 │  ├─ src/
 │  │  ├─ main.ts app.module.ts app.controller.ts app.service.ts   ← 编排层（4 文件）
-│  │  ├─ common/       ← 横切能力：统一响应、异常、限流、存储、上传校验、用户形状（8 文件）
+│  │  ├─ common/       ← 横切能力：统一响应、异常、限流、存储、上传校验、用户形状（10 文件）
 │  │  ├─ prisma/ redis/                        ← 两个 @Global 基础设施（各 2 文件）
 │  │  ├─ auth/         ← 认证域（1 controller + 1 service + 1 module + 1 guard + 1 装饰器 + 8 DTO）
 │  │  ├─ verification-code/ mail/  ← 认证域的外部依赖（验证码、邮件）
 │  │  ├─ user/         ← 用户域（3 文件）
 │  │  ├─ notes/        ← 笔记域（6 文件，含附件）
-│  │  ├─ chat/         ← 聊天域（11 文件，含 WS 网关）
+│  │  ├─ chat/         ← 聊天域（14 文件，含 WS 网关）
 │  │  ├─ ai/           ← AI 域（15 文件，含工具系统与 LLM 封装）
 │  │  ├─ rag/          ← RAG 检索域（6 文件，被 ai 与 notes 复用）
 │  │  └─ generated/prisma/          ← Prisma 生成产物（19 文件，不手改）
-│  └─ test/            ← 25 个验证脚本（.cjs，直接连库/HTTP，不经 Nest，见 §1.9）
+│  └─ test/            ← 30 个验证文件（24 个 .cjs + 3 个 .mts + e2e 模板与 jest 配置，见 §1.9）
 ├─ frontend/
 │  └─ src/
 │     ├─ main.tsx App.tsx index.css
@@ -59,8 +59,8 @@ wisora-web/
 │     ├─ stores/       ← zustand 状态（4 文件）
 │     ├─ router/ lib/ types/
 │     ├─ pages/        ← 8 个页面
-│     └─ components/   ← 23 个业务组件 + 9 个 shadcn 基础组件
-└─ docs/               ← 5 份设计文档（Part 4 逐一对照）
+│     └─ components/   ← 21 个业务组件 + 9 个 shadcn 基础组件
+└─ docs/               ← 8 份 md（其中 7 份与 Wisora 相关，Part 4 逐一对照；另 1 份是本文）
 ```
 
 ### 0.3 数据模型全景
@@ -1054,7 +1054,7 @@ resolve(requested?: string) {
 
 ---
 
-## 1.9 验证脚本（`backend/test/`，25 个）
+## 1.9 验证脚本（`backend/test/`，30 个文件）
 
 这些脚本**都不经 Nest** —— 直接连库（走 `pg`）、直接打 HTTP / WS。
 好处是前后端没起也能跑一部分（尤其探活与数据类），代价是每个脚本都要自己解析一遍 `.env`。
@@ -1065,6 +1065,9 @@ resolve(requested?: string) {
 > 2. **解析 `.env` 要先收进对象、再灌进 `process.env`**。边解析边
 >    `if (!process.env[k]) process.env[k] = v` 会让重复出现的键只取到**第一个** ——
 >    本项目的 `JWT_ACCESS_SECRET` 恰好重复两行且值不同，这样签出来的 token 一律 401。
+
+> 名录：四张表共 **30 条**（造数与清理 6 + 真机验证 10 + 定向探测 9 + 脚手架与历史遗留 5），
+> 与实际文件数一一对应。`.cjs` 是后加的、最常用的形态（25 个）。
 
 ### 造数与清理
 
@@ -1091,7 +1094,6 @@ resolve(requested?: string) {
 | `verify-embedding.cjs` | RAG 检索效果（离线，用 `docs/` 语料，对比字面匹配 vs 语义） |
 | `verify-rag-notes.cjs` | 用**真实笔记**验证 RAG 检索（向量放内存，不落库） |
 | `verify-rerank.cjs` | rerank 效果验证 —— 结论是**不接**，理由见 `ai-rag-retrieval.md` §9 |
-| `app.e2e-spec.ts` | Nest 脚手架自带的 e2e 模板，未改造 |
 
 ### 定向探测
 
@@ -1105,6 +1107,22 @@ resolve(requested?: string) {
 | `smoke-ws.cjs` | WebSocket 依赖冒烟测试 |
 | `list-notes.cjs` | 列出全部笔记（含层级、时间、内容指纹），供人工判断哪些该清理 |
 | `check-title.cjs` | 检查标题长度是否异常（定位「标题被正文污染」的现场） |
+| `audit-doc.cjs` | **文档计数审计**：拿文件系统核对本文档头部 / 目录树里所有「N 个文件」声明，列出漂移。大改代码后跑一次。⚠️ 脚本自身在 `test/` 下，所以 test 计数含它自己 |
+
+### 早期 `.mts` 与脚手架（历史遗留，勿直接抄）
+
+| 文件 | 用途 |
+|---|---|
+| `e2e-ai-check.mts` | 最早的 AI 端到端验证（三个迭代版之一）。`import 'dotenv/config'` + **Prisma 客户端**（不是裸 `pg`），用 `tsx` 直跑 |
+| `e2e-ai-check2.mts` | 第二版：补了 `AI_TEST_BASE` 环境变量 |
+| `e2e-ai-check3.mts` | 第三版：专门复现「收到 `done` 立刻关连接再发起下一轮」的竞态 |
+| `jest-e2e.json` | Nest 脚手架的 jest-e2e 配置（`testRegex: .e2e-spec.ts$`），配合 `app.e2e-spec.ts` |
+| `app.e2e-spec.ts` | Nest 脚手架自带的 e2e 模板，未改造 |
+
+> ⚠️ 三个 `.mts` 的默认 `BASE` 指向 **3001 端口**（`e2e-ai-check.mts` 写死，另两个可被
+> `AI_TEST_BASE` 覆盖）—— 与本项目实际的 3000 不一致，属于那个阶段的产物。
+> 它们依赖 `../src/generated/prisma/client.ts` 与 `tsx`，**不是即开即用的**；
+> 要复现同类验证，用 §上面「真机验证」里的 `.cjs` 脚本（只依赖 `pg`，更省事）。
 
 ---
 
@@ -1865,15 +1883,15 @@ pages/notes 右键「分享给好友」→ ShareToFriendDialog
 
 # Part 4　文档与代码对照
 
-## 4.1 `docs/` 里的六份文档
+## 4.1 `docs/` 里的七份文档（另加本文）
 
 | 文档 | 体量 | 定位 | 与代码的关系 |
 |---|---|---|---|
-| `wisora-modules-guide.md` / `.html` | 54K / 64K | **AI 与笔记两个模块的深度指南**（Part I AI、Part II 笔记） | 与代码高度一致，是本文 Part 1 的重要参照 |
-| `chat-backend-implementation.md` | 98K | **聊天模块后端的实现包**（逐文件完整代码 + 落地顺序 + 依赖安装结论） | 属于「施工图」，代码落地后部分内容成了历史快照 |
-| `chat-module-design.md` | 39K | 聊天模块设计文档 + §8 落地记录（含 §8.6 视觉层还原 Telegram、§8.7 遗留） | §8 是与代码同步的，§1–§7 是设计意图 |
-| `ai-notes-agent-plan.md` | 48K | 「让 AI 能操作笔记」的实现方案 + §9 落地记录 | §9 已回填 |
-| `ai-rag-retrieval.md` | 9K | **语义检索（RAG）的实现记录**：四层链路、为什么不上 pgvector、切块与索引策略、已知失败模式 | 与代码同步，写于落地当天 |
+| `wisora-modules-guide.md` / `.html` | 52K / 64K | **AI 与笔记两个模块的深度指南**（Part I AI、Part II 笔记） | 与代码高度一致，是本文 Part 1 的重要参照 |
+| `chat-backend-implementation.md` | 95K | **聊天模块后端的实现包**（逐文件完整代码 + 落地顺序 + 依赖安装结论） | 属于「施工图」，代码落地后部分内容成了历史快照 |
+| `chat-module-design.md` | 41K | 聊天模块设计文档 + §8 落地记录（含 §8.6 视觉层还原 Telegram、§8.7 遗留） | §8 是与代码同步的，§1–§7 是设计意图 |
+| `ai-notes-agent-plan.md` | 49K | 「让 AI 能操作笔记」的实现方案 + §9 落地记录 | §9 已回填 |
+| `ai-rag-retrieval.md` | 15K | **语义检索（RAG）的实现记录**：四层链路、为什么不上 pgvector、切块与索引策略、已知失败模式 | 与代码同步，写于落地当天 |
 
 > 另有 `olct-伪代码实现详解.md` / `homo-伪代码实现详解.md` 两份 ——
 > 那是求职用的项目讲解（OLCT 数字资产交易所、Homo 短视频），与 Wisora 代码无关，本文不覆盖。
@@ -1895,9 +1913,9 @@ pages/notes 右键「分享给好友」→ ShareToFriendDialog
 **② 代码里有、而设计文档没有单独成节的改动**
 
 > 下表是这份文档（2026-09-25 成稿）当时的核对结果。此后 `chat-module-design.md` 新增了
-> §8.6–§8.8、`ai-notes-agent-plan.md` §9 也补齐了落地记录，所以**下表中绝大多数现在已经
-> 回填到那两处**。目前仍然只在代码里、文档没写的是：`cleanupOrphans` 的实现细节，
-> 以及 lockfile 那次补齐。
+> §8.6–§8.8、`ai-notes-agent-plan.md` §9 补齐了落地记录、`ai-rag-retrieval.md` 把 RAG
+> 整条链路单独成文，所以**下表中绝大多数现在已经回填到那几处**。目前仍然只在代码里、
+> 文档没写的是：`cleanupOrphans` 的实现细节，以及 lockfile 那次补齐。
 
 | 代码事实 | 说明 |
 |---|---|
@@ -1923,6 +1941,10 @@ pages/notes 右键「分享给好友」→ ShareToFriendDialog
 | 聊天游标分页默认 30 上限 100 | `clampPageSize` 一致 | ✅ |
 | 附件 20MB（笔记）/ 50MB（聊天） | 两处常量各自一致 | ✅ |
 | 头像配色 7 色 | `PEER_AVATAR_CLASS` 长度 7 | ✅ |
+| embedding 维度 1024 | `EMBEDDING_DIMENSIONS ?? 1024` | ✅ |
+| embedding 批大小 16 / 超时 30s / 重试 1 | `embedding.service.ts` 一致 | ✅ |
+| 分块 400 字上限 / 30 字下限 | `chunk.ts`（`MAX_CHARS` / `MIN_CHARS`） | ✅ |
+| 语义检索默认召回条数 | `note-search.service.ts` 的 `limit` 默认值 | ✅ |
 
 ## 4.3 代码里值得处理的问题清单
 
