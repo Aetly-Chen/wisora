@@ -1,8 +1,8 @@
 # Wisora 智能工作台 · 前后端逐文件代码详解
 
 > 面向读者：项目的作者本人（用于系统复习、面试准备与后续维护）。
-> 覆盖范围：`backend/src` 下 **92 个手写 `.ts`**（另有 12 个 Prisma 生成文件）+ `frontend/src` 下 **73 个文件**。
-> 版本基准：2026-09-25 的工作区状态（提交 `9b0f6bc` 之后）。
+> 覆盖范围：`backend/src` 下 **93 个手写 `.ts`**（另有 19 个 Prisma 生成文件）+ `frontend/src` 下 **71 个 `.ts` / `.tsx`**。
+> 版本基准：2026-10-13 的工作区状态（`src/rag/` 与 `search_my_notes` 已在工作区、尚未提交）。
 >
 > 本文所有路径、类名、方法名、常量值均来自实际代码读取，不是设计意图的复述。
 > 凡「文档这么写、代码不是这样」的地方，集中在 **Part 4** 列出。
@@ -13,7 +13,7 @@
 
 - **Part 1 / Part 2** 是逐文件的：每个模块先给一张**文件清单表**（路径 → 注释 → 联动），再对其中最核心的文件做**深读**。表格用于查，深读用于懂。
 - **Part 3** 是横切的：把模块之间的调用链串成 4 条主干链路，回答「它们怎么联动」。
-- **Part 4** 把 `docs/` 里 5 份设计文档与代码逐一对照，列出同步的、滞后的、以及已经被代码反超的地方。
+- **Part 4** 把 `docs/` 里 6 份设计文档与代码逐一对照，列出同步的、滞后的、以及已经被代码反超的地方。
 
 一个约定：本文里的「**路径**」一律相对仓库根 `D:\项目\wisora-web`。
 
@@ -38,7 +38,7 @@
 ```
 wisora-web/
 ├─ backend/
-│  ├─ prisma/schema.prisma        ← 10 张表 / 3 个枚举，全项目数据形状的来源
+│  ├─ prisma/schema.prisma        ← 11 张表 / 3 个枚举，全项目数据形状的来源
 │  ├─ src/
 │  │  ├─ main.ts app.module.ts app.controller.ts app.service.ts   ← 编排层（4 文件）
 │  │  ├─ common/       ← 横切能力：统一响应、异常、限流、存储、上传校验、用户形状（8 文件）
@@ -48,9 +48,10 @@ wisora-web/
 │  │  ├─ user/         ← 用户域（3 文件）
 │  │  ├─ notes/        ← 笔记域（6 文件，含附件）
 │  │  ├─ chat/         ← 聊天域（11 文件，含 WS 网关）
-│  │  ├─ ai/           ← AI 域（14 文件，含工具系统与 LLM 封装）
-│  │  └─ generated/prisma/          ← Prisma 生成产物（12 文件，不手改）
-│  └─ test/            ← 验证脚本（.cjs，直接连库/HTTP，不经 Nest）
+│  │  ├─ ai/           ← AI 域（15 文件，含工具系统与 LLM 封装）
+│  │  ├─ rag/          ← RAG 检索域（6 文件，被 ai 与 notes 复用）
+│  │  └─ generated/prisma/          ← Prisma 生成产物（19 文件，不手改）
+│  └─ test/            ← 25 个验证脚本（.cjs，直接连库/HTTP，不经 Nest，见 §1.9）
 ├─ frontend/
 │  └─ src/
 │     ├─ main.tsx App.tsx index.css
@@ -64,7 +65,7 @@ wisora-web/
 
 ### 0.3 数据模型全景
 
-数据模型是整个项目的枢纽 —— 模块之间的耦合，一多半是通过共享表体现的。`backend/prisma/schema.prisma` 共 10 个 model、3 个 enum，可以按**三个域**划分：
+数据模型是整个项目的枢纽 —— 模块之间的耦合，一多半是通过共享表体现的。`backend/prisma/schema.prisma` 共 11 个 model、3 个 enum，可以按**四个域**划分：
 
 **① 身份域**
 
@@ -85,6 +86,7 @@ wisora-web/
 |---|---|---|
 | `Note` | `userId` `title` `content`(Markdown 原文) `pinned` `parentId?` `deletedAt?`，索引 `[userId,deletedAt,updatedAt]` + `[parentId]` | 自关联 `"NoteTree"` 实现父子页面。`onDelete: Cascade` 只是 DB 层兜底 —— 业务走软删除，级联**不会触发**，子树软删由 `NotesService` 显式处理。 |
 | `Attachment` | `userId` `noteId?` `filename` `mimeType` `size` `storageKey(unique)` | 实体在磁盘，库里只留元数据。`noteId` 可空是为了「先传文件、笔记还没保存」这条路径。`storageKey = UUID + 扩展名`，从根上杜绝同名覆盖与路径穿越。 |
+| `NoteChunk` | `noteId` `userId` `seq` `title` `content` `embedding(bytea)`，索引 `[noteId]` `[userId]` | RAG 的切块与向量（[§1.8](#18-rag-检索域rag6-个文件)）。`embedding` 存 `Float32Array` 原始字节（1024 维 = 4096 字节），不存数字数组 —— 后者要序列化成 JSON 文本，体积是二进制的 3~5 倍。笔记走软删、Cascade 不触发，所以检索时必须 join 回 `Note` 再过滤 `deletedAt`。 |
 
 **④ 聊天域**（5 张表，模型名统一加 `Chat` 前缀）
 
@@ -742,7 +744,7 @@ CONVERSATION_SHAPE.members = { where: { leftAt: null }, select: { userId: true }
 | `memory/conversation.repository.ts` | **双层会话记忆**：Redis 热缓存 + Prisma 持久化。`createConversation` / `updateModelIfChanged` / `listConversations` / `assertOwned` / `appendMessage` / `loadHistory`（**给 LLM 上下文**）/ `listAllMessages`（**给界面回看**）/ `softDeleteConversation`；`HISTORY_LIMIT=20`、`CACHE_TTL_SECONDS=1800`、key `ai:conv:${id}` | 被 `AiController` 调用 |
 | `prompts/system.prompt.ts` | `DEFAULT_SYSTEM_PROMPT` 常量（回答风格 / 工具使用 / 身份说明 / 笔记操作四段） | 被 `runAgent` 用作 SystemMessage |
 | `tools/tool.registry.ts` | 工具注册表。`register` / `list` / `get` / `policy`；`ToolPolicy{timeoutMs, retries, roles?, write?}`；默认 `timeoutMs=15000`、`retries=1` | 被 `ai.module.ts`、`tools/index.ts`、`AiService` 调用 |
-| `tools/index.ts` | 工具总出口。`registerAllTools()`（**只注册全局的 `query_user`**）+ `createUserScopedTools(prisma, userId, notes)`（9 个**请求级**工具） | 被 `ai.module.ts.onModuleInit` 与 `ai.controller.ts` 调用 |
+| `tools/index.ts` | 工具总出口。`registerAllTools()`（**只注册全局的 `query_user`**）+ `createUserScopedTools(prisma, userId, notes, search)`（10 个**请求级**工具） | 被 `ai.module.ts.onModuleInit` 与 `ai.controller.ts` 调用 |
 | `tools/notes.tool.ts` | 笔记类工具工厂，**全部走 `NotesService`** 以复用归属校验。`CONTENT_LIMIT = 4000` | 被 `tools/index.ts` 调用 |
 | `tools/conversation.tool.ts` | 会话类工具工厂，**闭包注入 userId** | 被 `tools/index.ts` 调用 |
 | `tools/user-info.tool.ts` | 全局示例工具 `query_user` | 被 `registerAllTools` 调用 |
@@ -845,7 +847,7 @@ delete_my_note 的参数里要求 confirmedByUser: boolean
 
 即使 `allowWrite` 已开，删除也需要模型显式声明「用户已确认」。防止「一句话就把笔记删了」。
 
-### 工具清单（10 个）
+### 工具清单（11 个）
 
 | 工具名 | 作用 | 参数 | 写? |
 |---|---|---|---|
@@ -859,8 +861,9 @@ delete_my_note 的参数里要求 confirmedByUser: boolean
 | `write_my_note` | 写入正文，**默认 append** | `{noteId, content, mode? 'append'\|'replace'}` | ✅ |
 | `update_my_note` | 改标题/置顶/移动 | `{noteId, title?, pinned?, parentId?}` | ✅ |
 | `delete_my_note` | 删除（含子树） | `{noteId, confirmedByUser}` | ✅ |
+| `search_my_notes` | **语义检索**笔记片段（向量余弦），与 `list_my_notes` 分工互补 | `{query, limit? 1–20，默认 5}` | |
 
-**「注册」这件事有个容易误解的地方**：`ai.module.ts` 的 `onModuleInit` 调 `registerAllTools()`，名字像是「注册全部工具」，实际上**只注册全局的 `query_user`**。9 个会话/笔记类工具全部由 `createUserScopedTools(prisma, userId, notes)` **每次请求新建**。
+**「注册」这件事有个容易误解的地方**：`ai.module.ts` 的 `onModuleInit` 调 `registerAllTools()`，名字像是「注册全部工具」，实际上**只注册全局的 `query_user`**。10 个会话/笔记类工具全部由 `createUserScopedTools(prisma, userId, notes, search)` **每次请求新建**。
 
 这是有意的：这些工具必须把 `userId` 注入闭包，才能从源头做到数据隔离 —— 模型即使在参数里编一个别人的 `noteId`，工具内部的 `NotesService.assertOwned(userId, ...)` 也会把它挡掉。
 
@@ -1013,6 +1016,95 @@ resolve(requested?: string) {
 `prompts/system.prompt.ts` 的 `DEFAULT_SYSTEM_PROMPT` 分四段：**回答风格 / 工具使用 / 身份说明 / 笔记操作**。这是决定「助手像不像样」的核心杠杆，比换模型影响更大。
 
 值得注意的写法约束：提示词里明确要求「先查 id 再操作」。这解释了一个现象 —— 让模型改一篇笔记时，它通常会先调 `list_my_notes` 再调 `update_my_note`。**这是设计意图，不是模型跑偏**（`list_my_notes` 在设计上就兼作「查 id」入口）。写测试断言时不要要求它一步到位。
+
+---
+
+## 1.8 RAG 检索域（`rag/`，6 个文件）
+
+| 路径（`backend/src/rag/`） | 注释 | 联动 |
+|---|---|---|
+| `vector.ts` | 向量与 bytea 互转、余弦相似度 | 被 index / search 共用 |
+| `chunk.ts` | 按 Markdown 标题切块的纯函数 | 被 note-index 调用 |
+| `embedding.service.ts` | 调 embeddings 接口（分批 / 超时 / 维度校验） | 被 index / search 调用 |
+| `note-index.service.ts` | 重建·删除笔记的切块 | 被 NotesService（写后钩子）与全量脚本调用 |
+| `note-search.service.ts` | 语义检索 top-k | 被 `search-notes.tool.ts` 调用 |
+| `rag.module.ts` | `@Global()` 模块 | 挂在 `app.module.ts` |
+
+**为什么单独成域、不并进 `ai`**：`notes` 模块也要用它（保存笔记后重建索引），
+放进 `ai` 会让 `notes` 反向依赖 `ai` —— 项目里 `RateLimitService` 就是因为同样的原因
+从 `ai` 挪到了 `common`。依赖方向是单向的 `notes → rag ← ai`。
+
+**深读：为什么最终没装 pgvector。** 完整依据见 [`ai-rag-retrieval.md`](./ai-rag-retrieval.md) §3，
+一句话：Windows 上它没有官方预编译包（要么编 C++ 工具链、要么换 Docker 镜像），
+而实测 Node 里暴力算余弦 —— 1024 维、**2 万条只要 35ms**。
+个人笔记到不了那个量级，于是向量直接存 `bytea`、检索时载入内存。
+
+**深读：两个容易踩的实现细节。**
+
+1. `decodeVector` **必须检查 `byteOffset` 是不是 4 字节对齐**。Node 的 Buffer 可能来自
+   共享内存池，不对齐时 `new Float32Array(buf.buffer, buf.byteOffset, …)` 会直接抛
+   *"start offset of Float32Array should be a multiple of 4"*，所以要退回复制一份。
+2. 索引删除**是物理删**，不走软删除 —— 切块是纯派生数据，没有留痕的必要。
+   但笔记本身走软删，所以 `NoteChunk` 上的 Cascade **根本不会触发**，
+   检索时必须 join 回 `Note` 再过滤一次 `deletedAt`，否则会搜出已删除的内容。
+
+**深读：索引重建的触发点。** 见 `notes.service.ts` 的 `reindexLater` ——
+不 await、失败只记日志、且**必须 `.catch()`**（void 掉的 Promise 一旦 reject
+就是 unhandledRejection，足够把 Node 进程带走）。只改置顶时**不重建**。
+
+---
+
+## 1.9 验证脚本（`backend/test/`，25 个）
+
+这些脚本**都不经 Nest** —— 直接连库（走 `pg`）、直接打 HTTP / WS。
+好处是前后端没起也能跑一部分（尤其探活与数据类），代价是每个脚本都要自己解析一遍 `.env`。
+
+> ⚠️ 两个反复踩的坑：
+> 1. **`pg` 只在 `.pnpm/pg@<版本>` 里有实体、顶层没有链接** ——
+>    要么动态找目录（`readdirSync().find(/^pg@\d/)`），要么直接 `Cannot find module`。
+> 2. **解析 `.env` 要先收进对象、再灌进 `process.env`**。边解析边
+>    `if (!process.env[k]) process.env[k] = v` 会让重复出现的键只取到**第一个** ——
+>    本项目的 `JWT_ACCESS_SECRET` 恰好重复两行且值不同，这样签出来的 token 一律 401。
+
+### 造数与清理
+
+| 脚本 | 用途 |
+|---|---|
+| `seed-chat-visual.cjs` | 聊天页视觉走查数据（好友 / 会话 / 消息），打印 token，带 `--cleanup` |
+| `seed-ai-history.cjs` | AI 会话历史走查数据（含工具轮次），打印 token，带 `--cleanup` |
+| `seed-chat-demo.cjs` | 聊天模块测试夹具：给 `.local` 测试账号造好友 / 会话 / 消息 |
+| `purge-demo-chat.cjs` | 清理演示 / 测试账号、孤儿会话、标题含「演示」的群聊。**默认 dry-run**，`--apply` 才执行 |
+| `cleanup-notes.cjs` | 笔记数据卫生：空壳（正文 <20 字）+ 内容完全重复。**默认 dry-run**；`--apply` 会先导出 JSON 备份，再走**软删除** |
+| `index-notes.cjs` | 全量重建 RAG 索引（换 embedding 模型后必跑）。`--user=<id>` 可只重建某个用户 |
+
+### 真机验证（走真实链路）
+
+| 脚本 | 用途 |
+|---|---|
+| `verify-notes-live.cjs` | 笔记模块全链路 |
+| `verify-note-tree.cjs` | 笔记层级：父 / 子页面、子页面摘要、子树软删、层级上限、越权 |
+| `verify-note-move.cjs` | 笔记移动：子树跟随、移到顶层、环拦截、层级上限、越权 |
+| `verify-agent-live.cjs` | Agent 功能（真实 HTTP 链路，不依赖 Prisma 客户端） |
+| `verify-chat.cjs` | 聊天模块后端全链路 |
+| `verify-model-switch.cjs` | 模型切换：列表接口、切完落库的模型、白名单回落 |
+| `verify-search-e2e.cjs` | **`search_my_notes` 端到端**：自己签 JWT → 换 ticket → 开 SSE，检查工具是否被调用、返回的 noteId 是否越权 |
+| `verify-embedding.cjs` | RAG 检索效果（离线，用 `docs/` 语料，对比字面匹配 vs 语义） |
+| `verify-rag-notes.cjs` | 用**真实笔记**验证 RAG 检索（向量放内存，不落库） |
+| `verify-rerank.cjs` | rerank 效果验证 —— 结论是**不接**，理由见 `ai-rag-retrieval.md` §9 |
+| `app.e2e-spec.ts` | Nest 脚手架自带的 e2e 模板，未改造 |
+
+### 定向探测
+
+| 脚本 | 用途 |
+|---|---|
+| `probe-db.cjs` | 数据库探活 + 版本 / 数据目录 / 可用扩展 / 笔记规模统计 |
+| `probe-chat-ws.cjs` | 运行中的服务是否挂载了 chat 命名空间的 Socket.IO 网关 |
+| `probe-answer-style.cjs` | 探测模型回答风格（问两个问题，打印回复） |
+| `probe-filename.cjs` | 附件中文文件名编码是否正确（对比「测试文档.pdf」与 ASCII 名） |
+| `repro-note-create.cjs` | 复现「新建笔记报错」：确认创建接口返回体是否缺 `attachments` |
+| `smoke-ws.cjs` | WebSocket 依赖冒烟测试 |
+| `list-notes.cjs` | 列出全部笔记（含层级、时间、内容指纹），供人工判断哪些该清理 |
+| `check-title.cjs` | 检查标题长度是否异常（定位「标题被正文污染」的现场） |
 
 ---
 
@@ -1629,7 +1721,7 @@ if (list.scrollHeight - list.scrollTop - list.clientHeight < BOTTOM_THRESHOLD) l
    │                   rateLimit.check → conversations.assertOwned（IDOR 防护）
    │                   → repository.loadHistory（Redis 命中或回查 DB 并回填）
    │                   → appendMessage({role:'user'})        ← 用户消息先落库
-   │                   → createUserScopedTools(prisma, userId, notes)   ← 9 个请求级工具
+   │                   → createUserScopedTools(prisma, userId, notes, search)   ← 10 个请求级工具
    │                   → aiService.toSse(runAgent(...), signal)
    │
    ├─③ Agent Loop （见 1.7 深读）
@@ -1773,7 +1865,7 @@ pages/notes 右键「分享给好友」→ ShareToFriendDialog
 
 # Part 4　文档与代码对照
 
-## 4.1 `docs/` 里的五份文档
+## 4.1 `docs/` 里的六份文档
 
 | 文档 | 体量 | 定位 | 与代码的关系 |
 |---|---|---|---|
@@ -1781,8 +1873,12 @@ pages/notes 右键「分享给好友」→ ShareToFriendDialog
 | `chat-backend-implementation.md` | 98K | **聊天模块后端的实现包**（逐文件完整代码 + 落地顺序 + 依赖安装结论） | 属于「施工图」，代码落地后部分内容成了历史快照 |
 | `chat-module-design.md` | 39K | 聊天模块设计文档 + §8 落地记录（含 §8.6 视觉层还原 Telegram、§8.7 遗留） | §8 是与代码同步的，§1–§7 是设计意图 |
 | `ai-notes-agent-plan.md` | 48K | 「让 AI 能操作笔记」的实现方案 + §9 落地记录 | §9 已回填 |
+| `ai-rag-retrieval.md` | 9K | **语义检索（RAG）的实现记录**：四层链路、为什么不上 pgvector、切块与索引策略、已知失败模式 | 与代码同步，写于落地当天 |
 
-**建议的使用方式**：查模块设计意图看前两份；查聊天后端逐文件代码看第三份（但它有历史快照属性）；查 AI 工具系统看第四份，再对照 `wisora-modules-guide.md` 的 Part I 与本文 1.7。
+> 另有 `olct-伪代码实现详解.md` / `homo-伪代码实现详解.md` 两份 ——
+> 那是求职用的项目讲解（OLCT 数字资产交易所、Homo 短视频），与 Wisora 代码无关，本文不覆盖。
+
+**建议的使用方式**：查模块设计意图看 `wisora-modules-guide.md`；查聊天后端逐文件代码看 `chat-backend-implementation.md`（注意它有历史快照属性）；查 AI 工具系统看 `ai-notes-agent-plan.md` 配合 `wisora-modules-guide.md` 的 Part I，再对照本文 1.7；查语义检索看 `ai-rag-retrieval.md`，再对照本文 1.8。
 
 ## 4.2 一致性核对：文档与代码的差异清单
 
