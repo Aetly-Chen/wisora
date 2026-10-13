@@ -10,6 +10,9 @@ import { FriendsService } from './friends.service';
 import type { ShareNoteResultDto } from './types/chat-events';
 import type { ShareNoteDto } from './dto/share.dto';
 
+/** 分享附言上限。与 ShareNoteDto 的 @MaxLength(200) 对齐 */
+const COMMENT_MAX_LENGTH = 200;
+
 @Injectable()
 export class ShareService {
   private readonly logger = new Logger(ShareService.name);
@@ -40,6 +43,9 @@ export class ShareService {
     await this.friends.assertFriends(userId, friendIds);
 
     const comment = dto.comment?.trim() || null;
+    if (comment && comment.length > COMMENT_MAX_LENGTH) {
+      throw new BadRequestException(`附言最多 ${COMMENT_MAX_LENGTH} 字`);
+    }
     const conversationIds = new Set<string>();
     let messageCount = 0;
     let lastError: Error | null = null;

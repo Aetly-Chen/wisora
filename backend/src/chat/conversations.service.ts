@@ -23,6 +23,9 @@ function lastActivityAt(c: ConversationDto): number {
   return new Date(iso).getTime();
 }
 
+/** 群名称上限。与 CreateConversationDto 的 @MaxLength(60) 对齐 */
+const GROUP_TITLE_MAX_LENGTH = 60;
+
 @Injectable()
 export class ConversationsService {
   constructor(
@@ -127,6 +130,9 @@ export class ConversationsService {
 
     if (!dto.memberIds || dto.memberIds.length === 0) {
       throw new BadRequestException('群聊至少要有一位成员');
+    }
+    if ((dto.title?.length ?? 0) > GROUP_TITLE_MAX_LENGTH) {
+      throw new BadRequestException(`群名称最长 ${GROUP_TITLE_MAX_LENGTH} 字`);
     }
     return this.createGroup(userId, dto.title ?? '', dto.memberIds);
   }

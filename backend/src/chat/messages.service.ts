@@ -14,6 +14,8 @@ import type { SendMessageDto } from './dto/message.dto';
 const DEFAULT_PAGE_SIZE = 30;
 /** 单次最多返回条数 */
 const MAX_PAGE_SIZE = 100;
+/** 单条消息文本上限。与 SendMessageDto 的 @MaxLength(4000) 对齐 */
+const TEXT_MAX_LENGTH = 4000;
 
 @Injectable()
 export class MessagesService {
@@ -69,6 +71,9 @@ export class MessagesService {
     const text = dto.text?.trim() || null;
     if (!text && !dto.attachmentId && !dto.noteId) {
       throw new BadRequestException('消息内容不能为空');
+    }
+    if (text && text.length > TEXT_MAX_LENGTH) {
+      throw new BadRequestException(`单条消息最多 ${TEXT_MAX_LENGTH} 字`);
     }
 
     // 附件与笔记各有一条独立的建消息路径，因为 kind 与快照字段来源不同

@@ -21,6 +21,24 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import * as bcrypt from 'bcryptjs';
 import { toPublicUser } from '../common/user-shape';
 
+/**
+ * 单字段边界。
+ *
+ * 全局没有注册 ValidationPipe，RegisterDto / ForgotPasswordDto 上的
+ * @IsEmail / @MinLength 运行时**不会执行**，只是文档 —— 不在这里兜，
+ * `password: "a"` 会一路走到 bcrypt.hash 之后落库。
+ * 数值与 DTO 里的约束对齐，改一处要改两处。
+ */
+const PASSWORD_MIN_LENGTH = 6;
+const NICKNAME_MIN_LENGTH = 2;
+const NICKNAME_MAX_LENGTH = 20;
+
+/**
+ * 邮箱格式。与 @IsEmail 同一口径的轻量实现 ——
+ * 不追求 RFC 完备，只挡「缺 @、缺域名、含空白」这类明显不是邮箱的输入。
+ */
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -83,6 +101,27 @@ export class AuthService {
   }
   async register(dto: RegisterDto) {
     const { email, password, confirmPassword, nickname, emailCode } = dto;
+
+    // 0. 单字段边界 —— 全局没有 ValidationPipe，DTO 装饰器不生效，在这里兜
+    if (!EMAIL_PATTERN.test(email ?? '')) {
+      throw new BadRequestException('请输入正确的邮箱地址');
+    }
+    if (typeof password !== 'string' || password.length < PASSWORD_MIN_LENGTH) {
+      throw new BadRequestException('密码长度不能少于6位');
+    }
+    if (
+      typeof confirmPassword !== 'string' ||
+      confirmPassword.length < PASSWORD_MIN_LENGTH
+    ) {
+      throw new BadRequestException('确认密码长度不能少于6位');
+    }
+    if (
+      typeof nickname !== 'string' ||
+      nickname.length < NICKNAME_MIN_LENGTH ||
+      nickname.length > NICKNAME_MAX_LENGTH
+    ) {
+      throw new BadRequestException('昵称长度必须在2-20个字符之间');
+    }
 
     // 1. 检查两次密码是否一致
     if (password !== confirmPassword) {
@@ -171,56 +210,59 @@ export class AuthService {
     return this.generateTokens(user);
   }
   async forgotPassword(dto: ForgotPasswordDto) {
-  const {
-    email,
-    emailCode,
-    newPassword,
-    confirmPassword,
-  } = dto;
+    const { email, emailCode, newPassword, confirmPassword } = dto;
 
-  // 1. 检查两次密码是否一致
-  if (newPassword !== confirmPassword) {
-    throw new BadRequestException('两次输入的密码不一致');
-  }
+    // 0. 单字段边界（同 register）
+    if (!EMAIL_PATTERN.test(email ?? '')) {
+      throw new BadRequestException('请输入正确的邮箱');
+    }
+    if (
+      typeof newPassword !== 'string' ||
+      newPassword.length < PASSWORD_MIN_LENGTH
+    ) {
+      throw new BadRequestException('新密码至少 6 位');
+    }
 
-  // 2. 查询用户
-  const user = await this.prisma.user.findUnique({
-    where: {
+    // 1. 检查两次密码是否一致
+    if (newPassword !== confirmPassword) {
+      throw new BadRequestException('两次输入的密码不一致');
+    }
+
+    // 2. 查询用户
+    const user = await this.prisma.user.findUnique({
+      where: {
+        email,
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException('该邮箱尚未注册');
+    }
+
+    // 3. 验证邮箱验证码
+    await this.verificationCodeService.verify(
+      'forgot-password',
       email,
-    },
-  });
+      emailCode,
+    );
 
-  if (!user) {
-    throw new NotFoundException('该邮箱尚未注册');
+    // 4. 加密新密码
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // 5. 更新密码
+    await this.prisma.user.update({
+      where: {
+        email,
+      },
+      data: {
+        password: hashedPassword,
+      },
+    });
+
+    return {
+      message: '密码重置成功',
+    };
   }
-
-  // 3. 验证邮箱验证码
-  await this.verificationCodeService.verify(
-    'forgot-password',
-    email,
-    emailCode,
-  );
-
-  // 4. 加密新密码
-  const hashedPassword = await bcrypt.hash(
-    newPassword,
-    10,
-  );
-
-  // 5. 更新密码
-  await this.prisma.user.update({
-    where: {
-      email,
-    },
-    data: {
-      password: hashedPassword,
-    },
-  });
-
-  return {
-    message: '密码重置成功',
-  };
-}
   /**
    * ========================================
    * 刷新 Token
@@ -257,6 +299,11 @@ export class AuthService {
   async sendRegisterCode(dto: SendRegisterCodeDto) {
     const { email } = dto;
 
+    // 0. 单字段边界 —— 格式不对的话会一路走到 nodemailer 才炸（500 而不是 400）
+    if (!EMAIL_PATTERN.test(email ?? '')) {
+      throw new BadRequestException('请输入正确的邮箱地址');
+    }
+
     // 1. 判断邮箱是否已经注册
     const existingUser = await this.prisma.user.findUnique({
       where: {
@@ -281,6 +328,11 @@ export class AuthService {
   async sendLoginCode(dto: SendLoginCodeDto) {
     const { email } = dto;
 
+    // 0. 单字段边界（同上）
+    if (!EMAIL_PATTERN.test(email ?? '')) {
+      throw new BadRequestException('请输入正确的邮箱地址');
+    }
+
     // 1. 判断邮箱是否注册
     const existingUser = await this.prisma.user.findUnique({
       where: {
@@ -303,30 +355,35 @@ export class AuthService {
     };
   }
   async sendForgotPasswordCode(dto: SendForgotPasswordCodeDto) {
-  const { email } = dto;
+    const { email } = dto;
 
-  // 1. 判断邮箱是否注册
-  const existingUser = await this.prisma.user.findUnique({
-    where: {
+    // 0. 单字段边界（同上；文案对齐 DTO）
+    if (!EMAIL_PATTERN.test(email ?? '')) {
+      throw new BadRequestException('请输入正确的邮箱');
+    }
+
+    // 1. 判断邮箱是否注册
+    const existingUser = await this.prisma.user.findUnique({
+      where: {
+        email,
+      },
+    });
+
+    if (!existingUser) {
+      throw new NotFoundException('该邮箱尚未注册');
+    }
+
+    // 2. 生成忘记密码验证码
+    const code = await this.verificationCodeService.generate(
+      'forgot-password',
       email,
-    },
-  });
+    );
 
-  if (!existingUser) {
-    throw new NotFoundException('该邮箱尚未注册');
+    // 3. 发送验证码
+    await this.mailService.sendRegisterCode(email, code);
+
+    return {
+      message: '验证码发送成功',
+    };
   }
-
-  // 2. 生成忘记密码验证码
-  const code = await this.verificationCodeService.generate(
-    'forgot-password',
-    email,
-  );
-
-  // 3. 发送验证码
-  await this.mailService.sendRegisterCode(email, code);
-
-  return {
-    message: '验证码发送成功',
-  };
-}
 }

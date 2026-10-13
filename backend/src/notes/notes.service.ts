@@ -66,6 +66,22 @@ const DETAIL_SELECT = {
  */
 const MAX_DEPTH = 6;
 
+/** 标题长度上限。与 CreateNoteDto / UpdateNoteDto 的 @MaxLength(120) 对齐 */
+const TITLE_MAX_LENGTH = 120;
+
+/**
+ * 校验标题长度并原样返回。
+ *
+ * 判的是 **trim 后**的长度 —— 与调用点 `title || '无标题'` 的取值口径一致，
+ * 否则「120 字 + 一堆尾随空格」会被误拒。
+ */
+function assertTitleLength(title: string): string {
+  if (title.length > TITLE_MAX_LENGTH) {
+    throw new BadRequestException(`标题最长 ${TITLE_MAX_LENGTH} 字`);
+  }
+  return title;
+}
+
 @Injectable()
 export class NotesService {
   private readonly logger = new Logger(NotesService.name);
@@ -202,12 +218,13 @@ export class NotesService {
   /** 新建：返回结构必须与 get 一致（含空的 attachments），前端才不用做形状判断 */
   async create(userId: string, dto: CreateNoteDto) {
     const parentId = await this.resolveParent(userId, dto.parentId);
+    const title = assertTitleLength(dto.title?.trim() ?? '');
 
     const note = await this.prisma.note.create({
       data: {
         userId,
         parentId,
-        title: dto.title?.trim() || '无标题',
+        title: title || '无标题',
         content: dto.content ?? '',
       },
       select: DETAIL_SELECT,
@@ -300,7 +317,9 @@ export class NotesService {
     }
 
     const data: { title?: string; content?: string; pinned?: boolean } = {};
-    if (dto.title !== undefined) data.title = dto.title.trim() || '无标题';
+    if (dto.title !== undefined) {
+      data.title = assertTitleLength(dto.title.trim()) || '无标题';
+    }
     if (dto.content !== undefined) data.content = dto.content;
     if (dto.pinned !== undefined) data.pinned = dto.pinned;
 

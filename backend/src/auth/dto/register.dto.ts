@@ -1,10 +1,4 @@
-import {
-  IsEmail,
-  IsString,
-  MinLength,
-  Length,
-  Matches,
-} from 'class-validator'
+import { IsEmail, IsString, MinLength, Length } from 'class-validator'
 
 export class RegisterDto {
   // 邮箱
