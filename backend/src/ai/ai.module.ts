@@ -10,16 +10,17 @@ import { ConversationRepository } from './memory/conversation.repository';
 // 留在 ai 里会让 chat 反向依赖 ai
 import { RateLimitService } from '../common/rate-limit/rate-limit.service';
 import { StreamTicketGuard } from './guards/stream-ticket.guard';
-import { PrismaModule } from '../prisma/prisma.module';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotesModule } from '../notes/notes.module';
 
 @Module({
   imports: [
-    PrismaModule,
     NotesModule,
 
-    // RedisModule 是 @Global()，无需重复导入
+    /*
+     * PrismaModule / RedisModule / StorageModule / RateLimitModule / RagModule
+     * 都是 @Global()，已在 app.module.ts 挂过，这里不再重复 imports。
+     */
     // ticket 换票接口需要验证 JWT（stream 走一次性 ticket，不走这里）
     JwtModule.register({}),
   ],

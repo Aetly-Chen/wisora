@@ -1,5 +1,4 @@
 import { Global, Module } from '@nestjs/common';
-import { PrismaModule } from '../prisma/prisma.module';
 import { EmbeddingService } from './embedding.service';
 import { NoteIndexService } from './note-index.service';
 import { NoteSearchService } from './note-search.service';
@@ -19,7 +18,6 @@ import { NoteSearchService } from './note-search.service';
  */
 @Global()
 @Module({
-  imports: [PrismaModule],
   providers: [EmbeddingService, NoteIndexService, NoteSearchService],
   exports: [EmbeddingService, NoteIndexService, NoteSearchService],
 })
