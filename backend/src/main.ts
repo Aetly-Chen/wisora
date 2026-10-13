@@ -1,3 +1,10 @@
+/*
+ * 必须放在所有 import 之前：环境变量是副作用式加载，而 TS 编译成 CJS 时
+ * require 按源码顺序输出 —— 这一行会排在 require('./app.module') 之前，
+ * 保证整张依赖图求值时 process.env 已就位。
+ * 别挪进 prisma.service.ts 之类的地方，那会让「能否读到 env」取决于 import 顺序。
+ */
+import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { Reflector } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';

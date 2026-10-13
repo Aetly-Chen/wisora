@@ -13,18 +13,18 @@ import {
 import { toAttachment } from './chat.mapper';
 import type { AttachmentDto } from './types/chat-events';
 
-/**
- * 聊天附件上限（字节）。默认 50MB，与前端 CHAT_FILE_MAX_BYTES 对齐。
- *
- * 比笔记的 20MB 大：聊天里发视频 / 压缩包是常见需求，
- * 而笔记附件基本是 PDF 与图片。
- */
-const MAX_BYTES = Number(
-  process.env.CHAT_UPLOAD_MAX_BYTES ?? 50 * 1024 * 1024,
-);
-
 @Injectable()
 export class ChatAttachmentsService {
+  /**
+   * 聊天附件上限（字节）。默认 50MB，与前端 CHAT_FILE_MAX_BYTES 对齐。
+   *
+   * 比笔记的 20MB 大：聊天里发视频 / 压缩包是常见需求，
+   * 而笔记附件基本是 PDF 与图片。
+   */
+  private readonly maxBytes = Number(
+    process.env.CHAT_UPLOAD_MAX_BYTES ?? 50 * 1024 * 1024,
+  );
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
@@ -46,7 +46,7 @@ export class ChatAttachmentsService {
     if (!file) throw new BadRequestException('未收到文件');
 
     // 白名单与体积：真正的安全边界在这里，前端按扩展名判断拦不住任何人
-    assertUploadable(file, MAX_BYTES);
+    assertUploadable(file, this.maxBytes);
 
     // 只解一次：写库与落盘用同一个名字（两次调用会各算一遍，浪费且有分歧风险）
     const filename = decodeFilename(file.originalname);
