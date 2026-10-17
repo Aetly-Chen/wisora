@@ -1,4 +1,4 @@
-import { HttpException, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 
@@ -89,10 +89,7 @@ export class ConversationRepository {
     });
     if (!owned) {
       // 不区分"不存在"和"无权访问"，避免通过错误差异探测他人会话 ID
-      throw new HttpException(
-        { code: 404, msg: '会话不存在或无权访问' },
-        404,
-      );
+      throw new NotFoundException('会话不存在或无权访问');
     }
   }
 

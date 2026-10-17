@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   HttpException,
+  HttpStatus,
   Injectable,
   Logger,
   Param,
@@ -105,8 +106,8 @@ export class AiController {
     const limit = await this.rateLimit.check(userId);
     if (!limit.allowed) {
       throw new HttpException(
-        { code: 429, msg: `请求过于频繁，请 ${limit.resetSeconds} 秒后再试` },
-        429,
+        `请求过于频繁，请 ${limit.resetSeconds} 秒后再试`,
+        HttpStatus.TOO_MANY_REQUESTS,
       );
     }
 
@@ -149,8 +150,8 @@ export class AiController {
     const limit = await this.rateLimit.check(userId);
     if (!limit.allowed) {
       throw new HttpException(
-        { code: 429, msg: `请求过于频繁，请 ${limit.resetSeconds} 秒后再试` },
-        429,
+        `请求过于频繁，请 ${limit.resetSeconds} 秒后再试`,
+        HttpStatus.TOO_MANY_REQUESTS,
       );
     }
 
