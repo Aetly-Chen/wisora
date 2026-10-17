@@ -8,7 +8,7 @@ import { AxiosHeaders } from "axios";
 
 import request from "./index";
 
-import { SUCCESS_CODE, RETRY_DELAY } from "./constant";
+import { isSuccessCode, RETRY_DELAY } from "./constant";
 
 import { getToken, removeToken, removeRefreshToken, setToken } from "./storage";
 
@@ -376,8 +376,11 @@ request.interceptors.response.use(
      * ========================================
      * 业务成功
      * ========================================
+     *
+     * 后端信封的 code 与 HTTP 状态码对齐（GET 200、POST 201），
+     * 所以按 2xx 区间判 —— 见 constant.ts 的 isSuccessCode。
      */
-    if (raw.code === SUCCESS_CODE) {
+    if (isSuccessCode(raw.code)) {
       return raw.data;
     }
 

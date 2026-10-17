@@ -238,7 +238,7 @@ model ChatAttachment {
 | --- | --- |
 | 基路径 | `/chat`（**不加全局前缀**，与 `/ai`、`/notes` 一致） |
 | 鉴权 | 所有接口挂 `JwtAuthGuard`，`userId` 取自令牌，**不接受前端传入** |
-| 响应体 | 后端不手写外层，全局拦截器包成 `{ code: 200, msg, data }`；前端拦截器已解包，页面拿到的是 `data` |
+| 响应体 | 后端不手写外层，全局拦截器包成 `{ code, msg, data }`，其中 `code` **等于 HTTP 状态码**（GET 200、POST 201）；前端拦截器按 2xx 判成功后解包，页面拿到的是 `data` |
 | 分页 | 消息列表用游标分页：`?before=<messageId>&limit=30`，避免 offset 在实时插入时错位 |
 | 时间 | 一律 ISO 8601 字符串 |
 | 头像 | 不存头像文件，前端按 `id` 稳定取色 + 首字母渲染 |

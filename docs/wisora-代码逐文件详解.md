@@ -245,8 +245,8 @@ UserModule ──(没 import PrismaModule)──> 能用 PrismaService
 | `prisma/prisma.service.ts` | `extends PrismaClient`，构造时用 **Prisma 7 的 driver adapter** `PrismaPg({connectionString})`；`onModuleInit` → `$connect`；`onModuleDestroy` → `$disconnect`；顶部 `import 'dotenv/config'` | 被所有业务 service 注入 |
 | `redis/redis.module.ts` | `@Global()` 模块，提供 `RedisService` | 被 `AuthModule` / `VerificationCodeModule` 登记 |
 | `redis/redis.service.ts` | ioredis 封装。构造读 `REDIS_HOST/PORT/PASSWORD`；`onModuleInit` 用 `ping()` 探活并打印 `Redis connected`；对外只暴露 `getClient(): Redis` | 被限流、验证码、聊天、AI 调用 |
-| `common/interceptors/response.interceptor.ts` | 统一响应包装：`{code:200, msg:'ok', data}` | 被 `main.ts` 注册 |
-| `common/filters/http-exception.filter.ts` | `@Catch()` 兜住一切异常，输出 `{code, msg, data:null}` | 被 `main.ts` 注册 |
+| `common/interceptors/response.interceptor.ts` | 统一响应包装：`{code:<HTTP 状态码>, msg:'ok', data}`（GET 200 / 未写 `@HttpCode` 的 POST 201，由 `resolveStatusCode()` 复算 Nest 规则） | 被 `main.ts` 注册 |
+| `common/filters/http-exception.filter.ts` | `@Catch()` 兜住一切异常，输出 `{code: status, msg, data:null}`；非 Http 异常固定 `500 + 'Internal Server Error'`，内部细节只进日志 | 被 `main.ts` 注册 |
 | `common/decorators/skip-response.decorator.ts` | `@SkipResponse()`，元数据 key `skipResponse` | 被 SSE、文件下载三处使用 |
 | `common/response.interface.ts` | `ApiResponse<T>` 类型定义 | **无任何 import 方**（只是契约文档） |
 | `common/rate-limit/rate-limit.module.ts` | `@Global()` 模块 | 被 `app.module.ts` 登记 |
@@ -265,19 +265,22 @@ UserModule ──(没 import PrismaModule)──> 能用 PrismaService
 intercept(ctx, next) {
   const skip = this.reflector.getAllAndOverride(SKIP_RESPONSE_KEY, [ctx.getHandler(), ctx.getClass()]);
   if (skip) return next.handle();
-  return next.handle().pipe(map((data) => ({ code: 200, msg: 'ok', data })));
+  // code 与 HTTP 状态码对齐，不是写死的 200
+  return next.handle().pipe(map((data) => ({ code: this.resolveStatusCode(ctx), msg: 'ok', data })));
 }
 
 // http-exception.filter.ts —— 失败路径
 @Catch()
 catch(exception, host) {
   const status = exception instanceof HttpException ? exception.getStatus() : 500;
-  // ...取 message，非 Http 异常回落 500
+  // Http 异常取 message；非 Http 异常固定文案，细节只进 logger
   res.status(status).json({ code: status, msg, data: null });
 }
 ```
 
 **关键点是放行机制用 `Reflector` 查元数据，而不是判断响应的 `Content-Type`。** 原因是：Nest 的 SSE 响应头是在**拦截器执行之后**才写进 `res` 的 —— 拦截器里看 header 会误判成普通 JSON，从而把 SSE 流包成 `{code,msg,data}`，直接毁掉协议。
+
+**`code` 不是业务码，而是 HTTP 状态码的镜像。** 拦截器执行时 Nest 还没 `setStatus`（它在 handler 返回后才写），读 `res.statusCode` 永远是 200，所以 `resolveStatusCode()` 按同一套规则自己复算：显式 `@HttpCode(...)` → POST 默认 201 → 其余 200（见 `@nestjs/core` 的 `RouterResponseController.getStatusByMethod`）。前端因此**不能写 `code === 200`**，要用 `isSuccessCode()` 按 2xx 区间判 —— 否则 14 个默认返回 201 的 `@Post` 会被全部当成失败。全局拦截器也作用于 WebSocket 网关，那里没有 HTTP 状态码，`getType() !== 'http'` 时回落 200。
 
 `@SkipResponse()` 的实际使用点只有三处，每处都是因为它**不能**被 JSON 包装：
 
@@ -288,6 +291,8 @@ catch(exception, host) {
 | `chat/chat.controller.ts` 的附件取流接口 | 同上 |
 
 > 一个易被忽视的细节：过滤器里 `body.message` 可能是**数组**（class-validator 风格的多条错误），当前直接透传，前端需要自行容错。
+>
+> 另一个坑：filter 只认 Nest 的标准形状。传 `{ code, msg }` 这种自定义对象会走 `body.message || body.error` 都取不到 → 落到兜底 `'Internal Server Error'`，**文案静默丢失**（10-17 就修掉过 3 处）。异常一律用 `BadRequestException` / `NotFoundException` / `HttpException(字符串, status)`，别给 filter 加 `|| body.msg` 兼容 —— 那会让「怎么写异常」变成两套方言。
 
 ### 深读「统一用户形状」：一个安全边界
 
@@ -1862,7 +1867,7 @@ pages/notes 右键「分享给好友」→ ShareToFriendDialog
 | 横切能力 | 后端落点 | 前端落点 | 贯穿方式 |
 |---|---|---|---|
 | **鉴权** | `JwtAuthGuard`（逐 controller 挂）+ `StreamTicketGuard`（仅 SSE） | `request/interceptor` 注入 Bearer；`ProtectedRoute` 管路由 | 后端「不挂守卫即公开」；前端「无 token 跳 /auth」 |
-| **统一响应** | `ResponseInterceptor` + `HttpExceptionFilter` + `@SkipResponse()` | `interceptor.ts` 的 `raw.code === 200 ? raw.data : …` | 形状 `{code,msg,data}` 由两处独立代码维持，靠约定而非类型约束 |
+| **统一响应** | `ResponseInterceptor` + `HttpExceptionFilter` + `@SkipResponse()` | `interceptor.ts` 的 `isSuccessCode(raw.code) ? raw.data : …`（2xx 区间，因 POST 返回 201） | 形状 `{code,msg,data}` 由两处独立代码维持，靠约定而非类型约束；`code` 镜像 HTTP 状态码 |
 | **限流** | `RateLimitService`（Redis `INCR` + `EXPIRE`） | 无（超限只表现为 429 错误 Toast） | 只在 AI 换票/开流、聊天发消息/上传四处启用 |
 | **错误呈现** | 过滤器统一 `{code,msg,data:null}` | `error.ts` 发布订阅 → `RequestFeedback` Toast | 前端「发布订阅」而非全局 state，避免请求层依赖 React |
 | **加载反馈** | 无 | `loading.ts` 引用计数 + 300ms/400ms 防闪 | 请求层与 UI 解耦 |
