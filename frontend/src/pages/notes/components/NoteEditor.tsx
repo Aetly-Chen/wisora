@@ -1,7 +1,7 @@
-import React, { useDeferredValue, useRef } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useRef } from 'react';
 import {
   Check,
-  Columns2,
+  Code2,
   Eye,
   FileUp,
   Loader2,
@@ -15,9 +15,11 @@ import { MarkdownView } from '@/components/MarkdownView';
 import { useNotesStore } from '@/stores/useNotesStore';
 import type { AttachmentMeta, NoteDetail, SaveState } from '@/types/note';
 import { PREVIEW_MAX_CHARS, SAVE_LABEL, type ViewMode } from '../constants';
+import { extractHeadings } from '../lib/headings';
 import { ModeButton } from './ModeButton';
 import { ChildPages } from './ChildPages';
 import { AttachmentsPanel } from './AttachmentsPanel';
+import { OutlinePanel } from './OutlinePanel';
 
 /**
  * 编辑器懒加载。
@@ -75,10 +77,59 @@ export const NoteEditor: React.FC<{
   onOpenNote,
 }) => {
   const fileRef = useRef<HTMLInputElement>(null);
+  const sourceRef = useRef<HTMLTextAreaElement>(null);
+  /** 包住「编辑器 / 源码 / 预览」三个面板，大纲跳转在它里面找标题元素 */
+  const contentRef = useRef<HTMLDivElement>(null);
   const { editTitle, editContent } = useNotesStore();
 
   /** 预览用的延迟值：输入时优先保证编辑区跟手 */
   const deferredContent = useDeferredValue(note.content);
+
+  const headings = useMemo(() => extractHeadings(note.content), [note.content]);
+
+  /*
+   * Ctrl+/ 在「所见即所得」和「源码」之间切。
+   *
+   * 它是逃生通道：编辑器万一有奇怪的 Markdown 行为，用户得能立刻看到原文，
+   * 而不是被迫相信渲染结果。
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === '/') {
+        e.preventDefault();
+        onModeChange(mode === 'source' ? 'edit' : 'source');
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [mode, onModeChange]);
+
+  /**
+   * 大纲跳转。
+   *
+   * 三种模式定位方式不同：
+   * - 所见即所得 / 预览：DOM 里第 N 个 h1~h6
+   * - 源码：textarea 没有「滚到第 N 行」的 API，只能按行比例估算 + 选中该行
+   */
+  const jumpToHeading = (index: number) => {
+    const h = headings[index];
+    if (!h) return;
+
+    if (mode === 'source' && sourceRef.current) {
+      const ta = sourceRef.current;
+      ta.focus();
+      ta.setSelectionRange(h.offset, h.offset + 1);
+      const totalLines = ta.value.split('\n').length;
+      const ratio = h.line / Math.max(totalLines - 1, 1);
+      ta.scrollTop = Math.max(0, ratio * ta.scrollHeight - ta.clientHeight / 3);
+      return;
+    }
+
+    const el = contentRef.current?.querySelectorAll('h1,h2,h3,h4,h5,h6')[index] as
+      | HTMLElement
+      | undefined;
+    el?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  };
 
   return (
     <>
@@ -86,7 +137,7 @@ export const NoteEditor: React.FC<{
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-200/80 bg-white/70 px-4 py-2.5 sm:px-6">
         <div className="flex items-center gap-1.5 rounded-lg bg-slate-100 p-0.5">
           <ModeButton current={mode} value="edit" onClick={onModeChange} icon={Pencil} label="编辑" />
-          <ModeButton current={mode} value="split" onClick={onModeChange} icon={Columns2} label="分栏" />
+          <ModeButton current={mode} value="source" onClick={onModeChange} icon={Code2} label="源码" />
           <ModeButton current={mode} value="preview" onClick={onModeChange} icon={Eye} label="预览" />
         </div>
 
@@ -178,46 +229,55 @@ export const NoteEditor: React.FC<{
         </div>
       )}
 
-      {/* 编辑 / 预览。拖拽监听已提到页面根容器上，这里不再重复挂 */}
-      <div className="min-h-0 flex-1 overflow-hidden px-4 pb-4 pt-2 sm:px-6">
-        <div
-          className={`grid h-full gap-4 ${
-            mode === 'split' ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'
-          }`}
-        >
-          {mode !== 'preview' && (
+      {/* 编辑 / 源码 / 预览 + 大纲。拖拽监听已提到页面根容器上，这里不再重复挂 */}
+      <div className="flex min-h-0 flex-1 gap-4 px-4 pb-4 pt-2 sm:px-6">
+        <div ref={contentRef} className="min-w-0 flex-1">
+          {mode === 'edit' && (
+            /* 单栏居中、阅读宽度 760px —— 全宽长行读起来很累 */
             /*
-             * 所见即所得编辑。
-             *
-             * `key={note.id}` 是必需的：Milkdown 只在挂载时读一次初始值，
+             * key={note.id} 是必需的：Milkdown 只在挂载时读一次初始值，
              * 换笔记必须强制重挂载，否则会继续显示上一篇的内容。
              * 用 key 而不是「把新 content 回灌编辑器」，是因为回灌会让
              * 每次输入后光标跳位（编辑 → store → 新值 → 回灌 形成环）。
              */
-            <React.Suspense
-              fallback={
-                <div className="flex h-full items-center justify-center rounded-xl border border-slate-200 bg-white text-[13px] text-slate-400">
-                  编辑器加载中…
-                </div>
-              }
-            >
-              <MarkdownEditor
-                key={note.id}
-                initialValue={note.content}
-                onChange={editContent}
-              />
-            </React.Suspense>
+            <div className="mx-auto h-full max-w-[760px]">
+              <React.Suspense
+                fallback={
+                  <div className="flex h-full items-center justify-center rounded-xl border border-slate-200 bg-white text-[13px] text-slate-400">
+                    编辑器加载中…
+                  </div>
+                }
+              >
+                <MarkdownEditor
+                  key={note.id}
+                  initialValue={note.content}
+                  onChange={editContent}
+                />
+              </React.Suspense>
+            </div>
           )}
 
-          {mode !== 'edit' && (
-            <div className="h-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-4">
+          {mode === 'source' && (
+            /* 逃生通道：怀疑编辑器改坏了 Markdown 时，看这里 */
+            <textarea
+              ref={sourceRef}
+              value={note.content}
+              onChange={(e) => editContent(e.target.value)}
+              spellCheck={false}
+              placeholder="原始 Markdown。按 Ctrl+/ 回到编辑模式。"
+              className="h-full w-full resize-none rounded-xl border border-slate-200 bg-white p-4 font-mono text-[13px] leading-[1.75] text-slate-800 outline-none transition-colors placeholder:text-slate-300 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+            />
+          )}
+
+          {mode === 'preview' && (
+            <div className="mx-auto h-full max-w-[760px] overflow-y-auto rounded-xl border border-slate-200 bg-white p-4">
               {!note.content.trim() ? (
                 note.children.length > 0 ? (
                   <p className="text-[13px] text-slate-300">
-                    这是一个目录页面，子页面已列在上方。在左侧输入内容后这里会显示预览。
+                    这是一个目录页面，子页面已列在上方。在编辑区输入内容后这里会显示预览。
                   </p>
                 ) : (
-                  <p className="text-[13px] text-slate-300">左侧输入内容后这里会实时预览</p>
+                  <p className="text-[13px] text-slate-300">编辑区输入内容后这里会实时预览</p>
                 )
               ) : note.content.length > PREVIEW_MAX_CHARS && !forcePreview ? (
                 <div className="py-6 text-center">
@@ -242,6 +302,16 @@ export const NoteEditor: React.FC<{
             </div>
           )}
         </div>
+
+        {/*
+          大纲栏。窄屏隐藏 —— 手机上编辑区本来就窄，
+          再挤一列会让正文只剩几十个字符宽。
+        */}
+        <OutlinePanel
+          content={note.content}
+          onJump={jumpToHeading}
+          className="hidden w-[164px] shrink-0 overflow-y-auto border-l border-slate-200/70 py-1 pl-2 xl:block"
+        />
       </div>
 
       <AttachmentsPanel

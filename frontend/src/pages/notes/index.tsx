@@ -46,7 +46,7 @@ const NotesPage: React.FC = () => {
     clearNotice,
   } = useNotesStore();
 
-  const [mode, setMode] = useState<ViewMode>('split');
+  const [mode, setMode] = useState<ViewMode>('edit');
   const [dragging, setDragging] = useState(false);
   const [previewing, setPreviewing] = useState<AttachmentMeta | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);

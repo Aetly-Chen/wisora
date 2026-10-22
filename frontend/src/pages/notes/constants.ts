@@ -1,7 +1,16 @@
 import type { SaveState } from '@/types/note';
 
-/** 编辑区三态：纯编辑 / 左右分栏 / 纯预览 */
-export type ViewMode = 'edit' | 'split' | 'preview';
+/**
+ * 编辑区三态。
+ *
+ * `edit`   —— 所见即所得（Milkdown），默认
+ * `source` —— 原始 Markdown，逃生通道（Ctrl+/ 切换）
+ * `preview`—— 只渲染不可编辑，用于通读排版效果
+ *
+ * 原来的 `split`（左右分栏）已移除：所见即所得之后，
+ * 「随时能看到渲染结果」这个诉求本身就消失了，分栏只剩浪费宽度。
+ */
+export type ViewMode = 'edit' | 'source' | 'preview';
 
 /**
  * 实时预览的正文长度上限。
