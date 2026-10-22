@@ -20,6 +20,17 @@ import { ChildPages } from './ChildPages';
 import { AttachmentsPanel } from './AttachmentsPanel';
 
 /**
+ * 编辑器懒加载。
+ *
+ * Milkdown + ProseMirror 让 notes 这个 chunk 从 103KB 涨到 562KB（gzip 34→173KB）。
+ * 它只在「打开一篇笔记」时才用得上，所以拆成独立 chunk：
+ * 先让树和外壳出来，编辑器随后补上。
+ */
+const MarkdownEditor = React.lazy(() =>
+  import('./MarkdownEditor').then((m) => ({ default: m.MarkdownEditor })),
+);
+
+/**
  * 编辑区：工具栏 + 标题 + 编辑/预览 + 附件面板。
  *
  * 只负责「这一篇怎么显示、怎么改」，保存策略在 store 里（debounce + flush），
@@ -175,13 +186,27 @@ export const NoteEditor: React.FC<{
           }`}
         >
           {mode !== 'preview' && (
-            <textarea
-              value={note.content}
-              onChange={(e) => editContent(e.target.value)}
-              spellCheck={false}
-              placeholder="开始写点什么。支持 Markdown：标题、列表、表格、代码块、任务清单。"
-              className="h-full w-full resize-none rounded-xl border border-slate-200 bg-white p-4 font-mono text-[13px] leading-[1.75] text-slate-800 outline-none transition-colors placeholder:text-slate-300 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
-            />
+            /*
+             * 所见即所得编辑。
+             *
+             * `key={note.id}` 是必需的：Milkdown 只在挂载时读一次初始值，
+             * 换笔记必须强制重挂载，否则会继续显示上一篇的内容。
+             * 用 key 而不是「把新 content 回灌编辑器」，是因为回灌会让
+             * 每次输入后光标跳位（编辑 → store → 新值 → 回灌 形成环）。
+             */
+            <React.Suspense
+              fallback={
+                <div className="flex h-full items-center justify-center rounded-xl border border-slate-200 bg-white text-[13px] text-slate-400">
+                  编辑器加载中…
+                </div>
+              }
+            >
+              <MarkdownEditor
+                key={note.id}
+                initialValue={note.content}
+                onChange={editContent}
+              />
+            </React.Suspense>
           )}
 
           {mode !== 'edit' && (

@@ -1,0 +1,106 @@
+/*
+ * Milkdown 编辑器的「外壳」样式。
+ *
+ * 排版本身（标题 / 列表 / 表格 / 代码块 / 引用）**直接复用 `.md-body`** ——
+ * 组件根节点同时挂了 `md-body` 类，所以编辑区和预览区看起来是同一套东西，
+ * 不会出现「编辑时一种字号、预览时另一种」。
+ *
+ * 这里只补 ProseMirror 必需、而 `.md-body` 不关心的部分。
+ */
+
+.md-editor-shell {
+  position: relative;
+  height: 100%;
+  overflow-y: auto;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  padding: 1rem 1.25rem;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.md-editor-shell:focus-within {
+  border-color: #a5b4fc;
+  box-shadow: 0 0 0 2px #e0e7ff;
+}
+
+/* ProseMirror 自身的骨架 —— 这几条缺一不可，缺了会出现换行错乱 */
+.md-editor-shell .ProseMirror {
+  min-height: 100%;
+  outline: none;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  caret-color: #4f46e5;
+}
+
+.md-editor-shell .ProseMirror > *:first-child {
+  margin-top: 0;
+}
+
+/* 空文档时给一个可点击的高度，否则点空白处聚焦不了 */
+.md-editor-shell .ProseMirror > p:only-child:empty::before {
+  content: '开始写点什么。支持标题、列表、表格、代码块、任务清单。';
+  color: #cbd5e1;
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+
+/* GFM 任务清单：Milkdown 用 data-item-type 标记，列表符号要去掉 */
+.md-editor-shell .ProseMirror li[data-item-type='task'] {
+  list-style: none;
+  margin-left: -1.2em;
+}
+
+.md-editor-shell .ProseMirror li[data-item-type='task'] > span::before {
+  content: '';
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  margin-right: 0.5em;
+  vertical-align: -1px;
+  border: 1px solid #cbd5e1;
+  border-radius: 3px;
+  background: #fff;
+}
+
+.md-editor-shell .ProseMirror li[data-item-type='task'][data-checked='true'] > span::before {
+  background: #4f46e5;
+  border-color: #4f46e5;
+}
+
+/* 选中节点（图片、代码块等）的提示边框 */
+.md-editor-shell .ProseMirror .ProseMirror-selectednode {
+  outline: 2px solid #c7d2fe;
+  border-radius: 4px;
+}
+
+/* 表格可以横向滚动，别把容器撑破 */
+.md-editor-shell .ProseMirror table {
+  table-layout: fixed;
+  overflow: hidden;
+}
+
+.md-editor-shell .ProseMirror th,
+.md-editor-shell .ProseMirror td {
+  position: relative;
+  vertical-align: top;
+}
+
+/* 光标进到代码块里时用等宽字，和预览一致 */
+.md-editor-shell .ProseMirror pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre;
+}
+
+.md-editor-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  color: #94a3b8;
+  font-size: 13px;
+}
