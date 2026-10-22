@@ -71,7 +71,12 @@ const Inner: React.FC<{
   );
 
   return (
-    <div className="md-editor-shell">
+    /*
+     * `md-body` 不能少：编辑区的标题/列表/表格/引用排版全部复用预览区那套规则，
+     * 这样「所见」和「所得」才是同一套字号与间距。
+     * 少了这个类，ProseMirror 会退化成浏览器默认样式（标题不放大、列表没圆点）。
+     */
+    <div className="md-editor-shell md-body">
       {loading && (
         <div className="md-editor-loading" aria-hidden>
           编辑器加载中…
