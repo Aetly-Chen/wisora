@@ -10,6 +10,13 @@ export interface ChatMessage {
   toolCalls?: unknown;
   toolCallId?: string;
   name?: string;
+  /**
+   * token 用量（input / output / total，厂商字段名不完全一致）。
+   *
+   * 只有 assistant 轮次有。落库是给「刷新页面后还能看到这轮花了多少 token」用的 ——
+   * `done` 事件里本来就算好了，但之前只推给前端、没存，一刷新就没了。
+   */
+  usage?: unknown;
   createdAt?: Date;
 }
 
@@ -105,6 +112,11 @@ export class ConversationRepository {
         toolCalls: message.toolCalls ?? undefined,
         toolCallId: message.toolCallId ?? undefined,
         name: message.name ?? undefined,
+        // Json 列：undefined 表示「没有这条数据」，写 null 会让 Prisma 报类型错
+        usage:
+          message.usage === undefined || message.usage === null
+            ? undefined
+            : (message.usage as object),
       },
     });
 
@@ -150,6 +162,7 @@ export class ConversationRepository {
       toolCalls: m.toolCalls ?? undefined,
       toolCallId: m.toolCallId ?? undefined,
       name: m.name ?? undefined,
+      usage: m.usage ?? undefined,
       createdAt: m.createdAt,
     }));
 

@@ -263,11 +263,16 @@ export class AiController {
     let persisted = false;
 
     // 最终回复落库（幂等：done 时先落库，异常路径由 finally 兜底）
-    const persistAssistant = async () => {
+    /*
+     * usage 只从 `done` 事件来 —— 那是这一轮真正累积完的 token 用量。
+     * 异常路径（finally 兜底）拿不到就按「没有用量」存，
+     * 不编一个假数字进去。
+     */
+    const persistAssistant = async (usage?: Record<string, number>) => {
       if (persisted) return;
       persisted = true;
       await this.conversations
-        .appendMessage(conv.id, { role: 'assistant', content: fullText })
+        .appendMessage(conv.id, { role: 'assistant', content: fullText, usage })
         .catch((err) => {
           this.logger.warn(`persist assistant message failed: ${err}`);
         });
@@ -322,7 +327,7 @@ export class AiController {
         // 关键：先落库再发 done。否则客户端收到 done 后立刻发起下一轮，
         // 会读到尚未写入的历史（多轮记忆随机失效）
         if (ev.type === 'done') {
-          await persistAssistant();
+          await persistAssistant(ev.usage);
         }
 
         yield ev;
