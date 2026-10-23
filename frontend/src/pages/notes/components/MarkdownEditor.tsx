@@ -14,9 +14,18 @@ import { commonmark } from '@milkdown/preset-commonmark';
 import { gfm } from '@milkdown/preset-gfm';
 import { Milkdown, MilkdownProvider, useEditor } from '@milkdown/react';
 import { Plugin } from '@milkdown/prose/state';
+import type { EditorView } from '@milkdown/prose/view';
+import { toast } from 'sonner';
 // 副作用导入：注册 jsx / tsx 与一批别名。Prism 插件用的是**同一个** refractor
 // 实例（模块单例），所以这里注册完，插件那边直接能查到。
 import { sharedRefractor } from '@/lib/code-highlight';
+import {
+  ATTACHMENT_SCHEME,
+  ensureSigned,
+  getAttachmentUrl,
+  parseAttachmentRef,
+} from '@/lib/attachment-url';
+import { uploadAttachment } from '@/request/notes';
 import './markdown-editor.css';
 
 /** 复制按钮：编辑区与预览区样式一致，行为也一致 */
@@ -118,6 +127,115 @@ const taskCheckboxPlugin = new Plugin({
   },
 });
 
+/**
+ * 粘贴图片 → 上传 → 在光标处插入 `![](attachment:<id>)`。
+ *
+ * 只在剪贴板里是**文件**时接管（截图、从文件管理器复制图片）。
+ * 从网页复制的 `<img src="https://...">` 走 ProseMirror 默认逻辑，
+ * 直接插入外链 —— 那种图本来就不该收进自己的存储。
+ */
+async function insertPastedImages(
+  view: EditorView,
+  files: File[],
+  noteId: string,
+): Promise<void> {
+  for (const file of files) {
+    try {
+      const meta = await uploadAttachment(file, noteId);
+      await ensureSigned([meta.id]);
+
+      // await 期间编辑器可能已被销毁（切笔记 / 关页面）
+      if (view.isDestroyed) return;
+
+      const imageType = view.state.schema.nodes.image;
+      if (!imageType) {
+        toast.error('当前编辑器不支持插入图片');
+        return;
+      }
+
+      const alt = file.name.replace(/\.[^.]+$/, '') || '图片';
+      const node = imageType.create({
+        src: `${ATTACHMENT_SCHEME}${meta.id}`,
+        alt,
+        /*
+         * `title` 必须给字符串：这个 attrs 的类型是 `string`（没有 default），
+         * 传 `null` 会抛
+         * `Expected value of type string for attribute title on type image`。
+         * 空串序列化出来就是普通的 `![alt](url)`，不带 title。
+         */
+        title: '',
+      });
+      view.dispatch(view.state.tr.replaceSelectionWith(node));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '图片上传失败');
+      return;
+    }
+  }
+}
+
+interface ImageNode {
+  type: { name: string };
+  attrs: { src?: unknown; alt?: unknown };
+}
+
+/**
+ * `image` 的自定义渲染。
+ *
+ * 正文里存的是 `![alt](attachment:<id>)` —— 一个与存储位置无关、永久有效的引用。
+ * 真正要显示时得换成带签名的短时直链，而**签名是异步的**。
+ *
+ * ProseMirror 的 `toDOM` 是同步函数，拿不到异步结果；直接改 DOM 的 `src`
+ * 又会在下一次 re-render 被覆盖。NodeView 是唯一能「先挂个空图、拿到签名再补 src」
+ * 的位置。
+ *
+ * 失败时留空 src + alt，图片显示为裂图 —— 不让一张图拖垮整篇渲染。
+ */
+function imageNodeView(initialNode: ImageNode) {
+  const img = document.createElement('img');
+  let currentId: string | null = null;
+
+  const hydrate = (node: ImageNode) => {
+    const raw = typeof node.attrs.src === 'string' ? node.attrs.src : '';
+    const alt = typeof node.attrs.alt === 'string' ? node.attrs.alt : '';
+    img.alt = alt;
+
+    const id = parseAttachmentRef(raw);
+    currentId = id;
+
+    if (!id) {
+      // 外链图片（http/data）原样用
+      img.src = raw;
+      return;
+    }
+
+    const ready = getAttachmentUrl(id);
+    if (ready) {
+      img.src = ready;
+      return;
+    }
+
+    void ensureSigned([id]).then(() => {
+      // 这期间可能已经切到别的图了，别把旧 URL 写回去
+      if (currentId !== id) return;
+      const url = getAttachmentUrl(id);
+      if (url) img.src = url;
+    });
+  };
+
+  hydrate(initialNode);
+
+  return {
+    dom: img,
+    // 叶子节点：没有 contentDOM
+    update(node: ImageNode) {
+      if (node.type.name !== 'image') return false;
+      hydrate(node);
+      return true;
+    },
+    ignoreMutation: () => true,
+  };
+}
+
 interface CodeBlockNode {
   type: { name: string };
   attrs: { language?: string | null };
@@ -165,7 +283,9 @@ const Inner: React.FC<{
   /** 仅作初始值。之后的正文变化由编辑器自己产生，不再回灌 —— 见下方说明 */
   initialValue: string;
   onChange: (markdown: string) => void;
-}> = ({ initialValue, onChange }) => {
+  /** 粘贴图片时要带上，附件挂在当前笔记下 */
+  noteId: string;
+}> = ({ initialValue, onChange, noteId }) => {
   /*
    * 用 ref 转一层，而不是把 onChange 塞进 useEditor 的依赖数组。
    *
@@ -187,6 +307,16 @@ const Inner: React.FC<{
    * 切换笔记靠外层 `key={note.id}` 强制重挂载，而不是同步内容。
    */
   const initialRef = useRef(initialValue);
+
+  /*
+   * noteId 走 ref：粘贴回调是在 useEditor 的闭包里捕获的，
+   * 而 useEditor 的依赖数组是 `[]`（变了会重建整个编辑器）。
+   * 用 ref 才能既拿到最新值、又不触发重建。
+   */
+  const noteIdRef = useRef(noteId);
+  useEffect(() => {
+    noteIdRef.current = noteId;
+  }, [noteId]);
 
   const { loading } = useEditor(
     (root) =>
@@ -239,6 +369,32 @@ const Inner: React.FC<{
             nodeViews: {
               ...prev.nodeViews,
               code_block: codeBlockNodeView,
+              image: imageNodeView,
+            },
+            /*
+             * 粘贴图片：只有剪贴板里真有 image/* 文件时接管，
+             * 纯文本 / HTML 粘贴原样交回 ProseMirror。
+             *
+             * ⚠️ 必须用 `Array.from`，不能用展开语法 ——
+             * `DataTransferItemList` 是类数组、**不是** iterable，
+             * `[...items]` 在 Chrome 直接抛 "is not iterable"。
+             * 异常会冒到 ProseMirror 的 paste 处理里被吞掉，
+             * 表现为「粘贴毫无反应，控制台也干净」（踩过一次）。
+             */
+            handlePaste: (view, event) => {
+              const items = event.clipboardData
+                ? Array.from(event.clipboardData.items)
+                : [];
+              const files = items
+                .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+                .map((item) => item.getAsFile())
+                .filter((file): file is File => file !== null);
+
+              if (files.length === 0) return false;
+
+              event.preventDefault();
+              void insertPastedImages(view, files, noteIdRef.current);
+              return true;
             },
           }));
 
@@ -286,8 +442,9 @@ const Inner: React.FC<{
 export const MarkdownEditor: React.FC<{
   initialValue: string;
   onChange: (markdown: string) => void;
-}> = ({ initialValue, onChange }) => (
+  noteId: string;
+}> = ({ initialValue, onChange, noteId }) => (
   <MilkdownProvider>
-    <Inner initialValue={initialValue} onChange={onChange} />
+    <Inner initialValue={initialValue} onChange={onChange} noteId={noteId} />
   </MilkdownProvider>
 );

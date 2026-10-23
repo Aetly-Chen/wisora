@@ -59,6 +59,22 @@ export function deleteAttachment(id: string) {
 }
 
 /**
+ * 批量签发附件的短时直链。
+ *
+ * `<img src>` 带不了 Authorization 头，所以图片不能直接引用
+ * `/attachments/:id/content`（那里挂了 JwtAuthGuard，必然 401）。
+ * 后端用 HMAC 签「id + 过期时间」，这里换回
+ * `{ [id]: '/attachments/xxx/raw?exp=..&sig=..' }`（相对路径，由调用方拼 base）。
+ */
+export function signAttachments(ids: string[]) {
+  return request.post<Record<string, string>>(
+    '/attachments/sign',
+    { ids },
+    { loading: false },
+  );
+}
+
+/**
  * 拉取附件二进制内容。
  *
  * 为什么不用 <iframe src="/attachments/:id/content"> 直接预览：

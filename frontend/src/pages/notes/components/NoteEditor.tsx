@@ -252,6 +252,7 @@ export const NoteEditor: React.FC<{
                   key={note.id}
                   initialValue={note.content}
                   onChange={editContent}
+                  noteId={note.id}
                 />
               </React.Suspense>
             </div>

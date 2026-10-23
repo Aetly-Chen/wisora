@@ -3,6 +3,7 @@ import { marked } from 'marked';
 import { markedHighlight } from 'marked-highlight';
 import DOMPurify from 'dompurify';
 import { highlightToHtml } from '@/lib/code-highlight';
+import { hydrateAttachmentImages } from '@/lib/attachment-url';
 
 /**
  * Markdown 渲染。
@@ -44,7 +45,17 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({ content, className }
   const html = useMemo(() => {
     if (!content.trim()) return '';
     const raw = marked.parse(content, { async: false }) as string;
-    return DOMPurify.sanitize(raw, { USE_PROFILES: { html: true } });
+    return DOMPurify.sanitize(raw, {
+      USE_PROFILES: { html: true },
+      /*
+       * DOMPurify 默认只放行 http/https/mailto 这类协议，
+       * `attachment:xxx` 会被当成危险 scheme 把整个 src 删掉 ——
+       * 那样图片在渲染阶段就没了，后面的 hydrate 连目标都找不到。
+       * 这里在默认名单后追加 attachment（见 lib/attachment-url.ts）。
+       */
+      ALLOWED_URI_REGEXP:
+        /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|attachment):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+    });
   }, [content]);
 
   const rootRef = useRef<HTMLDivElement>(null);
@@ -108,6 +119,19 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({ content, className }
     });
 
     return () => cleanups.forEach((fn) => fn());
+  }, [html]);
+
+  /*
+   * 图片：把 `attachment:<id>` 换成带签名的直链。
+   *
+   * 放在渲染之后做 DOM 替换、而不是在 marked 里改渲染器：
+   * 签名是异步的，渲染器必须是同步的；而这里改完 DOM 也不需要 React 再渲染一次。
+   * 失败时保持裂图 + alt，不抛错 —— 一张图挂掉不该让整篇笔记白屏。
+   */
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    void hydrateAttachmentImages(root);
   }, [html]);
 
   if (!html) return null;
