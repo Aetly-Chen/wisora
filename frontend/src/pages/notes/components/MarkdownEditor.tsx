@@ -3,6 +3,7 @@ import {
   Editor,
   defaultValueCtx,
   editorViewOptionsCtx,
+  prosePluginsCtx,
   remarkStringifyOptionsCtx,
   rootCtx,
 } from '@milkdown/core';
@@ -12,6 +13,7 @@ import { prism, prismConfig } from '@milkdown/plugin-prism';
 import { commonmark } from '@milkdown/preset-commonmark';
 import { gfm } from '@milkdown/preset-gfm';
 import { Milkdown, MilkdownProvider, useEditor } from '@milkdown/react';
+import { Plugin } from '@milkdown/prose/state';
 // 副作用导入：注册 jsx / tsx 与一批别名。Prism 插件用的是**同一个** refractor
 // 实例（模块单例），所以这里注册完，插件那边直接能查到。
 import { sharedRefractor } from '@/lib/code-highlight';
@@ -51,6 +53,70 @@ function createCopyButton(getCode: () => string): HTMLButtonElement {
 
   return btn;
 }
+
+/**
+ * 任务清单可勾选。
+ *
+ * gfm preset 把任务项渲染成 `li[data-item-type="task"][data-checked]`，
+ * 那个方框是 `span::before` 画的 —— **纯 CSS 装饰，没有真实 input**，
+ * 所以默认点不动，勾选状态只能靠改 Markdown 源码。
+ *
+ * 这里刻意不改成真实 `<input type="checkbox">`：那要推翻 preset 的 toDOM
+ * 并重写整套列表样式，等于为了一个交互和内置实现打架。
+ * 改为在 click 上判定「点的位置是不是方框那一块」——
+ * 方框画在 `span` 左侧（负 margin），所以 `clientX` 落在 span 左边界之外
+ * 就是点在框上；点文字照常交给 ProseMirror 放光标。
+ */
+const taskCheckboxPlugin = new Plugin({
+  props: {
+    handleClick(view, _pos, event) {
+      const target = event.target as HTMLElement | null;
+      const item = target?.closest?.('li[data-item-type="task"]') as HTMLElement | null;
+      if (!item) return false;
+
+      /*
+       * 任务项的内容容器是 `<p>`，不是 `<span>` ——
+       * 这是 gfm preset 现在的 toDOM（`['li', ['p', 0]]`），
+       * 原样式表里写的 `> span` 从来没匹配上（方框一直没画出来）。
+       * 两种都认，避免再被结构变化坑一次。
+       */
+      const label = item.querySelector(':scope > p, :scope > span');
+      if (!label) return false;
+
+      /*
+       * 方框是 `p::before` —— 在 `<p>` **内容区的最左边**，不是 p 的外面。
+       * 它宽 13px、margin-right 0.5em（≈6.5px），所以水平方向前 19px 属于方框。
+       * 落在这个区间内算点方框，右边一律交给 ProseMirror 放光标。
+       */
+      const rect = label.getBoundingClientRect();
+      if (event.clientX < rect.left - 2 || event.clientX >= rect.left + 19) return false;
+
+      const $pos = view.state.doc.resolve(view.posAtDOM(item, 0));
+      for (let depth = $pos.depth; depth > 0; depth -= 1) {
+        if ($pos.node(depth).type.name !== 'list_item') continue;
+
+        const itemPos = $pos.before(depth);
+        const node = view.state.doc.nodeAt(itemPos);
+        if (!node || node.attrs.checked == null) return false;
+
+        view.dispatch(
+          view.state.tr.setNodeMarkup(itemPos, undefined, {
+            ...node.attrs,
+            checked: !node.attrs.checked,
+          }),
+        );
+
+        /*
+         * handleClick 返回 true 会阻止浏览器的默认聚焦，
+         * 勾完再打字发现输入不进去。补一次 focus。
+         */
+        view.focus();
+        return true;
+      }
+      return false;
+    },
+  },
+});
 
 interface CodeBlockNode {
   type: { name: string };
@@ -175,6 +241,9 @@ const Inner: React.FC<{
               code_block: codeBlockNodeView,
             },
           }));
+
+          // 任务清单勾选（见 taskCheckboxPlugin 的说明）
+          ctx.update(prosePluginsCtx, (prev) => [...prev, taskCheckboxPlugin]);
 
           ctx.get(listenerCtx).markdownUpdated((_ctx, markdown) => {
             onChangeRef.current(markdown);

@@ -256,6 +256,12 @@ html:has(.no-scrollbar-page)::-webkit-scrollbar {
 /* 任务列表（GFM） */
 .md-body li:has(> input[type='checkbox']) { list-style: none; margin-left: -1.2em; }
 .md-body input[type='checkbox'] { margin-right: 0.5em; accent-color: #4f46e5; }
+/* 预览区是只读的，勾选状态靠 Markdown 里的 `- [x]`，这里只表达视觉 */
+.md-body li:has(> input[type='checkbox']:checked) {
+  color: #94a3b8;
+  text-decoration: line-through;
+  text-decoration-color: #cbd5e1;
+}
 
 .md-body blockquote {
   margin: 1em 0;

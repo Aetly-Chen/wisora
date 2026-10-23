@@ -52,7 +52,7 @@
   margin-left: -1.2em;
 }
 
-.md-editor-shell .ProseMirror li[data-item-type='task'] > span::before {
+.md-editor-shell .ProseMirror li[data-item-type='task'] > p::before {
   content: '';
   display: inline-block;
   width: 13px;
@@ -62,11 +62,28 @@
   border: 1px solid #cbd5e1;
   border-radius: 3px;
   background: #fff;
+  /* 方框可点（点击由 taskCheckboxPlugin 接管） */
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
 }
 
-.md-editor-shell .ProseMirror li[data-item-type='task'][data-checked='true'] > span::before {
+.md-editor-shell .ProseMirror li[data-item-type='task']:hover > p::before {
+  border-color: #a5b4fc;
+}
+
+.md-editor-shell .ProseMirror li[data-item-type='task'][data-checked='true'] > p::before {
   background: #4f46e5;
   border-color: #4f46e5;
+}
+
+/*
+ * 完成态：文字变灰 + 删除线。
+ * 只挂在 `span` 上而不是 `li` —— `li` 会连带把 ::before 那个方框一起划掉。
+ */
+.md-editor-shell .ProseMirror li[data-item-type='task'][data-checked='true'] > p {
+  color: #94a3b8;
+  text-decoration: line-through;
+  text-decoration-color: #cbd5e1;
 }
 
 /* 选中节点（图片、代码块等）的提示边框 */
