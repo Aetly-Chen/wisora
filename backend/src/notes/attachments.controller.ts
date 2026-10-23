@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Delete,
   Get,
@@ -84,5 +85,16 @@ export class AttachmentsController {
   @Delete(':id')
   remove(@CurrentUser() userId: string, @Param('id') id: string) {
     return this.attachments.remove(userId, id);
+  }
+
+  /**
+   * 批量签发短时直链，给 `<img>` 用（见 AttachmentsPublicController）。
+   *
+   * 走这个接口而不是让前端逐个取：一篇笔记里贴十几张图，
+   * 逐个请求就是十几倍开销，而且必然有一半同时发出。
+   */
+  @Post('sign')
+  sign(@CurrentUser() userId: string, @Body() body?: { ids?: string[] }) {
+    return this.attachments.signMany(userId, body?.ids ?? []);
   }
 }
