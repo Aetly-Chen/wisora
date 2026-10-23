@@ -60,33 +60,62 @@ const ACTIONS: Action[] = [
 ];
 
 /**
- * 光标落在表格里时浮在编辑区顶部的一条工具条。
+ * 编辑区顶部的表格工具条。
  *
- * 为什么是「粘在顶部」而不是「跟在表格旁边」：
- * 后一种要在每次滚动 / 输入时用 `coordsAtPos` 重算位置，还得处理
- * 表格贴边、浮层超出视口这些情况 —— 为一条 7 个按钮的条子不值。
- * 粘顶的做法和 Notion 的浮动工具条观感接近，实现只有一个 sticky。
+ * **常驻**，内容随上下文切换：
+ * - 光标不在表格里 → 只有一个「+ 表格」
+ * - 光标在表格里   → 七个结构操作
+ *
+ * 为什么常驻：编辑器原本没有任何「插入表格」的入口，用户只能手打
+ * Markdown 表格。gfm 其实有个输入规则（输入 `|3x2| ` 自动建表），
+ * 但没人猜得到这种语法 —— 等于没有。
+ *
+ * 为什么粘在顶部而不是「跟着表格走」：
+ * 跟随要在每次滚动 / 输入时用 `coordsAtPos` 重算位置，还得处理表格贴边、
+ * 浮层超出视口 —— 为几个按钮不值。粘顶的做法和 Notion 的浮动条观感接近，
+ * 实现只有一个 sticky。
  */
 export const TableToolbar: React.FC<{
+  inTable: boolean;
   onCommand: (cmd: TableCommand) => void;
-}> = ({ onCommand }) => (
-  <div className="table-toolbar" role="toolbar" aria-label="表格操作">
-    {ACTIONS.map((action) => (
-      <React.Fragment key={action.key}>
-        {action.groupStart && <span className="table-toolbar-divider" aria-hidden />}
-        <button
-          type="button"
-          className="table-toolbar-btn"
-          data-danger={action.danger ? 'true' : undefined}
-          title={action.hint}
-          // mousedown 阻止默认：否则点按钮时编辑器失焦、选区丢失，
-          // 命令执行时找不到「当前单元格」
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => onCommand(action.cmd)}
-        >
-          {action.label}
-        </button>
-      </React.Fragment>
-    ))}
+  onInsertTable: () => void;
+}> = ({ inTable, onCommand, onInsertTable }) => (
+  <div
+    className="table-toolbar"
+    data-mode={inTable ? 'table' : 'idle'}
+    role="toolbar"
+    aria-label="表格操作"
+  >
+    {!inTable && (
+      <button
+        type="button"
+        className="table-toolbar-btn"
+        title="插入一个 3×3 表格"
+        // 防止点按钮时编辑器失焦、光标位置丢失
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={onInsertTable}
+      >
+        ⊞ 表格
+      </button>
+    )}
+
+    {inTable &&
+      ACTIONS.map((action) => (
+        <React.Fragment key={action.key}>
+          {action.groupStart && <span className="table-toolbar-divider" aria-hidden />}
+          <button
+            type="button"
+            className="table-toolbar-btn"
+            data-danger={action.danger ? 'true' : undefined}
+            title={action.hint}
+            // 同上：否则点按钮时编辑器失焦、选区丢失，
+            // 命令执行时找不到「当前单元格」
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => onCommand(action.cmd)}
+          >
+            {action.label}
+          </button>
+        </React.Fragment>
+      ))}
   </div>
 );

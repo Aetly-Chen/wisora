@@ -115,6 +115,17 @@
   backdrop-filter: blur(6px);
 }
 
+/*
+ * 不在表格里时只挂一个「+ 表格」，别划那条分隔线 ——
+ * 否则一行空荡的工具栏看着像坏掉的 UI。
+ */
+.table-toolbar[data-mode='idle'] {
+  padding: 3px 10px;
+  border-bottom-color: transparent;
+  background: transparent;
+  backdrop-filter: none;
+}
+
 .table-toolbar-btn {
   padding: 3px 8px;
   font-size: 12px;

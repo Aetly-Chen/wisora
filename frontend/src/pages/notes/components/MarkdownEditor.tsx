@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Editor,
+  commandsCtx,
   defaultValueCtx,
   editorViewCtx,
   editorViewOptionsCtx,
@@ -12,7 +13,7 @@ import { listener, listenerCtx } from '@milkdown/plugin-listener';
 import { history } from '@milkdown/plugin-history';
 import { prism, prismConfig } from '@milkdown/plugin-prism';
 import { commonmark } from '@milkdown/preset-commonmark';
-import { gfm } from '@milkdown/preset-gfm';
+import { gfm, insertTableCommand } from '@milkdown/preset-gfm';
 import { Milkdown, MilkdownProvider, useEditor } from '@milkdown/react';
 import { Plugin } from '@milkdown/prose/state';
 import type { EditorState } from '@milkdown/prose/state';
@@ -196,7 +197,21 @@ async function insertPastedImages(
          */
         title: '',
       });
-      view.dispatch(view.state.tr.replaceSelectionWith(node));
+
+      /*
+       * 图片独占一段。
+       *
+       * 直接 `replaceSelectionWith` 会把图片塞进当前文本块末尾 ——
+       * 正文里就变成「正文结束。![图](...)」糊在一行。
+       * 先 `split` 把当前块断开，图片落进新段落，和 Typora 的行为一致。
+       */
+      let tr = view.state.tr;
+      const { $from } = view.state.selection;
+      if ($from.parent.content.size > 0) {
+        tr = tr.split($from.pos);
+      }
+      tr = tr.replaceSelectionWith(node);
+      view.dispatch(tr);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '图片上传失败');
       return;
@@ -472,6 +487,21 @@ const Inner: React.FC<{
     [get],
   );
 
+  /**
+   * 插入一个 3×3 表格。
+   *
+   * 走 gfm 的 `insertTableCommand`（payload `{row, col}`）而不是自己拼节点：
+   * 它内部会处理「当前块能不能放表格」和插入后的选区（落到第一个单元格）。
+   */
+  const insertTable = useCallback(() => {
+    const editor = get();
+    if (!editor) return;
+    editor.action((ctx) => {
+      ctx.get(commandsCtx).call(insertTableCommand.key, { row: 3, col: 3 });
+      ctx.get(editorViewCtx).focus();
+    });
+  }, [get]);
+
   return (
     /*
      * `md-body` 不能少：编辑区的标题/列表/表格/引用排版全部复用预览区那套规则，
@@ -479,7 +509,11 @@ const Inner: React.FC<{
      * 少了这个类，ProseMirror 会退化成浏览器默认样式（标题不放大、列表没圆点）。
      */
     <div className="md-editor-shell md-body">
-      {inTable && <TableToolbar onCommand={runTableCommand} />}
+      <TableToolbar
+        inTable={inTable}
+        onCommand={runTableCommand}
+        onInsertTable={insertTable}
+      />
       {loading && (
         <div className="md-editor-loading" aria-hidden>
           编辑器加载中…
