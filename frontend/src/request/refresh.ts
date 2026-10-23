@@ -3,6 +3,24 @@ import type {
   AxiosRequestConfig,
 } from 'axios'
 
+import { removeRefreshToken, removeToken } from './storage'
+
+/**
+ * 硬跳登录页。
+ *
+ * 为什么用 `location.assign` 而不是 React Router：
+ * - request 层不该依赖路由（这里连 React 都 import 不到）
+ * - 「登录态已经废了」的场景，整页重载反而干净 —— 内存里的旧 store、
+ *   旧轮询、旧 WebSocket 全部丢掉，不会带着半个登录态继续跑
+ *
+ * 已经在 `/auth` 上就别再跳：否则一次失败会把自己刷成死循环。
+ */
+function redirectToLogin() {
+  if (typeof window === 'undefined') return
+  if (window.location.pathname.startsWith('/auth')) return
+  window.location.assign('/auth')
+}
+
 /**
  * ========================================
  * Refresh Handler
@@ -344,6 +362,25 @@ export async function runRefreshQueue(
     rejectQueue(
       refreshError,
     )
+
+    /*
+     * 兜底：refresh 被服务端**明确拒绝**意味着登录态真的没了。
+     *
+     * 不清 token 的话，后续每个请求都会「401 → 试 refresh → 再失败」，
+     * 用户看到的是「页面一直在转 / 一直报错」，却永远不知道该重新登录。
+     *
+     * ⚠️ 只认 401 / 403。网络抖动、超时、5xx 一律不清 ——
+     * 那会把用户在电梯里、地铁里直接踢下线，比登不上去更烦人。
+     */
+    const status = (refreshError as AxiosError)?.response?.status
+
+    if (status === 401 || status === 403) {
+      removeToken()
+
+      removeRefreshToken()
+
+      redirectToLogin()
+    }
 
     throw refreshError
   } finally {
