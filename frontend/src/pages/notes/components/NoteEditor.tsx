@@ -1,7 +1,8 @@
-import React, { useDeferredValue, useEffect, useMemo, useRef } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
   Code2,
+  Download,
   Eye,
   FileUp,
   Loader2,
@@ -10,8 +11,10 @@ import {
   PinOff,
   Upload,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { MarkdownView } from '@/components/MarkdownView';
+import { exportNoteAsMarkdown } from '@/lib/export-note';
 import { useNotesStore } from '@/stores/useNotesStore';
 import type { AttachmentMeta, NoteDetail, SaveState } from '@/types/note';
 import { PREVIEW_MAX_CHARS, SAVE_LABEL, type ViewMode } from '../constants';
@@ -81,6 +84,32 @@ export const NoteEditor: React.FC<{
   /** 包住「编辑器 / 源码 / 预览」三个面板，大纲跳转在它里面找标题元素 */
   const contentRef = useRef<HTMLDivElement>(null);
   const { editTitle, editContent } = useNotesStore();
+  const [exporting, setExporting] = useState(false);
+
+  /**
+   * 导出成 .md。
+   *
+   * 图片会被取回来转成 base64 内嵌 —— 否则 `attachment:<id>` 离开后端就是
+   * 一段无意义的字符串，用户拿到的文件里全是坏图。
+   */
+  const handleExport = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const result = await exportNoteAsMarkdown(note.title, note.content);
+      if (result.failed > 0) {
+        toast.warning(`已导出 ${result.filename}，${result.failed} 张图片未能内联`);
+      } else if (result.inlined > 0) {
+        toast.success(`已导出 ${result.filename}（含 ${result.inlined} 张图）`);
+      } else {
+        toast.success(`已导出 ${result.filename}`);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '导出失败');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   /** 预览用的延迟值：输入时优先保证编辑区跟手 */
   const deferredContent = useDeferredValue(note.content);
@@ -205,6 +234,22 @@ export const NoteEditor: React.FC<{
             <FileUp className="mr-1 h-3.5 w-3.5" />
           )}
           导入
+        </Button>
+
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 rounded-lg border-slate-200 px-2.5 text-[12.5px]"
+          title="导出为 .md 文件（图片会内嵌进去，可脱离本应用打开）"
+          disabled={exporting}
+          onClick={handleExport}
+        >
+          {exporting ? (
+            <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Download className="mr-1 h-3.5 w-3.5" />
+          )}
+          导出
         </Button>
       </div>
 
