@@ -36,6 +36,9 @@ model User {
   chatMemberships ChatConversationMember[]
   chatMessages    ChatMessage[]
   chatAttachments ChatAttachment[]
+  /// 自己创建的群聊（ownerId）。与 chatMemberships 是两回事：
+  /// 那条是「我在哪些会话里」，这条是「哪些群是我建的」
+  ownedChatConversations ChatConversation[] @relation("ChatConversationOwner")
 }
 
 model Conversation {
@@ -195,6 +198,10 @@ model ChatConversation {
   createdAt DateTime             @default(now())
   updatedAt DateTime             @updatedAt
 
+  /// 群主。`onDelete: SetNull` 而不是 Cascade ——
+  /// 群聊还有其他成员，删一个人不该把整个群连带删了；
+  /// 也不能 Restrict，那会让「删用户」被历史群聊卡住。
+  owner    User?                  @relation("ChatConversationOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   members  ChatConversationMember[]
   messages ChatMessage[]
 
