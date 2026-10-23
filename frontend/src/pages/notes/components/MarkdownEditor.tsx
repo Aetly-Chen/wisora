@@ -1,7 +1,8 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Editor,
   defaultValueCtx,
+  editorViewCtx,
   editorViewOptionsCtx,
   prosePluginsCtx,
   remarkStringifyOptionsCtx,
@@ -14,6 +15,7 @@ import { commonmark } from '@milkdown/preset-commonmark';
 import { gfm } from '@milkdown/preset-gfm';
 import { Milkdown, MilkdownProvider, useEditor } from '@milkdown/react';
 import { Plugin } from '@milkdown/prose/state';
+import type { EditorState } from '@milkdown/prose/state';
 import type { EditorView } from '@milkdown/prose/view';
 import { toast } from 'sonner';
 // 副作用导入：注册 jsx / tsx 与一批别名。Prism 插件用的是**同一个** refractor
@@ -26,7 +28,36 @@ import {
   parseAttachmentRef,
 } from '@/lib/attachment-url';
 import { uploadAttachment } from '@/request/notes';
+import { TableToolbar, type TableCommand } from './TableToolbar';
 import './markdown-editor.css';
+
+/** 光标（或选区头）是否落在表格内 */
+function isInTable(state: EditorState): boolean {
+  const { $from } = state.selection;
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    if ($from.node(depth).type.name === 'table') return true;
+  }
+  return false;
+}
+
+/**
+ * 光标进出表格时通知外部。
+ *
+ * 用 `view().update` 而不是 `props.handleDOMEvents`：需要的是「选区变了」，
+ * 而不是「鼠标点了」，键盘移动光标同样要更新。
+ */
+function tableWatcher(onChange: (inTable: boolean) => void) {
+  return new Plugin({
+    view: () => ({
+      update(view, prev) {
+        if (prev.selection.eq(view.state.selection) && prev.doc.eq(view.state.doc)) {
+          return;
+        }
+        onChange(isInTable(view.state));
+      },
+    }),
+  });
+}
 
 /** 复制按钮：编辑区与预览区样式一致，行为也一致 */
 function createCopyButton(getCode: () => string): HTMLButtonElement {
@@ -318,7 +349,9 @@ const Inner: React.FC<{
     noteIdRef.current = noteId;
   }, [noteId]);
 
-  const { loading } = useEditor(
+  const [inTable, setInTable] = useState(false);
+
+  const { loading, get } = useEditor(
     (root) =>
       Editor.make()
         .config((ctx) => {
@@ -399,7 +432,12 @@ const Inner: React.FC<{
           }));
 
           // 任务清单勾选（见 taskCheckboxPlugin 的说明）
-          ctx.update(prosePluginsCtx, (prev) => [...prev, taskCheckboxPlugin]);
+          ctx.update(prosePluginsCtx, (prev) => [
+            ...prev,
+            taskCheckboxPlugin,
+            // 光标进出表格时切换工具条
+            tableWatcher(setInTable),
+          ]);
 
           ctx.get(listenerCtx).markdownUpdated((_ctx, markdown) => {
             onChangeRef.current(markdown);
@@ -413,6 +451,27 @@ const Inner: React.FC<{
     [],
   );
 
+  /**
+   * 执行一条表格命令。
+   *
+   * 不用 `commandsCtx`：prosemirror-tables 的命令是普通的
+   * `(state, dispatch) => boolean`，直接 dispatch 更直观，
+   * 也省掉「先 selectRow 再 deleteSelectedCells」那种两步操作
+   * （两步之间选区已经变了，容易删错）。
+   */
+  const runTableCommand = useCallback(
+    (cmd: TableCommand) => {
+      const editor = get();
+      if (!editor) return;
+      const view = editor.action((ctx) => ctx.get(editorViewCtx));
+      if (!view) return;
+
+      const applied = cmd(view.state, view.dispatch, view);
+      if (applied) view.focus();
+    },
+    [get],
+  );
+
   return (
     /*
      * `md-body` 不能少：编辑区的标题/列表/表格/引用排版全部复用预览区那套规则，
@@ -420,6 +479,7 @@ const Inner: React.FC<{
      * 少了这个类，ProseMirror 会退化成浏览器默认样式（标题不放大、列表没圆点）。
      */
     <div className="md-editor-shell md-body">
+      {inTable && <TableToolbar onCommand={runTableCommand} />}
       {loading && (
         <div className="md-editor-loading" aria-hidden>
           编辑器加载中…

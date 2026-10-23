@@ -92,6 +92,60 @@
   border-radius: 4px;
 }
 
+/*
+ * 表格工具条。
+ *
+ * 粘在编辑区顶部而不是跟着表格走：跟表格要每次滚动 / 输入都用
+ * `coordsAtPos` 重算位置，还得处理贴边和超出视口 —— 为 7 个按钮不值。
+ *
+ * 负 margin 是为了抵消 `.md-editor-shell` 的 padding，让底色铺满整宽；
+ * `top: -1rem` 同理，滚起来之后贴的是容器上边缘而不是内容区上边缘。
+ */
+.table-toolbar {
+  position: sticky;
+  top: -1rem;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: -1rem -1.25rem 0.85rem;
+  padding: 7px 10px;
+  border-bottom: 1px solid #eef2f7;
+  background: rgb(255 255 255 / 94%);
+  backdrop-filter: blur(6px);
+}
+
+.table-toolbar-btn {
+  padding: 3px 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #475569;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.table-toolbar-btn:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.table-toolbar-btn[data-danger='true']:hover {
+  background: #fef2f2;
+  color: #dc2626;
+  border-color: #fecaca;
+}
+
+.table-toolbar-divider {
+  width: 1px;
+  height: 14px;
+  margin: 0 4px;
+  background: #e2e8f0;
+}
+
 /* 表格可以横向滚动，别把容器撑破 */
 .md-editor-shell .ProseMirror table {
   table-layout: fixed;
