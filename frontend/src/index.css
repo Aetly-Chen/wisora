@@ -277,9 +277,12 @@ html:has(.no-scrollbar-page)::-webkit-scrollbar {
   background: #f8fafc;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
-  padding: 0.9em 1em;
+  /* 顶部多留一点：语言标签贴在左上角，否则会压住第一行代码 */
+  padding: 1.75em 1em 0.9em;
   overflow-x: auto;
   margin: 1em 0;
+  /* 复制按钮 / 语言标签的定位基准 */
+  position: relative;
 }
 .md-body pre code {
   background: none;
@@ -287,6 +290,112 @@ html:has(.no-scrollbar-page)::-webkit-scrollbar {
   padding: 0;
   font-size: 0.85em;
   line-height: 1.6;
+}
+
+/*
+ * 代码块的语言标签与复制按钮。
+ *
+ * 编辑区（NodeView 生成）和预览区（marked 渲染）用的是同一批类名，
+ * 所以只写一套 —— 两边看起来必须是同一个东西。
+ */
+.md-body .code-lang {
+  position: absolute;
+  top: 7px;
+  left: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10.5px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: #a3aec2;
+  text-transform: lowercase;
+  user-select: none;
+  pointer-events: none;
+}
+
+.md-body .code-copy {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  padding: 3px 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #64748b;
+  background: rgb(255 255 255 / 88%);
+  border: 1px solid #e2e8f0;
+  border-radius: 5px;
+  cursor: pointer;
+  /* 平时淡出，hover 或复制成功时显形 —— 不抢代码的注意力 */
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, border-color 0.15s;
+}
+.md-body pre:hover .code-copy,
+.md-body .code-copy:focus-visible {
+  opacity: 1;
+}
+.md-body .code-copy:hover {
+  color: #4f46e5;
+  border-color: #c7d2fe;
+}
+.md-body .code-copy[data-state='done'] {
+  opacity: 1;
+  color: #4f46e5;
+  border-color: #c7d2fe;
+}
+
+/*
+ * 语法配色。
+ *
+ * refractor 与 prismjs 产出的 class 名是同一套（`token keyword` 等），
+ * 所以这一份规则同时服务编辑区和预览区。
+ * 底色是 #f8fafc，全部取中等偏深的冷色，避免刺眼。
+ */
+.md-body .token.comment,
+.md-body .token.prolog,
+.md-body .token.doctype,
+.md-body .token.cdata {
+  color: #94a3b8;
+  font-style: italic;
+}
+.md-body .token.punctuation {
+  color: #7c8698;
+}
+.md-body .token.property,
+.md-body .token.tag,
+.md-body .token.boolean,
+.md-body .token.number,
+.md-body .token.constant,
+.md-body .token.symbol {
+  color: #b45309;
+}
+.md-body .token.selector,
+.md-body .token.attr-name,
+.md-body .token.string,
+.md-body .token.char,
+.md-body .token.builtin,
+.md-body .token.inserted {
+  color: #0f766e;
+}
+.md-body .token.operator,
+.md-body .token.entity,
+.md-body .token.url {
+  color: #475569;
+}
+.md-body .token.atrule,
+.md-body .token.attr-value,
+.md-body .token.keyword {
+  color: #7c3aed;
+}
+.md-body .token.function,
+.md-body .token.class-name {
+  color: #1d4ed8;
+}
+.md-body .token.regex,
+.md-body .token.important,
+.md-body .token.variable {
+  color: #c2410c;
+}
+.md-body .token.deleted {
+  color: #dc2626;
 }
 
 .md-body table {

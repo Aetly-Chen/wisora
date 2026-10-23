@@ -1,13 +1,100 @@
 import React, { useEffect, useRef } from 'react';
-import { Editor, defaultValueCtx, remarkStringifyOptionsCtx, rootCtx } from '@milkdown/core';
+import {
+  Editor,
+  defaultValueCtx,
+  editorViewOptionsCtx,
+  remarkStringifyOptionsCtx,
+  rootCtx,
+} from '@milkdown/core';
 import { listener, listenerCtx } from '@milkdown/plugin-listener';
 import { history } from '@milkdown/plugin-history';
+import { prism, prismConfig } from '@milkdown/plugin-prism';
 import { commonmark } from '@milkdown/preset-commonmark';
 import { gfm } from '@milkdown/preset-gfm';
 import { Milkdown, MilkdownProvider, useEditor } from '@milkdown/react';
+// 副作用导入：注册 jsx / tsx 与一批别名。Prism 插件用的是**同一个** refractor
+// 实例（模块单例），所以这里注册完，插件那边直接能查到。
+import { sharedRefractor } from '@/lib/code-highlight';
 import './markdown-editor.css';
 
-/** 编辑器内部：Milkdown 实例必须活在 Provider 里面 */
+/** 复制按钮：编辑区与预览区样式一致，行为也一致 */
+function createCopyButton(getCode: () => string): HTMLButtonElement {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'code-copy';
+  btn.contentEditable = 'false';
+  btn.textContent = '复制';
+
+  /*
+   * mousedown 必须 preventDefault。
+   * 否则点按钮时浏览器先把光标移到按钮上 —— 代码块失焦、
+   * 浮动工具条消失，接着 click 又触发一次重排，观感是「点了没反应」。
+   */
+  btn.addEventListener('mousedown', (e) => e.preventDefault());
+
+  btn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const text = getCode();
+    if (!text) return;
+
+    void navigator.clipboard.writeText(text).then(() => {
+      btn.textContent = '已复制';
+      btn.dataset.state = 'done';
+      window.setTimeout(() => {
+        btn.textContent = '复制';
+        delete btn.dataset.state;
+      }, 1400);
+    });
+  });
+
+  return btn;
+}
+
+interface CodeBlockNode {
+  type: { name: string };
+  attrs: { language?: string | null };
+}
+
+/**
+ * `code_block` 的自定义渲染。
+ *
+ * 为什么必须用 NodeView 而不是在 ProseMirror 外面加点缀：
+ * 代码块的 DOM 由编辑器全权重渲染，任何手动 `appendChild` 进去的节点
+ * 都会在下一次 re-render 时被丢掉。NodeView 是唯一能稳定持有额外 DOM
+ * 的位置。
+ *
+ * `contentDOM` 指向 `<code>`，因此 Prism 的 inline decoration 仍然作用在
+ * 正确的文本节点上 —— 高亮和按钮互不干扰。
+ */
+function codeBlockNodeView(initialNode: CodeBlockNode) {
+  const pre = document.createElement('pre');
+  const code = document.createElement('code');
+  const langLabel = document.createElement('span');
+  const btn = createCopyButton(() => code.textContent ?? '');
+
+  langLabel.className = 'code-lang';
+  // 顺序有意义：按钮绝对定位，标签跟在 code 后面、不参与正文流
+  pre.append(code, langLabel, btn);
+
+  const sync = (node: CodeBlockNode) => {
+    const language = (node.attrs.language ?? '').trim();
+    langLabel.textContent = language;
+    langLabel.hidden = language === '';
+  };
+  sync(initialNode);
+
+  return {
+    dom: pre,
+    contentDOM: code,
+    update(node: CodeBlockNode) {
+      if (node.type.name !== 'code_block') return false;
+      sync(node);
+      return true;
+    },
+  };
+}/** 编辑器内部：Milkdown 实例必须活在 Provider 里面 */
 const Inner: React.FC<{
   /** 仅作初始值。之后的正文变化由编辑器自己产生，不再回灌 —— 见下方说明 */
   initialValue: string;
@@ -59,12 +146,43 @@ const Inner: React.FC<{
             rule: '-',
           }));
 
+          /*
+           * 代码高亮。
+           *
+           * `configureRefractor` 的默认实现是空函数，插件内部直接用的是
+           * refractor 的模块单例 —— 而 jsx / tsx 与那批别名已经在
+           * `@/lib/code-highlight` 里注册过一次，这里把同一个实例显式交回去，
+           * 保证「注册过」和「用来高亮」的是同一个对象。
+           *
+           * 用 `update` 合并而不是 `set`：这个 ctx 的类型是 Options 对象，
+           * 将来插件加字段时 set 会静默丢掉新字段。
+           */
+          ctx.update(prismConfig.key, (prev) => ({
+            ...prev,
+            configureRefractor: () => sharedRefractor,
+          }));
+
+          /*
+           * 接管 code_block 的渲染，放进复制按钮与语言标签。
+           *
+           * 只覆盖 `code_block`，其余节点仍走 preset 默认实现 ——
+           * nodeViews 是「按节点名覆盖」，不需要把默认的抄一遍。
+           */
+          ctx.update(editorViewOptionsCtx, (prev) => ({
+            ...prev,
+            nodeViews: {
+              ...prev.nodeViews,
+              code_block: codeBlockNodeView,
+            },
+          }));
+
           ctx.get(listenerCtx).markdownUpdated((_ctx, markdown) => {
             onChangeRef.current(markdown);
           });
         })
         .use(commonmark)
         .use(gfm)
+        .use(prism)
         .use(history)
         .use(listener),
     [],
