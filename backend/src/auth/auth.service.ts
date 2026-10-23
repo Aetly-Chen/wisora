@@ -155,14 +155,19 @@ export class AuthService {
       },
     });
 
-    // 6. 不返回密码
-    return {
-      id: user.id,
-      email: user.email,
-      nickname: user.nickname,
-      emailVerified: user.emailVerified,
-      createdAt: user.createdAt,
-    };
+    // 6. 收敛成公开形状
+    /*
+     * 不要手写字段列表。
+     *
+     * 原来这里写的是 `{ id, email, nickname, emailVerified, createdAt }` ——
+     * 比 `USER_PUBLIC_SELECT` 少了 `handle` / `bio`，又多了一个内部字段
+     * `emailVerified`（前端零引用）。
+     *
+     * 同一个实体在「注册」「登录」「查资料」三个地方各写一遍字段列表，
+     * 就是漏字段的温床 —— `toPublicUser` 同时承担白名单收敛
+     * （防 password 哈希外泄）和 null 归一化，走它三处出参才真正一致。
+     */
+    return toPublicUser(user);
   }
 
   async login(dto: LoginDto) {
