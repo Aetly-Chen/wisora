@@ -201,3 +201,123 @@ pnpm add @milkdown/core @milkdown/react @milkdown/preset-commonmark \
 - Typora 式的产品参考（Milkdown 做的）：`SimonShiki/Typability`、`oratis/Markup`
 - Notion 式（备选）：https://github.com/TypeCellOS/BlockNote
 - 产品级功能参考：https://github.com/toeverything/AFFiNE
+
+---
+
+## 9. 实现踩坑（落地实测记录）
+
+> 这一节记的是**真的踩过、并且靠实测才定位到**的坑。改动编辑器这块之前先读一遍 ——
+> 其中一半是「编译通过、控制台干净、功能却没生效」的类型。
+
+### 9.1 序列化：只能 `ctx.update`，不能 `ctx.set`
+
+```ts
+// ✅
+ctx.update(remarkStringifyOptionsCtx, (prev) => ({ ...prev, bullet: '-', rule: '-' }));
+// ❌ 会把默认值里的 handlers（节点→mdast 映射）与 encode: [] 一起冲掉
+ctx.set(remarkStringifyOptionsCtx, { bullet: '-', rule: '-' });
+```
+
+`ctx.set` 的后果不是报错，而是**代码块退化成缩进式、表格和图片直接序列化失败**。
+
+不设这两项的话，remark 会把 `- ` 输出成 `* `、`---` 输出成 `***` —— 渲染等价，但
+**所有存量笔记在第一次编辑后会被整体改写一遍**，看着像被动了手脚。
+
+### 9.2 代码高亮：用 refractor，不要 prismjs
+
+prismjs 的语言包是 `(function (Prism) {...}(Prism))` 形式的 IIFE，读**全局** `Prism`；
+而核心 `prism.js` 是个普通 IIFE，**不会**把 Prism 挂到 window。在 Vite 里
+`import 'prismjs/components/prism-typescript'` 直接 `Prism is not defined`。
+
+refractor 是同一套算法的 ESM 版，也正是 `@milkdown/plugin-prism` 内部用的 ——
+两侧共用同一实例，语言只注册一次。
+
+- **jsx / tsx 不在 refractor common 的 30 种语言里**，而这俩是前端笔记里出现频率最高的。
+  插件用 `listLanguages().includes(lang)` 判断，命中不了就 `console.warn` ——
+  一篇笔记十几个 ` ```vue ` 就是十几条警告刷屏。
+- `vue` / `node` / `mjs` / `console` 要 `refractor.alias` 补；
+  **补之前必须确认源语言已注册**，否则会往 languages 里塞 `undefined`，highlight 直接崩。
+
+### 9.3 额外 DOM 只能走 NodeView
+
+代码块的 DOM 由 ProseMirror **全权重渲染**，手动 `appendChild` 进去的节点下一次
+re-render 就没了。`editorViewOptionsCtx.nodeViews` 是唯一能稳定持有额外 DOM 的位置。
+
+- `contentDOM` 必须指向 `<code>`，否则 Prism 的 inline decoration 落在
+  `pre` 上会连带把按钮文字也高亮进去
+- 复制按钮要读 `code.textContent`，**不能读 `pre.textContent`** ——
+  按钮自己的「复制」两个字也是 `pre` 的子节点
+
+### 9.4 gfm 的实际 DOM 结构：`li > p`，不是 `li > span`
+
+旧 CSS 写的 `li[data-item-type='task'] > span::before` **从来没匹配上过** ——
+任务清单前面的方框一直是空的（只有 `list-style: none` 生效），而且不报任何错。
+
+**修饰第三方组件的内部结构之前，先把 `outerHTML` 打出来看。**
+
+任务勾选的实现：方框是 `p::before`，在 `p` 的**内容区最左边**（不是 `p` 外面），
+宽 13px + `margin-right: 0.5em` ≈ 19px，所以判定条件是
+`clientX` 落在 `p.left` ~ `p.left+19` 才算点方框，右边一律交回 ProseMirror 放光标。
+
+⚠️ `handleClick` 返回 `true` 会阻止浏览器默认聚焦，必须补一次 `view.focus()`，
+否则勾完再打字输不进去。
+
+### 9.5 表格：别用 gfm 的 `*Command`
+
+gfm 导出了 `addRowAfterCommand` 这些，但**没有删行删列** —— 只给
+`selectRowCommand` + `deleteSelectedCellsCommand`，两步 dispatch 之间选区已经变了，
+很容易删错行。
+
+用 `@milkdown/prose/tables` 的 prosemirror-tables 命令：
+`(state, dispatch, view) => boolean`，一次 dispatch 完事。
+
+- ⚠️ 工具条按钮的 `onMouseDown` **必须 `preventDefault`** —— 否则焦点移走、选区丢失，
+  命令找不到「当前单元格」，表现是「点了没反应」
+- 判断「光标在表格内」用插件的 `view().update` 比选区，**不要用 `handleDOMEvents`**：
+  键盘移动光标不触发 DOM 事件
+- ⚠️ `@milkdown/prose/tables` 是**裁剪版**（`grep -c columnResizing` = 0），
+  没有 `columnResizing` / `TableView` → **列宽拖拽做不了**，除非引 `@milkdown/components`
+  并重写整套表格样式
+- 插入表格走 `insertTableCommand({ row, col })`；gfm 另有个隐藏输入规则
+  `/^\|(\d+)[xX](\d+)\|\s$/`（打 `|3x2| ` 直接建表），但没人猜得到，所以还是做了按钮
+
+### 9.6 图片：`attachment:<id>` + 三个静默失败点
+
+正文里存 `attachment:<id>`（永久有效），**绝不存签名 URL**（1h 过期）。
+渲染时再换直链，缓存见 `frontend/src/lib/attachment-url.ts`。
+
+三个都会「没反应但也不报错」的点：
+
+1. **`DataTransferItemList` 不是可迭代对象** —— `[...clipboardData.items]` 在 Chrome
+   抛 `is not iterable`，异常冒到 ProseMirror 的 paste 处理里被吞掉 →
+   「粘贴毫无反应、控制台干净」。必须 `Array.from`。
+2. **`image` 节点的 `title` 必须是 string** —— 传 `null` 抛
+   `Expected value of type string for attribute title on type image`，
+   被 `try/catch` 接住后只弹一个 toast，不翻代码猜不到是哪一步。
+3. **DOMPurify 会吃掉 `attachment:` 协议**（默认只放行 http/https 等）——
+   要在 `ALLOWED_URI_REGEXP` 里追加，否则图片在渲染阶段就被删掉，
+   后面的 hydrate 连目标都找不到。
+
+⚠️ 链路某步静默失败时，**加 `window.__xxxProbe` 阶段标记**去 `eval` 读
+（`console.log` 在 CDP 里读不到）。探针用完删。
+
+图片独占段落：`replaceSelectionWith` 会把图塞进当前文本块末尾（正文里变成
+「正文结束。![](...)」糊在一行）→ 插入前先 `tr.split($from.pos)`（仅当当前块非空）。
+
+### 9.7 导出 .md：图片必须内联 base64
+
+`attachment:<id>` 离开后端只是一段无意义的字符串，签名 URL 1h 就过期 ——
+两者都会让导出的文件「图全裂」。
+
+正确做法：导出时把每张图取回来转成 `data:image/png;base64,...` 内嵌。
+体积 +33%，换「在 Typora / GitHub / 任何编辑器里都能直接看」。
+取图失败时**保留原始 `attachment:<id>`**，不要静默丢掉。
+
+验证下载内容：**hook `URL.createObjectURL` 截获 Blob 读 `.text()`**，
+比设下载目录再读文件可靠。
+
+### 9.8 一个纯前端验证手法
+
+后端起不来时，`cdp.mjs mock` 可以喂固定 fixtures 走完整链路（响应信封
+`{code,msg,data}`，2xx 即成功）。够验证编辑器、拖拽外的绝大多数交互。
+
