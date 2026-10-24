@@ -58,13 +58,24 @@ const NotesPage: React.FC = () => {
   const importRef = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
 
+  /**
+   * 加载笔记列表。
+   *
+   * ⚠️ 这里**只能有一个 effect**。之前是两个：一个挂载时立即 `loadNotes()`，
+   * 另一个管搜索防抖（`[keyword, loadNotes]`）—— 后者在挂载时也会跑，
+   * 300ms 后又用**同样的参数**打一次接口。
+   *
+   * 后果不只是多一次请求：两个请求都会失败时，错误提示会弹**两次**
+   * （`RequestFeedback` 的去重只在同一个 tick 内生效）。
+   *
+   * 合并成一个：首次挂载不等防抖（delay 0），之后每敲一个字延 300ms。
+   */
+  const firstLoad = useRef(true);
   useEffect(() => {
-    void loadNotes();
-  }, [loadNotes]);
+    const delay = firstLoad.current ? 0 : 300;
+    firstLoad.current = false;
 
-  // 搜索防抖，避免每敲一个字打一次接口
-  useEffect(() => {
-    const t = setTimeout(() => void loadNotes(keyword), 300);
+    const t = setTimeout(() => void loadNotes(keyword), delay);
     return () => clearTimeout(t);
   }, [keyword, loadNotes]);
 
