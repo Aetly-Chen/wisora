@@ -8,6 +8,16 @@ export function listNotes(keyword?: string) {
   return request.get<NoteSummary[]>('/notes', {
     params: keyword ? { keyword } : undefined,
     loading: false,
+    /**
+     * `ignoreError: true` —— 列表失败**不走全局 toast**。
+     *
+     * 笔记页自己有红色横幅（`useNotesStore` 的 `error`），那才是这个错误的
+     * 正确落点：它是持续可见、可关闭的，而 toast 4 秒就消失，用户回头看不到
+     * 为什么列表是空的。两者同时出现就是「一个错误弹两次」。
+     *
+     * 注意：只压低「提示」，请求照样会 reject，store 的 catch 依然收得到。
+     */
+    ignoreError: true,
   });
 }
 

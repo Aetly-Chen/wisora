@@ -17,21 +17,22 @@ import {
   uploadAttachment,
 } from '../request/notes';
 import { detectImportKind, readNoteFile } from '../lib/import-note';
+import { apiErrorMessage } from '../lib/api-error';
 
 /** 自动保存防抖时长：输入停顿这么久才发请求 */
 const AUTOSAVE_DELAY_MS = 800;
 
 interface NotesState {
-  notes: NoteSummary[];
-  keyword: string;
-  listLoading: boolean;
+  notes: NoteSummary[]; // 全部笔记的扁平列表（树由它按 parentId 现场组装）
+  keyword: string; // 已生效的搜索词（输入框的实时值由页面自己持有并防抖后再写进来）
+  listLoading: boolean; // 列表请求进行中，侧边栏显示骨架
 
   /** 树里哪些节点是展开的。用对象而非 Set，便于 zustand 里做不可变更新 */
   expanded: Record<string, boolean>;
 
-  activeId?: string;
-  active?: NoteDetail;
-  detailLoading: boolean;
+  activeId?: string; // 当前打开的笔记 id；undefined 表示没选中
+  active?: NoteDetail; // 当前打开的笔记详情（含正文、子页面、附件）
+  detailLoading: boolean; // 详情请求进行中，编辑器显示骨架屏
 
   /**
    * 用户「显式选中」的目录，决定新建/导入的归属。
@@ -44,8 +45,8 @@ interface NotesState {
    */
   selectedId?: string;
 
-  saveState: SaveState;
-  error?: string;
+  saveState: SaveState; // 正文保存状态；编辑器顶部据此显示「保存中/已保存」
+  error?: string; // 页面级错误文案，红色横幅展示（列表失败就走这里，不再弹 toast）
   /** 一次性成功提示（如「已导入 3 个文件」），展示后由 clearNotice 清掉 */
   notice?: string;
 
@@ -56,9 +57,9 @@ interface NotesState {
    * 前一个人的笔记标题与正文会直接显示给新用户。
    */
   reset: () => void;
-  loadNotes: (keyword?: string) => Promise<void>;
-  setKeyword: (keyword: string) => void;
-  toggleExpanded: (id: string) => void;
+  loadNotes: (keyword?: string) => Promise<void>; // 拉列表；不传关键词则沿用当前 keyword
+  setKeyword: (keyword: string) => void; // 只写关键词，什么时候发请求由页面的防抖 effect 决定
+  toggleExpanded: (id: string) => void; // 展开 / 收起某个节点的子页面
   /**
    * 打开笔记。
    * @param opts.keepSelection 程序化打开（导入后自动展示）传 true，
@@ -75,23 +76,23 @@ interface NotesState {
    * - 不传：按当前选中的目录决定 —— 选中了就作为它的子页面，否则一级目录
    */
   createNote: (parentId?: string | null) => Promise<void>;
-  editTitle: (title: string) => void;
-  editContent: (content: string) => void;
+  editTitle: (title: string) => void; // 改标题：先写本地，再进自动保存队列
+  editContent: (content: string) => void; // 改正文：先写本地，再进自动保存队列
   /** 立即落盘（离开编辑器、切换笔记前调用） */
   flush: () => Promise<void>;
-  togglePin: (noteId?: string) => Promise<void>;
-  removeNote: (id: string) => Promise<void>;
+  togglePin: (noteId?: string) => Promise<void>; // 置顶 / 取消置顶；不传则作用于当前打开的笔记
+  removeNote: (id: string) => Promise<void>; // 删除笔记（子页面由后端级联处理）
   /** 把某篇笔记移动到另一个页面下（null 表示移到顶层） */
   moveNote: (id: string, parentId: string | null) => Promise<void>;
-  uploadFile: (file: File) => Promise<void>;
-  removeAttachment: (id: string) => Promise<void>;
+  uploadFile: (file: File) => Promise<void>; // 上传附件并挂到当前笔记
+  removeAttachment: (id: string) => Promise<void>; // 删附件记录 + 磁盘文件
   /**
    * 导入文件。md/html/txt 变成笔记，其余走附件。
    * 归属规则：当前打开了某篇笔记 → 作为它的子页面；否则作为顶层页面。
    */
   importFiles: (files: File[]) => Promise<void>;
-  clearError: () => void;
-  clearNotice: () => void;
+  clearError: () => void; // 关掉红色横幅
+  clearNotice: () => void; // 关掉绿色成功提示
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -287,7 +288,15 @@ export const useNotesStore = create<NotesState>((set, get) => {
         const list = await listNotes(kw || undefined);
         set({ notes: Array.isArray(list) ? list : [], listLoading: false });
       } catch (err) {
-        set({ listLoading: false, error: (err as Error).message || '加载笔记失败' });
+        /**
+         * 用 `apiErrorMessage` 而不是 `err.message`：
+         * axios 的 message 是 `Request failed with status code 500`（给开发者看的），
+         * 后端的 `msg` 才是给用户看的。见 `lib/api-error.ts`。
+         */
+        set({
+          listLoading: false,
+          error: apiErrorMessage(err, '加载笔记失败'),
+        });
       }
     },
 
