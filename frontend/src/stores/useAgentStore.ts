@@ -139,11 +139,22 @@ function mapHistoryMessages(messages: HistoryMessage[]): AgentMessage[] {
       continue;
     }
 
+    /**
+     * 历史里的 token 用量。
+     *
+     * 文案要和流式路径（`onDone` 里的 `消耗 token：N`）**逐字一致** ——
+     * 否则同一条回复在「刚说完」和「刷新后」会显示两套写法。
+     */
+    const usageTotal = m.usage?.total_tokens;
+
     out.push({
       id: m.id,
       role: m.role === "assistant" ? "ai" : "user",
       content: m.content,
       timestamp,
+      ...(m.role === "assistant" && usageTotal
+        ? { meta: `消耗 token：${usageTotal}` }
+        : {}),
     });
   }
 

@@ -77,4 +77,5 @@ export interface HistoryMessage {
   name?: string | null; // 工具消息的工具名（OpenAI 协议里 tool 消息带 name）
   toolCallId?: string | null; // 工具调用 id，用于把 tool 结果和对应的调用配对
   createdAt?: string; // 落库时间，ISO 字符串；早期数据可能没有
+  usage?: Record<string, number> | null; // 该轮的 token 用量（input/output/total），仅 assistant 有
 }
