@@ -4,20 +4,23 @@ import { RedisService } from '../../redis/redis.service';
 
 /** 单条消息（内存 / 缓存 / 持久化的统一形状） */
 export interface ChatMessage {
-  id: string;
-  role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string;
-  toolCalls?: unknown;
-  toolCallId?: string;
-  name?: string;
+  id: string; // 消息主键，来自 Prisma；内存里新拼的对象也带
+  role: 'system' | 'user' | 'assistant' | 'tool'; // 说话方；tool 是工具调用与返回值的回填轮次
+  content: string; // 文本正文；tool 轮次里存「工具名 + 参数」或工具返回值
+  toolCalls?: unknown; // assistant 轮次请求调用的工具，其它轮次为空
+  toolCallId?: string; // 工具调用 id，tool 轮次靠它对上具体某一次调用
+  name?: string; // 工具名，仅 tool 轮次有值
   /**
    * token 用量（input / output / total，厂商字段名不完全一致）。
    *
    * 只有 assistant 轮次有。落库是给「刷新页面后还能看到这轮花了多少 token」用的 ——
    * `done` 事件里本来就算好了，但之前只推给前端、没存，一刷新就没了。
+   *
+   * 落库时若没有值，要写 undefined 而不是 null —— 这列是 Prisma 的 Json?，
+   * 写 null 会触发类型错误。
    */
   usage?: unknown;
-  createdAt?: Date;
+  createdAt?: Date; // 落库时间；仅从库里读出来时存在，刚构造的消息是 undefined
 }
 
 /** 上下文窗口：超出后只取最近 N 条（后续 P4 再做摘要记忆） */
@@ -208,6 +211,11 @@ export class ConversationRepository {
       toolCalls: m.toolCalls ?? undefined,
       toolCallId: m.toolCallId ?? undefined,
       name: m.name ?? undefined,
+      /**
+       * ⚠️ 必须带上 `usage`，否则「落库了但界面看不到」：
+       * 界面历史走这个方法，而 `loadHistory` 只服务 LLM 上下文。
+       */
+      usage: m.usage ?? undefined,
       createdAt: m.createdAt,
     }));
   }
