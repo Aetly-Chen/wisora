@@ -43,8 +43,8 @@ export function detectImportKind(file: File): ImportableKind | null {
 }
 
 export interface ImportedNote {
-  title: string;
-  content: string;
+  title: string; // 从正文首个标题或文件名推断出的标题
+  content: string; // 统一转成 Markdown 的正文（HTML 会先被转换）
 }
 
 function fallbackTitle(filename: string): string {

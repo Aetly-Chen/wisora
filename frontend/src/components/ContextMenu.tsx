@@ -22,12 +22,12 @@ import type { LucideIcon } from 'lucide-react';
  */
 
 export interface ContextMenuItem {
-  id: string;
-  label: string;
-  icon?: LucideIcon;
+  id: string; // 菜单项唯一 key；同一菜单内不可重复
+  label: string; // 菜单项文案，过长时单行截断
+  icon?: LucideIcon; // 左侧图标；不传则留等宽占位保持对齐
   /** 危险操作走红色，且与普通项之间自动留一条分隔线 */
   danger?: boolean;
-  disabled?: boolean;
+  disabled?: boolean; // 置灰不可点；键盘上下键也会跳过它
   /** 右侧的快捷键提示，只做展示 */
   hint?: string;
   /**
@@ -35,16 +35,16 @@ export interface ContextMenuItem {
    * 不传视为同一组。
    */
   group?: string;
-  onSelect: () => void;
+  onSelect: () => void; // 选中后执行；执行前菜单会先关闭
 }
 
 interface ContextMenuProps {
-  open: boolean;
+  open: boolean; // 是否展开；false 时不渲染任何节点
   /** 触发点的视口坐标（clientX / clientY） */
   x: number;
   y: number;
-  items: ContextMenuItem[];
-  onClose: () => void;
+  items: ContextMenuItem[]; // 菜单项；相邻项分组不同会自动插分隔线
+  onClose: () => void; // 请求关闭；Esc、外部点击、滚动都会触发
 }
 
 const MENU_MIN_WIDTH = 184;

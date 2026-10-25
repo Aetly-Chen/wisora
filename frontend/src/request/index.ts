@@ -44,17 +44,13 @@ interface RequestInstance
     config: RequestConfig,
   ): Promise<T>
 
-  /**
-   * GET
-   */
+  /** GET：返回解包后的 data（拦截器已剥掉信封） */
   get<T = unknown>(
     url: string,
     config?: RequestConfig,
   ): Promise<T>
 
-  /**
-   * POST
-   */
+  /** POST：返回解包后的 data；创建类接口后端默认 201 */
   post<
     T = unknown,
     D = unknown,
@@ -64,9 +60,7 @@ interface RequestInstance
     config?: RequestConfig<D>,
   ): Promise<T>
 
-  /**
-   * PUT
-   */
+  /** PUT：整份替换语义，返回解包后的 data */
   put<
     T = unknown,
     D = unknown,
@@ -76,9 +70,7 @@ interface RequestInstance
     config?: RequestConfig<D>,
   ): Promise<T>
 
-  /**
-   * PATCH
-   */
+  /** PATCH：局部更新语义，自动保存就走它 */
   patch<
     T = unknown,
     D = unknown,
@@ -88,9 +80,7 @@ interface RequestInstance
     config?: RequestConfig<D>,
   ): Promise<T>
 
-  /**
-   * DELETE
-   */
+  /** DELETE：返回解包后的 data */
   delete<T = unknown>(
     url: string,
     config?: RequestConfig,

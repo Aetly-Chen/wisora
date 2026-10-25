@@ -20,15 +20,15 @@ import { getRefreshToken } from "./storage";
  */
 
 export interface PageParams {
-  page: number;
-  pageSize: number;
+  page: number; // 页码，从 1 开始
+  pageSize: number; // 每页条数
 }
 
 export interface PageResult<T> {
-  list: T[];
-  total: number;
-  page: number;
-  pageSize: number;
+  list: T[]; // 当前页数据
+  total: number; // 符合条件总条数，用于算总页数
+  page: number; // 回显的页码（后端可能纠正越界值）
+  pageSize: number; // 回显的每页条数
 }
 
 // export interface LoginParams {
@@ -45,9 +45,9 @@ export interface PageResult<T> {
  * 少三个，前端只能靠 `as` 糊过去。
  */
 export interface AuthUser {
-  id: string;
-  email: string;
-  nickname: string | null;
+  id: string; // 用户主键
+  email: string; // 邮箱，唯一且不可改
+  nickname: string | null; // 昵称；注册后可能还没填
   /** 账号标识，老数据可能为空 */
   handle: string | null;
   /** 个性签名 */
@@ -57,22 +57,26 @@ export interface AuthUser {
 }
 
 export interface LoginResult {
-  accessToken: string;
-  refreshToken: string;
-  user: AuthUser;
+  accessToken: string; // 访问令牌，放 Authorization: Bearer 里，默认 15 分钟
+  refreshToken: string; // 刷新令牌，access 过期时用它换新的
+  user: AuthUser; // 登录用户信息（与 /user/profile 同形状）
 }
 
+/**
+ * ⚠️ 遗留形状：`{ id, name, email, avatar }` 与后端实际返回的 `AuthUser` 不一致。
+ * 新代码请用 `AuthUser`；这里保留是因为还有组件按旧字段取值。
+ */
 export interface UserProfile {
-  id: string;
-  name: string;
-  email: string;
-  avatar?: string;
+  id: string; // 用户主键
+  name: string; // 展示名（后端字段是 nickname）
+  email: string; // 邮箱
+  avatar?: string; // 头像地址；缺省时用首字母兜底
 }
 
 export interface UploadResult {
-  url: string;
-  fileName: string;
-  size: number;
+  url: string; // 可访问的文件地址（早期通用上传接口返回的直链）
+  fileName: string; // 服务端保存的文件名
+  size: number; // 字节数
 }
 
 /**
@@ -200,8 +204,8 @@ export function refreshToken() {
   );
 }
 export interface ProfileResult {
-  id: string;
-  email: string;
+  id: string; // 用户主键
+  email: string; // 邮箱（`/auth/test-token` 用来验证令牌是否仍然有效）
 }
 
 export function testToken() {

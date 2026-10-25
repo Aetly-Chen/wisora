@@ -25,8 +25,8 @@ import { peerAvatarClass } from '@/lib/chat-utils';
  */
 
 interface AddFriendDialogProps {
-  open: boolean;
-  onClose: () => void;
+  open: boolean; // 是否展示弹窗
+  onClose: () => void; // 关闭回调；关闭时清空关键词与搜索结果
 }
 
 export const AddFriendDialog: React.FC<AddFriendDialogProps> = ({ open, onClose }) => {

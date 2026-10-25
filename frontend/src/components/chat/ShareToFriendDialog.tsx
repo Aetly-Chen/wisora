@@ -28,7 +28,7 @@ import { Avatar } from '@/components/Avatar';
 interface ShareToFriendDialogProps {
   /** 要分享的目标；null 表示关闭 */
   target: SharedNotePayload | null;
-  onClose: () => void;
+  onClose: () => void; // 关闭弹窗，并清空已选好友与附言
   /** 分享成功后跳去聊天页；传 false 表示不提供跳转入口 */
   allowJumpToChat?: boolean;
 }

@@ -29,8 +29,8 @@ const RENEW_AHEAD_MS = 5 * 60 * 1000;
 const TTL_MS = 60 * 60 * 1000;
 
 interface CachedUrl {
-  url: string;
-  expiresAt: number;
+  url: string; // 后端签出来的直链（/attachments/:id/raw?exp&sig），1 小时有效
+  expiresAt: number; // 本地记录的过期时间戳（毫秒）；提前 5 分钟续签，避免边界上刚好过期
 }
 
 const cache = new Map<string, CachedUrl>();

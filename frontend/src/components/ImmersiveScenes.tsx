@@ -19,8 +19,8 @@ gsap.registerPlugin(ScrollTrigger);
  */
 
 interface Scene {
-  src: string;
-  label: string;
+  src: string; // 整屏背景图地址，指向 public/parallax 下的文件
+  label: string; // 左下角编号文案，形如「01 · 晨雾」
 }
 
 const SCENES: Scene[] = [

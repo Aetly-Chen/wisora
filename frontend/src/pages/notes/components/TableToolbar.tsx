@@ -27,11 +27,11 @@ export type TableCommand = (
 ) => boolean;
 
 interface Action {
-  key: string;
-  label: string;
-  hint: string;
-  cmd: TableCommand;
-  danger?: boolean;
+  key: string; // React key，同时用于标识这个动作
+  label: string; // 按钮文字（如「↑ 行」）
+  hint: string; // title 提示，说明这一下会做什么
+  cmd: TableCommand; // 实际执行的 prosemirror-tables 命令
+  danger?: boolean; // 破坏性操作（删行/删列/删表），标红
   /** 与上一个按钮之间画一条分隔线 */
   groupStart?: boolean;
 }

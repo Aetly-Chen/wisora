@@ -30,8 +30,8 @@ export * from './notes.tool';
 
 /** 工具 + 它的执行策略 */
 export interface ToolWithPolicy {
-  tool: StructuredToolInterface;
-  policy: Partial<ToolPolicy>;
+  tool: StructuredToolInterface; // LangChain 的工具实例（真正被模型调用的东西）
+  policy: Partial<ToolPolicy>; // 执行策略；没写的字段回落到 ToolPolicy 的默认值
 }
 
 /**

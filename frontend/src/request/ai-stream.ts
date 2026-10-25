@@ -22,8 +22,8 @@ import type {
 const BASE = import.meta.env.VITE_BASE_API ?? "";
 
 export interface StreamChatParams {
-  question: string;
-  conversationId?: string;
+  question: string; // 用户这一轮的问题
+  conversationId?: string; // 续聊时传；不传表示新会话（后端会建）
   /** 本次使用的模型；不传则由后端回落到默认模型 */
   model?: string;
   /**
@@ -33,22 +33,22 @@ export interface StreamChatParams {
    * 所以它天然只作用于"这一轮"，不会长期生效。
    */
   allowWrite?: boolean;
-  signal?: AbortSignal;
+  signal?: AbortSignal; // 用于中断流式请求（切会话 / 点停止）
   handlers: {
-    onStart?: (payload: { conversationId: string; messageId: string }) => void;
-    onToken?: (text: string) => void;
-    onReasoning?: (text: string) => void;
-    onToolCall?: (payload: { id: string; name: string; args: string }) => void;
+    onStart?: (payload: { conversationId: string; messageId: string }) => void; // 流开始：拿到本轮会话与消息 id
+    onToken?: (text: string) => void; // 增量正文，直接追加到气泡
+    onReasoning?: (text: string) => void; // 增量思维链，渲染进折叠区
+    onToolCall?: (payload: { id: string; name: string; args: string }) => void; // 工具开始调用；args 是原始 JSON 串
     onToolResult?: (payload: {
-      id: string;
-      name: string;
-      ok: boolean;
-      result: string;
+      id: string; // 工具调用 id，用来和 onToolCall 配对
+      name: string; // 工具名
+      ok: boolean; // 是否执行成功
+      result: string; // 工具返回的文本
     }) => void;
-    onError?: (message: string) => void;
+    onError?: (message: string) => void; // 服务端错误；前端展示后就地结束本轮
     onDone?: (payload: {
-      finishReason: string;
-      usage?: Record<string, number>;
+      finishReason: string; // 结束原因（stop / length / tool_calls 等）
+      usage?: Record<string, number>; // token 用量（input/output/total）
     }) => void;
   };
 }

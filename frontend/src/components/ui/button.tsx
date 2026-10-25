@@ -34,7 +34,7 @@ const buttonVariants = cva(
 export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {
-  asChild?: boolean
+  asChild?: boolean // 为 true 时不渲染 <button>，把样式与插槽交给子元素（Radix Slot 用法）
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(

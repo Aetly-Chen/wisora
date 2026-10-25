@@ -94,22 +94,22 @@ export function visibleConversations(
 /* ------------------------------ Store ------------------------------ */
 
 interface UploadState {
-  name: string;
-  percent: number;
+  name: string; // 正在上传的文件名，显示在进度条旁边
+  percent: number; // 上传进度 0-100
 }
 
 interface ChatState {
-  meId: string;
+  meId: string; // 当前用户 id；判断气泡左右、区分「我发的」全靠它
 
-  friends: Friend[];
-  conversations: Conversation[];
+  friends: Friend[]; // 好友列表
+  conversations: Conversation[]; // 会话列表（单聊 + 群聊），已按置顶/活跃度排好
   /** 会话 id → 消息列表。按会话分桶是为了让非当前会话也能收到推送 */
   messagesByConversation: Record<string, Message[]>;
 
-  activeId?: string;
-  keyword: string;
-  listLoading: boolean;
-  messagesLoading: boolean;
+  activeId?: string; // 当前打开的会话 id；undefined 表示还没选
+  keyword: string; // 会话搜索关键词（本地过滤，不打接口）
+  listLoading: boolean; // 会话列表加载中
+  messagesLoading: boolean; // 当前会话的历史消息加载中，用于渲染骨架
   /** 附件上传进度；非空时输入区显示进度条 */
   upload?: UploadState;
   /** 正在输入的人：会话 id → 用户 id 列表 */
@@ -117,8 +117,8 @@ interface ChatState {
   /** 草稿：会话 id → 文本 */
   drafts: Record<string, string>;
 
-  error?: string;
-  notice?: string;
+  error?: string; // 错误提示文案
+  notice?: string; // 一次性成功提示（如「已添加好友」）
 
   /**
    * 拉好友与会话、订阅实时事件。
@@ -127,7 +127,7 @@ interface ChatState {
    * 取决于当前是桌面还是移动端布局，而只有页面知道这件事（见 `pages/chat`）。
    */
   init: (currentUserId: string, options: { autoSelect: boolean }) => Promise<void>;
-  dispose: () => void;
+  dispose: () => void; // 断开实时连接（组件卸载时调，不清数据）
   /**
    * 断开实时连接并清空全部状态。
    *
@@ -136,27 +136,27 @@ interface ChatState {
    * 已失效的令牌不断重连）。
    */
   reset: () => void;
-  setKeyword: (keyword: string) => void;
-  setDraft: (conversationId: string, text: string) => void;
+  setKeyword: (keyword: string) => void; // 写搜索词，列表在本地过滤
+  setDraft: (conversationId: string, text: string) => void; // 存草稿，切会话后回来还在
 
-  openConversation: (id: string) => Promise<void>;
-  send: (payload: { text?: string; note?: Message['note'] }) => Promise<void>;
-  attachAndSend: (file: File) => Promise<void>;
-  retryMessage: (messageId: string) => Promise<void>;
+  openConversation: (id: string) => Promise<void>; // 打开会话：加载消息 + 清未读
+  send: (payload: { text?: string; note?: Message['note'] }) => Promise<void>; // 发文本 / 笔记卡片
+  attachAndSend: (file: File) => Promise<void>; // 上传附件并作为消息发出
+  retryMessage: (messageId: string) => Promise<void>; // 重发失败的消息
 
-  startDirect: (friendId: string) => Promise<void>;
-  startGroup: (payload: { title: string; memberIds: string[] }) => Promise<void>;
+  startDirect: (friendId: string) => Promise<void>; // 与某好友开启（或复用）单聊
+  startGroup: (payload: { title: string; memberIds: string[] }) => Promise<void>; // 建群聊
 
-  fetchFriends: () => Promise<void>;
-  findUsers: (keyword: string) => Promise<Friend[]>;
-  addFriend: (userId: string) => Promise<void>;
+  fetchFriends: () => Promise<void>; // 拉好友列表
+  findUsers: (keyword: string) => Promise<Friend[]>; // 按邮箱 / handle 搜人（加好友用）
+  addFriend: (userId: string) => Promise<void>; // 加好友
 
-  togglePin: (conversationId: string) => Promise<void>;
-  toggleMute: (conversationId: string) => Promise<void>;
-  shareNote: (payload: ShareNotePayload) => Promise<number>;
+  togglePin: (conversationId: string) => Promise<void>; // 会话置顶 / 取消
+  toggleMute: (conversationId: string) => Promise<void>; // 免打扰开关
+  shareNote: (payload: ShareNotePayload) => Promise<number>; // 分享笔记到若干好友，返回送达的会话数
 
-  clearError: () => void;
-  clearNotice: () => void;
+  clearError: () => void; // 关掉错误提示
+  clearNotice: () => void; // 关掉成功提示
 }
 
 /** 订阅句柄。放在模块作用域而不是 state 里：它不该触发重渲染 */

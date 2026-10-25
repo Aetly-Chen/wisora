@@ -16,7 +16,7 @@ export interface RateLimitOptions {
 }
 
 export interface RateLimitResult {
-  allowed: boolean;
+  allowed: boolean; // 本次是否放行；false 时调用方应抛 429
   /** 窗口内剩余可用次数 */
   remaining: number;
   /** 距离窗口重置的剩余秒数 */

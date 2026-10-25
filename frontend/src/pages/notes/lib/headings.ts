@@ -11,7 +11,7 @@
 export interface Heading {
   /** 1~6 */
   level: number;
-  text: string;
+  text: string; // 标题文字（已去掉 # 号与尾部 #，用于大纲显示）
   /** 行号（从 0 开始） */
   line: number;
   /** 该行首字符在原文里的偏移 */

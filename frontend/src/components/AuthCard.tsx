@@ -28,9 +28,9 @@ import { useUserStore } from "../stores/useAppStore";
 import { useNavigate } from "react-router-dom";
 
 interface AuthCardProps {
-  onOpenForgotModal: () => void;
-  onShowToast: (msg: string) => void;
-  viewDevice: ViewDevice;
+  onOpenForgotModal: () => void; // 点「忘记密码」时打开重置密码弹窗
+  onShowToast: (msg: string) => void; // 轻提示回调，用于校验失败等反馈
+  viewDevice: ViewDevice; // 预览视口 auto/desktop/h5；h5 时收为单列
 }
 
 export const AuthCard: React.FC<AuthCardProps> = ({

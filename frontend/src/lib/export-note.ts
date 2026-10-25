@@ -18,7 +18,7 @@
 import { collectAttachmentIds, ensureSigned, getAttachmentUrl } from './attachment-url';
 
 export interface ExportResult {
-  filename: string;
+  filename: string; // 实际下载的文件名（已清洗非法字符、截断到 80 字）
   /** 成功内联的图片数 */
   inlined: number;
   /** 取不回来、保留了原引用的图片数 */

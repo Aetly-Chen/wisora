@@ -46,18 +46,18 @@ function messagePreview(message: Message | null, meId: string): string {
 }
 
 interface ConversationListProps {
-  conversations: Conversation[];
-  friends: Friend[];
-  meId: string;
-  activeId?: string;
-  loading: boolean;
-  keyword: string;
+  conversations: Conversation[]; // 会话列表，已按置顶与活跃时间排序
+  friends: Friend[]; // 好友表；用来推导单聊标题与头像
+  meId: string; // 当前用户 id；推导标题时排除自己
+  activeId?: string; // 当前打开的会话 id；命中时整行反白
+  loading: boolean; // true 时渲染骨架屏
+  keyword: string; // 搜索关键词，受控值
   /** 会话 id → 正在输入的人 */
   typing: Record<string, string[]>;
-  onKeywordChange: (value: string) => void;
-  onOpen: (id: string) => void;
-  onNewChat: () => void;
-  onContextMenu: (e: React.MouseEvent, conversation: Conversation) => void;
+  onKeywordChange: (value: string) => void; // 搜索框输入变化时回传新关键词
+  onOpen: (id: string) => void; // 点击行或回车打开该会话
+  onNewChat: () => void; // 点右下角悬浮按钮打开新建聊天
+  onContextMenu: (e: React.MouseEvent, conversation: Conversation) => void; // 右键会话行，弹置顶/免打扰菜单
 }
 
 export const ConversationList: React.FC<ConversationListProps> = ({

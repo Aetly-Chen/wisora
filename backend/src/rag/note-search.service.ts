@@ -4,7 +4,7 @@ import { EmbeddingService } from './embedding.service';
 import { cosine, decodeVector } from './vector';
 
 export interface NoteSearchHit {
-  noteId: string;
+  noteId: string; // 命中笔记的 id，前端据此跳转到笔记详情
   /** 笔记标题 */
   noteTitle: string;
   /** 命中块所在的小节标题 */

@@ -81,49 +81,50 @@ export const CONVERSATION_SHAPE = {
  */
 
 interface AttachmentRow {
-  id: string;
-  filename: string;
-  mimeType: string;
-  size: number;
+  id: string; // 附件主键
+  filename: string; // DB 列名；DTO 里叫 name（映射时改名）
+  mimeType: string; // MIME 类型，决定气泡渲染方式
+  size: number; // 字节数
 }
 
 interface MessageRow {
-  id: string;
-  conversationId: string;
-  senderId: string;
-  kind: string;
-  text: string | null;
-  noteId: string | null;
-  noteTitle: string | null;
-  noteKind: string | null;
-  noteChildCount: number;
-  status: string;
-  createdAt: Date;
-  attachment: AttachmentRow | null;
+  id: string; // 消息主键
+  conversationId: string; // 所属会话
+  senderId: string; // 发送者用户 id
+  kind: string; // DB 枚举 ChatMessageKind，值是大写 TEXT/IMAGE/FILE/NOTE
+  text: string | null; // 文本内容；非 text 类型为 null
+  noteId: string | null; // —— 以下四个是「分享笔记」时的快照 ——
+  noteTitle: string | null; // 分享当时的标题
+  noteKind: string | null; // note（单篇）/ folder（目录）
+  noteChildCount: number; // 目录分享时的子页面数（单篇为 0）
+  status: string; // 消息状态（sent/read 等），DB 里是字符串
+  createdAt: Date; // 落库时间；映射成 DTO 时转 ISO 字符串
+  attachment: AttachmentRow | null; // 附件消息的附件行；其它类型为 null
 }
 
 interface ConversationRow {
-  id: string;
-  kind: string;
-  title: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-  members: Array<{ userId: string }>;
-  messages: MessageRow[];
+  id: string; // 会话主键
+  kind: string; // direct / group
+  title: string | null; // 群名；单聊为 null（标题由对方名字推导）
+  createdAt: Date; // 创建时间
+  updatedAt: Date; // 最后活跃时间，列表排序依据
+  members: Array<{ userId: string }>; // 参与者 id（这里只需要 userId）
+  messages: MessageRow[]; // 只取最近一条，用于列表摘要
 }
 
+/** 当前用户在该会话里的成员级状态（来自 ChatConversationMember） */
 interface MemberFlags {
-  pinned: boolean;
-  muted: boolean;
-  unread: number;
+  pinned: boolean; // 是否置顶（每人各自独立）
+  muted: boolean; // 是否免打扰
+  unread: number; // 未读数
 }
 
 interface UserRow {
-  id: string;
-  email: string;
-  nickname: string | null;
-  handle: string | null;
-  bio: string | null;
+  id: string; // 用户主键
+  email: string; // 邮箱（搜索结果里用来确认身份）
+  nickname: string | null; // 昵称，可能为空
+  handle: string | null; // @handle，加好友按它精确查找
+  bio: string | null; // 个性签名 / 职位
 }
 
 /* ------------------------------ 映射 ------------------------------ */

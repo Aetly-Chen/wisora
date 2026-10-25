@@ -4,7 +4,7 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { getToken } from '../request/storage';
 
 interface ProtectedRouteProps {
-  children: React.ReactNode;
+  children: React.ReactNode; // 受保护的路由内容；无 token 时不渲染
 }
 
 export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {

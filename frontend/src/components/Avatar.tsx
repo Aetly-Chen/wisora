@@ -37,10 +37,10 @@ const PRESENCE_CLASS: Record<Presence, string> = {
 };
 
 interface AvatarProps {
-  id: string;
-  name: string;
-  size?: AvatarSize;
-  presence?: Presence;
+  id: string; // 用户或会话 id；同时作为底色的取色种子
+  name: string; // 显示名；取首字母作为头像文字
+  size?: AvatarSize; // 尺寸档位 sm/md/lg/xl；默认 md
+  presence?: Presence; // 在线状态；离线不画状态圆点
   /** 群聊头像：用中性底色 + 图标，与个人头像区分开 */
   group?: boolean;
   /**
@@ -51,7 +51,7 @@ interface AvatarProps {
    * 不传时保持项目原有的渐变，导航栏与个人资料页不受影响。
    */
   fill?: string;
-  className?: string;
+  className?: string; // 透传给最外层容器，用于外部微调位置
 }
 
 export const Avatar: React.FC<AvatarProps> = ({

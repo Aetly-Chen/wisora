@@ -28,11 +28,11 @@ function asFailure(err: unknown): string {
 }
 
 interface NoteRow {
-  id: string;
-  title: string;
-  parentId: string | null;
-  pinned: boolean;
-  updatedAt: Date;
+  id: string; // 笔记 id，模型靠它继续调后续工具
+  title: string; // 标题；用户没填时库里存的是「无标题」
+  parentId: string | null; // 父笔记 id；null 表示根节点
+  pinned: boolean; // 是否置顶，渲染时在标题后加「（置顶）」
+  updatedAt: Date; // 最后修改时间，渲染成 yyyy-MM-dd HH:mm
 }
 
 /**

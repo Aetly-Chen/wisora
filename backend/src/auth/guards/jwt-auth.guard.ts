@@ -9,8 +9,8 @@ import type { Request } from 'express';
 
 /** 守卫放行后挂在请求上的用户信息 */
 export interface AuthedRequest extends Request {
-  userId?: string;
-  userEmail?: string;
+  userId?: string; // 令牌校验通过后写入的用户主键，来自 JWT 的 sub
+  userEmail?: string; // 同上，取自令牌的 email 声明
 }
 
 /**

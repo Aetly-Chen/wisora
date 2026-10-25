@@ -23,14 +23,14 @@ export const USER_PUBLIC_SELECT = {
 } as const;
 
 export interface PublicUser {
-  id: string;
-  email: string;
-  nickname: string | null;
+  id: string; // 用户主键
+  email: string; // 登录邮箱，只有本人资料接口会返回
+  nickname: string | null; // 昵称；没填时为 null，前端回退邮箱前缀展示
   /** 账号标识，展示为 @handle。老用户可能为空 */
   handle: string | null;
   /** 个性签名 */
   bio: string | null;
-  createdAt: Date;
+  createdAt: Date; // 注册时间；查询侧是 Date，出参是 ISO 字符串
 }
 
 /**

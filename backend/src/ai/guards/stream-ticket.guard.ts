@@ -8,16 +8,16 @@ import { RedisService } from '../../redis/redis.service';
 
 /** ticket 里携带的会话级授权信息 */
 export interface TicketPayload {
-  userId: string;
+  userId: string; // 换票时通过 JWT 校验出的用户 id，后续据此校验会话归属
   /** 是否允许 AI 执行写操作工具 */
   allowWrite: boolean;
 }
 
 /** 请求被守卫处理后附加的字段 */
 export interface AiStreamRequest {
-  url: string;
-  userId?: string;
-  allowWrite?: boolean;
+  url: string; // 原始请求地址，ticket 从它的 query 里取
+  userId?: string; // 守卫解析 ticket 后写入；未经守卫时是 undefined
+  allowWrite?: boolean; // 同上，缺省按 false 处理，写工具会被拦
 }
 
 /**

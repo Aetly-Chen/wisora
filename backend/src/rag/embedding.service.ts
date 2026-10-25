@@ -23,9 +23,9 @@ const TIMEOUT_MS = 30_000;
 const RETRIES = 1;
 
 interface EmbeddingResponse {
-  code?: number | string;
-  message?: string;
-  data?: { index: number; embedding: number[] }[];
+  code?: number | string; // 上游（向量服务）自己的返回码；非零即有错，成功时通常不返回
+  message?: string; // 失败时的原因，只用于拼错误日志
+  data?: { index: number; embedding: number[] }[]; // 每条输入对应的向量；index 用于对齐入参顺序
 }
 
 @Injectable()

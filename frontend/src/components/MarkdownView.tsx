@@ -37,8 +37,8 @@ if (!(marked as unknown as Record<string, unknown>)[MARKED_HIGHLIGHT_FLAG]) {
 }
 
 interface MarkdownViewProps {
-  content: string;
-  className?: string;
+  content: string; // Markdown 源文本；空串时整个组件返回 null
+  className?: string; // 追加到 md-body 上，供外部微调排版
 }
 
 export const MarkdownView: React.FC<MarkdownViewProps> = ({ content, className }) => {

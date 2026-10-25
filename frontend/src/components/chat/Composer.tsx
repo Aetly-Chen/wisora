@@ -26,14 +26,14 @@ import { CHAT_COLUMN, CHAT_FILE_MAX_BYTES, formatBytes } from '@/lib/chat-utils'
 const MAX_TEXTAREA_HEIGHT = 160;
 
 interface ComposerProps {
-  value: string;
-  onChange: (value: string) => void;
-  onSubmit: () => void;
+  value: string; // 输入框文本，受控值
+  onChange: (value: string) => void; // 文本变化时回传
+  onSubmit: () => void; // 发送；Enter 在非输入法组合态触发
   /** 没有选中会话时为 true，整个输入区禁用 */
   disabled: boolean;
-  sending: boolean;
-  upload?: { name: string; percent: number };
-  onAttachFile: (file: File) => void;
+  sending: boolean; // 正在发送；按钮转圈并禁止再次提交
+  upload?: { name: string; percent: number }; // 上传中的文件名与进度 0-100；有值时整行换成进度条
+  onAttachFile: (file: File) => void; // 选中或拖入文件时回调，超限的已过滤
 }
 
 export const Composer: React.FC<ComposerProps> = ({

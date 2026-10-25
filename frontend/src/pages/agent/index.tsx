@@ -159,17 +159,17 @@ const ModelSwitcher: React.FC<{
 
 /** 浏览器语音识别的最小类型（TS 标准库未收录） */
 interface SpeechRecognitionLike {
-  lang: string;
-  interimResults: boolean;
-  continuous: boolean;
-  start: () => void;
-  stop: () => void;
-  abort: () => void;
+  lang: string; // 识别语言（这里固定 zh-CN）
+  interimResults: boolean; // 是否返回中间结果；true 才有「边说边出字」
+  continuous: boolean; // 是否连续识别（false 说完一句就停）
+  start: () => void; // 开始识别
+  stop: () => void; // 停止并返回最终结果
+  abort: () => void; // 立即中止，不返回结果
   onresult:
     | ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void)
-    | null;
-  onend: (() => void) | null;
-  onerror: (() => void) | null;
+    | null; // 识别结果回调；results 是「句子 → 候选词 → 文本」的二维结构
+  onend: (() => void) | null; // 识别结束（含被浏览器自动结束），用于复位按钮状态
+  onerror: (() => void) | null; // 出错回调（没麦克风权限 / 不支持）
 }
 
 /**
@@ -282,16 +282,16 @@ const VoiceInputButton: React.FC<{
  * —— 表现就是"一次只能输入一个字符"。
  */
 interface InputBarProps {
-  value: string;
-  onChange: (value: string) => void;
-  onSubmit: (e: React.FormEvent) => void;
-  onStop: () => void;
-  isStreaming: boolean;
-  inputRef: React.RefObject<HTMLInputElement | null>;
+  value: string; // 输入框受控值
+  onChange: (value: string) => void; // 输入变化回调
+  onSubmit: (e: React.FormEvent) => void; // 提交（回车 / 点发送）
+  onStop: () => void; // 点「停止」中断当前流
+  isStreaming: boolean; // 是否流式中，决定显示发送还是停止
+  inputRef: React.RefObject<HTMLInputElement | null>; // 外部持有的输入框 ref（自动聚焦用）
   /** 模型切换 */
-  model: string;
-  models: string[];
-  onModelChange: (model: string) => void;
+  model: string; // 当前模型名
+  models: string[]; // 可选模型列表
+  onModelChange: (model: string) => void; // 切模型回调
   /** 语音识别结果，追加到输入框 */
   onVoiceResult: (text: string) => void;
   /**
@@ -302,7 +302,7 @@ interface InputBarProps {
    * 因此天然只作用于这一轮，不会长期生效。
    */
   allowWrite: boolean;
-  onAllowWriteChange: (allow: boolean) => void;
+  onAllowWriteChange: (allow: boolean) => void; // 切换写权限开关
   floating?: boolean;
 }
 

@@ -30,7 +30,7 @@ const ONLINE_TTL = 120;
 const EVENT_CHANNEL = 'event';
 
 interface AuthedSocket extends Socket {
-  data: { userId?: string };
+  data: { userId?: string }; // 握手鉴权通过后写入的用户 id；被拒时一直是 undefined
 }
 
 /**

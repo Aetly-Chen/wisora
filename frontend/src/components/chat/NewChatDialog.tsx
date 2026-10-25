@@ -28,11 +28,11 @@ import { peerAvatarClass } from '@/lib/chat-utils';
  */
 
 interface NewChatDialogProps {
-  open: boolean;
-  friends: Friend[];
-  onClose: () => void;
-  onStartDirect: (friendId: string) => void;
-  onStartGroup: (payload: { title: string; memberIds: string[] }) => void;
+  open: boolean; // 是否展示弹窗
+  friends: Friend[]; // 可选联系人；搜索与群聊选人都基于它
+  onClose: () => void; // 关闭回调；关闭时重置搜索词与已选
+  onStartDirect: (friendId: string) => void; // 单聊页签点某人：建会话并关闭
+  onStartGroup: (payload: { title: string; memberIds: string[] }) => void; // 群聊页签创建：提交群名与成员
 }
 
 export const NewChatDialog: React.FC<NewChatDialogProps> = ({

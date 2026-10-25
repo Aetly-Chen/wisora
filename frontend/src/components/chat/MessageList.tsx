@@ -56,19 +56,19 @@ const TAIL_W = 7;
 const TAIL_H = 16;
 
 interface MessageListProps {
-  conversation: Conversation;
-  messages: Message[];
-  friends: Friend[];
-  meId: string;
-  loading: boolean;
+  conversation: Conversation; // 当前会话；决定是否群聊、头像如何取色
+  messages: Message[]; // 消息列表，按时间正序
+  friends: Friend[]; // 好友表；反查发送者名字与头像
+  meId: string; // 当前用户 id；据此判断消息是否「我发的」
+  loading: boolean; // true 时渲染骨架屏而不是消息
   /** 正在输入的人（会话里除我之外的成员） */
   typingUserIds: string[];
-  onRetry: (messageId: string) => void;
-  onOpenNote: (noteId: string) => void;
+  onRetry: (messageId: string) => void; // 点「重发」时回调，传入发送失败的消息 id
+  onOpenNote: (noteId: string) => void; // 点笔记卡片时跳回笔记页
 }
 
 interface RenderItem {
-  message: Message;
+  message: Message; // 这一条消息
   /** 需要在该消息前插入日期分隔 */
   dayDivider?: string;
   /** 一组连续消息的起始（要显示发送者名与头像位） */

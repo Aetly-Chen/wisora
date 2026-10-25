@@ -21,16 +21,16 @@ import {
 } from 'lucide-react';
 
 interface WorkspaceDashboardProps {
-  user: UserProfile;
-  onLogout: () => void;
-  onShowToast: (msg: string) => void;
+  user: UserProfile; // 当前登录用户；顶栏与资料页展示用
+  onLogout: () => void; // 点退出登录时回调，由父组件清 token 并跳转
+  onShowToast: (msg: string) => void; // 操作反馈的轻提示
 }
 
 interface ChatMessage {
-  id: string;
-  sender: 'user' | 'ai';
-  text: string;
-  time: string;
+  id: string; // 消息唯一 key；本地插入时用时间戳生成
+  sender: 'user' | 'ai'; // 发送方；user 靠右、ai 靠左
+  text: string; // 消息正文，纯文本
+  time: string; // 展示用时间，已格式化为时:分
 }
 
 export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({

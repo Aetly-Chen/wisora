@@ -7,6 +7,6 @@ export interface ApiResponse<T = any> {
    * （`frontend/src/request/constant.ts` 的 `isSuccessCode()`）。
    */
   code: number
-  msg: string
-  data: T
+  msg: string // 给人看的提示语；成功一般是 'ok'，失败是异常文案
+  data: T // 业务载荷；失败响应里通常为 null
 }

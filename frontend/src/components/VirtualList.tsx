@@ -20,10 +20,10 @@ export const ROW_HEIGHT = 44;
 const OVERSCAN = 6;
 
 interface VirtualListProps {
-  count: number;
-  renderRow: (index: number) => React.ReactNode;
-  className?: string;
-  empty?: React.ReactNode;
+  count: number; // 总行数；用于撑出滚动区高度
+  renderRow: (index: number) => React.ReactNode; // 渲染第 index 行；只调用视口内的行
+  className?: string; // 透传给滚动容器，通常控制高度与 overflow
+  empty?: React.ReactNode; // 空态内容；count 为 0 时渲染在容器内
   /**
    * 行高（像素）。默认 44，与笔记目录树、会话列表一致。
    *
@@ -31,7 +31,7 @@ interface VirtualListProps {
    * 注意这个值必须与实际行高严格相等，否则滚动位置会漂移。
    */
   rowHeight?: number;
-  'data-testid'?: string;
+  'data-testid'?: string; // 透传到滚动容器，供 e2e 定位
 }
 
 export const VirtualList: React.FC<VirtualListProps> = ({

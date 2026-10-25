@@ -29,7 +29,7 @@ const SIDE_CLASS = {
 
 interface SheetContentProps
   extends React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> {
-  side?: keyof typeof SIDE_CLASS;
+  side?: keyof typeof SIDE_CLASS; // 从哪一侧滑出（top/right/bottom/left），默认 right
   /** 关闭按钮的无障碍标签，默认「关闭」 */
   closeLabel?: string;
 }

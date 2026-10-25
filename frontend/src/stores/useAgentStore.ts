@@ -151,10 +151,10 @@ function mapHistoryMessages(messages: HistoryMessage[]): AgentMessage[] {
 }
 
 interface AgentState {
-  messages: AgentMessage[];
-  conversationId?: string;
-  isStreaming: boolean;
-  error?: string;
+  messages: AgentMessage[]; // 当前会话的消息列表（含工具气泡与思维链）
+  conversationId?: string; // 当前会话 id；新会话在首条消息发出前是 undefined
+  isStreaming: boolean; // 是否正在流式接收，用于禁用发送 / 显示「停止」
+  error?: string; // 本轮错误文案，展示在消息区顶部
 
   /** 侧边栏会话列表 */
   conversations: ConversationSummary[];
@@ -178,18 +178,18 @@ interface AgentState {
    * 就可能真的删掉东西。
    */
   allowWrite: boolean;
-  setAllowWrite: (allow: boolean) => void;
+  setAllowWrite: (allow: boolean) => void; // 切换写权限；随 ticket 一起签给后端，只作用于下一轮
 
-  send: (question: string) => Promise<void>;
-  stop: () => void;
+  send: (question: string) => Promise<void>; // 发一条消息并消费 SSE 流
+  stop: () => void; // 中断当前流（abort）；已收到的内容保留
   reset: () => void;
-  clearError: () => void;
+  clearError: () => void; // 关掉错误提示
 
-  loadConversations: () => Promise<void>;
-  loadModels: () => Promise<void>;
-  setModel: (model: string) => void;
-  openConversation: (id: string) => Promise<void>;
-  removeConversation: (id: string) => Promise<void>;
+  loadConversations: () => Promise<void>; // 拉侧边栏会话列表
+  loadModels: () => Promise<void>; // 拉可选模型列表；失败则回落到默认模型
+  setModel: (model: string) => void; // 切模型，只影响下一轮对话
+  openConversation: (id: string) => Promise<void>; // 切到历史会话并加载其消息
+  removeConversation: (id: string) => Promise<void>; // 删会话；删的若是当前会话则回到新会话
 }
 
 let controller: AbortController | null = null;

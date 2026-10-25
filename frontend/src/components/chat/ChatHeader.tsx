@@ -24,14 +24,14 @@ import { Avatar } from '@/components/Avatar';
  */
 
 interface ChatHeaderProps {
-  conversation: Conversation;
-  friends: Friend[];
-  meId: string;
+  conversation: Conversation; // 当前会话；决定标题、头像与副标题
+  friends: Friend[]; // 好友表；反查对方名字与在线状态
+  meId: string; // 当前用户 id；推导标题时排除自己
   /** 正在输入的人名，非空时优先于在线状态显示 */
   typingName?: string;
-  onBack?: () => void;
-  onTogglePin: () => void;
-  onToggleMute: () => void;
+  onBack?: () => void; // 移动端返回按钮；不传则不渲染
+  onTogglePin: () => void; // 菜单里的「置顶 / 取消置顶」
+  onToggleMute: () => void; // 菜单里的「免打扰 / 取消免打扰」
 }
 
 export const ChatHeader: React.FC<ChatHeaderProps> = ({

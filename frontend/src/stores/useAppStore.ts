@@ -14,15 +14,15 @@ import type { AuthUser } from '../request/api';
 export type { AuthUser };
 
 interface UserState {
-  userId: string;
+  userId: string; // 用户主键；空串表示未登录（会被 persist 到 localStorage）
   /** 显示名：优先昵称，没有昵称时退化为邮箱前缀 */
   username: string;
-  email: string;
-  isLoggedIn: boolean;
+  email: string; // 邮箱；导航栏与资料页展示用
+  isLoggedIn: boolean; // 是否已登录；判断登录态只看这个，别去判 userId 非空
 
   /** 登录成功后写入；页面刷新时也由资料接口回填 */
   setUser: (user: AuthUser) => void;
-  clearUser: () => void;
+  clearUser: () => void; // 退出时清内存态（令牌/WS 由 lib/logout.ts 统一收拾）
 }
 
 /** 昵称为空时不显示空白，退化用邮箱前缀，最后兜底成「用户」 */

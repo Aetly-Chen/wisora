@@ -7,10 +7,10 @@ import { BadRequestException } from '@nestjs/common';
  * @nestjs/platform-express 的传递依赖，为一个类型引入新的 types 包不划算。
  */
 export interface UploadedFileLike {
-  originalname: string;
-  mimetype: string;
-  size: number;
-  buffer: Buffer;
+  originalname: string; // 客户端上传的原始文件名，中文名需还原编码
+  mimetype: string; // 客户端声明的 MIME 类型，按白名单校验后落盘
+  size: number; // 字节数，用于空文件与体积上限判断
+  buffer: Buffer; // 内存里的文件内容（multer 用 memoryStorage）
 }
 
 /**

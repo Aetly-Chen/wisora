@@ -13,9 +13,9 @@ import { Mail, Lock, KeyRound, CheckCircle2 } from "lucide-react";
 import { sendForgotPasswordCode, forgotPassword } from "../request/api";
 
 interface ForgotPasswordModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onSuccessToast: (msg: string) => void;
+  isOpen: boolean; // 弹窗是否可见；由父组件控制
+  onClose: () => void; // 关闭弹窗；重置成功后会延迟自动调用
+  onSuccessToast: (msg: string) => void; // 轻提示，校验失败与成功都走它
 }
 
 export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({

@@ -220,8 +220,8 @@ async function insertPastedImages(
 }
 
 interface ImageNode {
-  type: { name: string };
-  attrs: { src?: unknown; alt?: unknown };
+  type: { name: string }; // 节点类型（这里恒为 'image'，用于 update 时判断能不能接管）
+  attrs: { src?: unknown; alt?: unknown }; // src 是 `attachment:<id>`（不是直链）；alt 作图片说明
 }
 
 /**
@@ -283,8 +283,8 @@ function imageNodeView(initialNode: ImageNode) {
 }
 
 interface CodeBlockNode {
-  type: { name: string };
-  attrs: { language?: string | null };
+  type: { name: string }; // 节点类型（恒为 'code_block'），用于 update 时校验
+  attrs: { language?: string | null }; // 代码语言标记（```js 里的 js），null/空表示未标注
 }
 
 /**
