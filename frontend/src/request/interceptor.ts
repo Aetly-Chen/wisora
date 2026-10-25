@@ -209,22 +209,22 @@ request.interceptors.request.use(
     if (!config.ignoreToken) {
       const token = getToken();
 
-      console.log("[请求拦截器]", config.url, "token =", token);
+      // console.log("[请求拦截器]", config.url, "token =", token);
 
       if (token) {
         setAuthorization(config, token);
       }
 
-      console.log(
-        "[请求拦截器]",
-        config.url,
-        "Authorization =",
-        config.headers
-          ? config.headers instanceof AxiosHeaders
-            ? config.headers.get("Authorization")
-            : config.headers["Authorization"]
-          : undefined,
-      );
+      // console.log(
+      //   "[请求拦截器]",
+      //   config.url,
+      //   "Authorization =",
+      //   config.headers
+      //     ? config.headers instanceof AxiosHeaders
+      //       ? config.headers.get("Authorization")
+      //       : config.headers["Authorization"]
+      //     : undefined,
+      // );
     }
 
     /**
@@ -476,6 +476,7 @@ request.interceptors.response.use(
      * retry
      */
     if (error.response?.status === 401 && !config.bypassRefresh) {
+      
       /**
        * ========================================
        * retryRequest
@@ -506,12 +507,12 @@ request.interceptors.response.use(
           setAuthorization(config, nextToken);
         }
 
-        console.log(
-          "retry Authorization:",
-          config.headers instanceof AxiosHeaders
-            ? config.headers.get("Authorization")
-            : config.headers?.Authorization,
-        );
+        // console.log(
+        //   "retry Authorization:",
+        //   config.headers instanceof AxiosHeaders
+        //     ? config.headers.get("Authorization")
+        //     : config.headers?.Authorization,
+        // );
 
         /**
          * ========================================
