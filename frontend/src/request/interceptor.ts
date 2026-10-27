@@ -391,11 +391,19 @@ request.interceptors.response.use(
      */
     if (!config.ignoreError) {
       notifyRequestError(raw.msg || "请求失败");
-
-      return Promise.reject(raw);
     }
 
-    return raw;
+    /**
+     * ⚠️ 即使带了 `ignoreError` 也必须 reject。
+     *
+     * 它只表示「不要弹全局提示」，**不表示「把失败包装成成功」**。
+     * 之前这里 `return raw`：调用方拿到 `{ code, msg, data: null }`，
+     * 既不进 catch（页面横幅不弹），`data` 又是 undefined ——
+     * 现象就是「列表莫名其妙是空的，而且没有任何报错」。
+     *
+     * 与下面 HTTP 失败分支（第 578 行）保持一致：永远 reject。
+     */
+    return Promise.reject(raw);
   },
 
   /**

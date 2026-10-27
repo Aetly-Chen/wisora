@@ -15,11 +15,20 @@ export function apiErrorMessage(err: unknown, fallback: string): string {
     | {
         response?: { data?: { msg?: string } }
         message?: string
+        msg?: unknown
       }
     | undefined
 
   const fromServer = e?.response?.data?.msg
   if (typeof fromServer === 'string' && fromServer.trim()) return fromServer
+
+  /**
+   * ⚠️ 有时候 reject 的根本不是 axios Error，而是**后端信封本身**
+   * （`interceptor.ts` 里 `ignoreError` 那条路径就 `Promise.reject(raw)`）。
+   * 这种值没有 `response`、没有 `message`，只有 `{ code, msg, data }`；
+   * 不认它就会掉到「无法连接服务器」，把真实原因（后端那句 msg）丢掉。
+   */
+  if (typeof e?.msg === 'string' && e.msg.trim()) return e.msg
 
   /**
    * 没拿到响应体 = 连不上后端（后端没起、跨域、断网）。
