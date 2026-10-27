@@ -219,7 +219,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
         ),
       }));
     } catch (err) {
-      set({ saveState: 'error', error: (err as Error).message || '保存失败' });
+      set({ saveState: 'error', error: apiErrorMessage(err, '保存失败') });
     }
   };
 
@@ -340,7 +340,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       } catch (err) {
         set({
           detailLoading: false,
-          error: (err as Error).message || '加载笔记失败',
+          error: apiErrorMessage(err, '加载笔记失败'),
         });
       }
     },
@@ -355,7 +355,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       try {
         await createUnder(target);
       } catch (err) {
-        set({ error: (err as Error).message || '新建笔记失败' });
+        set({ error: apiErrorMessage(err, '新建笔记失败') });
       }
     },
 
@@ -414,7 +414,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
         set({
           notes: previousNotes,
           active: previousActive,
-          error: (err as Error).message || '操作失败',
+          error: apiErrorMessage(err, '操作失败'),
         });
       }
     },
@@ -441,7 +441,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
           return { expanded };
         });
       } catch (err) {
-        set({ notes: previous, error: (err as Error).message || '删除失败' });
+        set({ notes: previous, error: apiErrorMessage(err, '删除失败') });
       }
     },
 
@@ -469,7 +469,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
         // 程序化刷新详情，不改动用户选中的目录
         if (activeId) await get().openNote(activeId, { force: true, keepSelection: true });
       } catch (err) {
-        set({ notes: previous, error: (err as Error).message || '移动失败' });
+        set({ notes: previous, error: apiErrorMessage(err, '移动失败') });
       }
     },
 
@@ -487,7 +487,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
             : {},
         );
       } catch (err) {
-        set({ error: (err as Error).message || '上传失败' });
+        set({ error: apiErrorMessage(err, '上传失败') });
       }
     },
 
@@ -500,7 +500,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       try {
         await apiDeleteAttachment(id);
       } catch (err) {
-        set({ active: { ...active, attachments: previous }, error: (err as Error).message });
+        set({ active: { ...active, attachments: previous }, error: apiErrorMessage(err, '删除附件失败') });
       }
     },
 

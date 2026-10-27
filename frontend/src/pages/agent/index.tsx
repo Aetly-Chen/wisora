@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { createNote } from "@/request/notes";
+import { apiErrorMessage } from "@/lib/api-error";
 
 /**
  * 工具名 → 用户能看懂的动作描述。
@@ -583,7 +584,7 @@ export const AgentPage: React.FC = () => {
       await createNote({ title, content });
       toast.success(`已保存到笔记：${title}`);
     } catch (err) {
-      toast.error((err as Error).message || "保存失败");
+      toast.error(apiErrorMessage(err, "保存失败"));
     }
   };
 
