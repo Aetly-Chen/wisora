@@ -37,6 +37,7 @@ import {
   updateConversationFlags,
   uploadAttachment,
 } from '@/request/chat';
+import { apiErrorMessage } from '@/lib/api-error';
 
 /* ------------------------------ 派生工具 ------------------------------ */
 
@@ -236,7 +237,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       if (activeId) await get().openConversation(activeId);
     } catch (err) {
-      set({ listLoading: false, error: (err as Error).message || '加载会话失败' });
+      set({ listLoading: false, error: apiErrorMessage(err, '加载会话失败') });
     }
 
     /*
@@ -388,7 +389,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }));
       void markConversationRead(id);
     } catch (err) {
-      set({ messagesLoading: false, error: (err as Error).message || '加载消息失败' });
+      set({ messagesLoading: false, error: apiErrorMessage(err, '加载消息失败') });
     }
   },
 
@@ -454,7 +455,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             m.id === tempId ? { ...m, status: 'failed' } : m,
           ),
         },
-        error: (err as Error).message || '发送失败',
+        error: apiErrorMessage(err, '发送失败'),
       }));
     }
   },
@@ -516,7 +517,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ),
       }));
     } catch (err) {
-      set({ upload: undefined, error: (err as Error).message || '文件发送失败' });
+      set({ upload: undefined, error: apiErrorMessage(err, '文件发送失败') });
     }
   },
 
@@ -557,7 +558,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       });
       await get().openConversation(conversation.id);
     } catch (err) {
-      set({ error: (err as Error).message || '创建会话失败' });
+      set({ error: apiErrorMessage(err, '创建会话失败') });
     }
   },
 
@@ -571,7 +572,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }));
       await get().openConversation(conversation.id);
     } catch (err) {
-      set({ error: (err as Error).message || '创建群聊失败' });
+      set({ error: apiErrorMessage(err, '创建群聊失败') });
     }
   },
 
@@ -579,7 +580,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     try {
       set({ friends: await listFriends() });
     } catch (err) {
-      set({ error: (err as Error).message || '加载好友失败' });
+      set({ error: apiErrorMessage(err, '加载好友失败') });
     }
   },
 
@@ -595,7 +596,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         notice: `已添加 ${friend.name} 为好友`,
       }));
     } catch (err) {
-      set({ error: (err as Error).message || '添加好友失败' });
+      set({ error: apiErrorMessage(err, '添加好友失败') });
     }
   },
 
@@ -618,7 +619,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         conversations: state.conversations.map((c) =>
           c.id === conversationId ? { ...c, pinned: !pinned } : c,
         ),
-        error: (err as Error).message || '操作失败',
+        error: apiErrorMessage(err, '操作失败'),
       }));
     }
   },
@@ -641,7 +642,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         conversations: state.conversations.map((c) =>
           c.id === conversationId ? { ...c, muted: !muted } : c,
         ),
-        error: (err as Error).message || '操作失败',
+        error: apiErrorMessage(err, '操作失败'),
       }));
     }
   },
@@ -656,7 +657,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set({ conversations, notice: `已分享给 ${result.conversationCount} 位好友` });
       return result.conversationCount;
     } catch (err) {
-      set({ error: (err as Error).message || '分享失败' });
+      set({ error: apiErrorMessage(err, '分享失败') });
       return 0;
     }
   },

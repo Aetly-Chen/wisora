@@ -45,7 +45,11 @@ export function setCurrentUser(_userId: string): void {
 
 /** GET /chat/friends */
 export function listFriends(): Promise<Friend[]> {
-  return request.get<Friend[]>('/chat/friends', { loading: false });
+  return request.get<Friend[]>('/chat/friends', {
+    loading: false,
+    // 加载失败走聊天页横幅，不再弹全局 toast（否则一次失败提示两处）
+    ignoreError: true,
+  });
 }
 
 /**
@@ -76,7 +80,10 @@ export function addFriend(friendId: string): Promise<Friend> {
 
 /** GET /chat/conversations —— 已按「置顶优先 + 最后消息时间」排好序 */
 export function listConversations(): Promise<Conversation[]> {
-  return request.get<Conversation[]>('/chat/conversations', { loading: false });
+  return request.get<Conversation[]>('/chat/conversations', {
+    loading: false,
+    ignoreError: true, // 同上：列表失败只走页面横幅
+  });
 }
 
 /**
@@ -94,6 +101,7 @@ export function listMessages(
   return request.get<Message[]>(`/chat/conversations/${conversationId}/messages`, {
     params: { before: opts.before, limit: opts.limit },
     loading: false,
+    ignoreError: true, // 同上：消息加载失败只走页面横幅
   });
 }
 
