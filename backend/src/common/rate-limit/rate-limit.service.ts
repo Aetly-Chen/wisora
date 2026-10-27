@@ -54,12 +54,38 @@ export class RateLimitService {
     const client = this.redis.getClient();
     const key = this.key(userId, scope);
 
-    const count = await client.incr(key);
-    // 首次命中时设置过期时间，避免 key 永久留存
-    if (count === 1) {
-      await client.expire(key, WINDOW_SECONDS);
+    /**
+     * 三次串行的 Redis 调用打成一个整体，套 300ms 上限。
+     *
+     * 不套的话：Redis 断连期间 `incr` 等命令会先进离线队列、按 retryStrategy
+     * 反复重连才 reject —— 实测 `POST /chat/attachments` **7.5~9 秒后返回 500**，
+     * 用户看到的是「卡了很久然后失败」。
+     */
+    const used = await this.redis.withTimeout(
+      async () => {
+        const count = await client.incr(key);
+        // 首次命中时设置过期时间，避免 key 永久留存
+        if (count === 1) {
+          await client.expire(key, WINDOW_SECONDS);
+        }
+        const ttl = await client.ttl(key);
+        return { count, ttl };
+      },
+      null,
+    );
+
+    /**
+     * 限流器不可用 → **fail-open**（放行）。
+     *
+     * 理由：限流是保护措施，不是业务前提。Redis 挂了就把整个上传/发送功能停掉，
+     * 代价远大于「这一小段时间没限流」（与 redis.service 的降级策略一致）。
+     */
+    if (!used) {
+      this.logDegraded(scope);
+      return { allowed: true, remaining: max, resetSeconds: WINDOW_SECONDS };
     }
-    const ttl = await client.ttl(key);
+
+    const { count, ttl } = used;
 
     const allowed = count <= max;
     if (!allowed) {
@@ -73,5 +99,15 @@ export class RateLimitService {
       remaining: Math.max(0, max - count),
       resetSeconds: ttl > 0 ? ttl : WINDOW_SECONDS,
     };
+  }
+
+  /** 降级日志 5 秒节流，避免 Redis 挂掉期间每个请求刷一行 */
+  private lastDegradedLogAt = 0;
+
+  private logDegraded(scope: string) {
+    const now = Date.now();
+    if (now - this.lastDegradedLogAt < 5000) return;
+    this.lastDegradedLogAt = now;
+    this.logger.warn(`限流器不可用（Redis），本次放行 [${scope}]`);
   }
 }

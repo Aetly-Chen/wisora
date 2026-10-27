@@ -49,7 +49,7 @@ export class FriendsService {
    * 前端离线不画任何标记，所以不会显示异常。
    */
   private async presenceOf(userId: string): Promise<Presence> {
-    const online = await this.withRedisTimeout(
+    const online = await this.redis.withTimeout(
       () => this.redis.getClient().exists(onlineKey(userId)),
       0,
     );
@@ -61,7 +61,7 @@ export class FriendsService {
     if (ids.length === 0) return map;
 
     // 一次 pipeline 拿完：列表页动辄几十个好友，逐个 await 就是几十次往返
-    const results = await this.withRedisTimeout(
+    const results = await this.redis.withTimeout(
       () =>
         this.redis
           .getClient()
@@ -75,37 +75,6 @@ export class FriendsService {
       map.set(id, value === 1 ? 'online' : 'offline');
     });
     return map;
-  }
-
-  /**
-   * 给 Redis 查询加一个**短上限**，超时或报错就退回默认值。
-   *
-   * 为什么需要：Redis 挂掉时 ioredis 命令不会立刻失败 —— 它会先进离线队列、
-   * 按 `retryStrategy` 反复重连，直到 `maxRetriesPerRequest` 用完才 reject。
-   * 实测 Redis 断连期间 `/chat/friends` **卡 4 秒以上**（curl 直接超时），
-   * 而「谁在线」本来就是可以降级的信息，不值得拖住整个好友列表。
-   *
-   * 300ms：正常 Redis 的存在性检查是个位数毫秒，这个上限只在异常时触发。
-   */
-  private async withRedisTimeout<T>(
-    fn: () => Promise<T>,
-    fallback: T,
-    timeoutMs = 300,
-  ): Promise<T> {
-    let timer: NodeJS.Timeout | undefined;
-    try {
-      return await Promise.race([
-        fn(),
-        new Promise<T>((resolve) => {
-          timer = setTimeout(() => resolve(fallback), timeoutMs);
-        }),
-      ]);
-    } catch {
-      // Redis 抛错（连接被拒 / 重试耗尽）同样降级
-      return fallback;
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
   }
 
   /* ------------------------------ 好友 ------------------------------ */

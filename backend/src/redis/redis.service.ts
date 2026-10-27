@@ -117,4 +117,39 @@ export class RedisService
   getClient(): Redis {
     return this.redis
   }
+
+  /**
+   * 给一次 Redis 操作加**短上限**，超时或报错就退回默认值。
+   *
+   * 为什么需要：Redis 挂掉时 ioredis 不会立刻失败 —— 命令先进离线队列，
+   * 按 `retryStrategy` 反复重连，直到 `maxRetriesPerRequest` 用完才 reject。
+   * 实测过两个后果：
+   * - `/chat/friends` 卡 4 秒以上（取在线状态）
+   * - `POST /chat/attachments` **7.5~9 秒后返回 500**（限流 3 次串行调用）
+   *
+   * 这些信息（谁在线、剩余配额）都能降级，不值得拖住整个请求。
+   * 300ms：正常 Redis 是个位数毫秒，这个上限只在异常时触发。
+   *
+   * ⚠️ 降级值由调用方决定 —— 限流要 fail-open（放行），
+   * 在线状态要 fail-closed（当离线），别在调用处搞反。
+   */
+  async withTimeout<T>(
+    fn: () => Promise<T>,
+    fallback: T,
+    timeoutMs = 300,
+  ): Promise<T> {
+    let timer: NodeJS.Timeout | undefined
+    try {
+      return await Promise.race([
+        fn(),
+        new Promise<T>((resolve) => {
+          timer = setTimeout(() => resolve(fallback), timeoutMs)
+        }),
+      ])
+    } catch {
+      return fallback
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
+  }
 }
