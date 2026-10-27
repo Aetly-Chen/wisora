@@ -445,9 +445,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
             : c,
         ),
       }));
-    } catch (err) {
+    } catch {
       // 失败不清空气泡，改成标记失败并留重试入口：
-      // 直接删掉的话用户写的内容就没了
+      // 直接删掉的话用户写的内容就没了。
+      // 文案交给请求层 toast（后端 msg），这里不再往横幅塞一份 ——
+      // 一次失败只提示一处。
       set((state) => ({
         messagesByConversation: {
           ...state.messagesByConversation,
@@ -455,7 +457,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
             m.id === tempId ? { ...m, status: 'failed' } : m,
           ),
         },
-        error: apiErrorMessage(err, '发送失败'),
       }));
     }
   },
@@ -516,8 +517,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
             : c,
         ),
       }));
-    } catch (err) {
-      set({ upload: undefined, error: apiErrorMessage(err, '文件发送失败') });
+    } catch {
+      // 进度条收起；错误文案由请求层 toast 负责
+      set({ upload: undefined });
     }
   },
 
@@ -557,8 +559,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         };
       });
       await get().openConversation(conversation.id);
-    } catch (err) {
-      set({ error: apiErrorMessage(err, '创建会话失败') });
+    } catch {
+      // 建会话失败：只走 toast。横幅是「页面加载不出来」专用的位置
     }
   },
 
@@ -571,8 +573,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         error: undefined,
       }));
       await get().openConversation(conversation.id);
-    } catch (err) {
-      set({ error: apiErrorMessage(err, '创建群聊失败') });
+    } catch {
+      // 同上：建群失败只走 toast
     }
   },
 
@@ -595,8 +597,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
           : [...state.friends, friend],
         notice: `已添加 ${friend.name} 为好友`,
       }));
-    } catch (err) {
-      set({ error: apiErrorMessage(err, '添加好友失败') });
+    } catch {
+      // 加好友失败只走 toast
     }
   },
 
@@ -614,12 +616,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     try {
       await updateConversationFlags(conversationId, { pinned });
-    } catch (err) {
+    } catch {
+      // 回滚本地置顶状态；错误文案由 toast 负责，不再占横幅
       set((state) => ({
         conversations: state.conversations.map((c) =>
           c.id === conversationId ? { ...c, pinned: !pinned } : c,
         ),
-        error: apiErrorMessage(err, '操作失败'),
       }));
     }
   },
@@ -637,12 +639,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     try {
       await updateConversationFlags(conversationId, { muted });
-    } catch (err) {
+    } catch {
+      // 回滚本地免打扰状态；错误文案由 toast 负责
       set((state) => ({
         conversations: state.conversations.map((c) =>
           c.id === conversationId ? { ...c, muted: !muted } : c,
         ),
-        error: apiErrorMessage(err, '操作失败'),
       }));
     }
   },
@@ -656,8 +658,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const conversations = await listConversations();
       set({ conversations, notice: `已分享给 ${result.conversationCount} 位好友` });
       return result.conversationCount;
-    } catch (err) {
-      set({ error: apiErrorMessage(err, '分享失败') });
+    } catch {
+      // 返回值表示「发给了几个会话」，失败即 0；文案由 toast 负责
       return 0;
     }
   },

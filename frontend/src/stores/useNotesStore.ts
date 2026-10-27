@@ -218,8 +218,12 @@ export const useNotesStore = create<NotesState>((set, get) => {
             : n,
         ),
       }));
-    } catch (err) {
-      set({ saveState: 'error', error: apiErrorMessage(err, '保存失败') });
+    } catch {
+      /**
+       * 保存失败：顶栏的保存状态本身就是可见反馈（会变成「保存失败」），
+       * 再往横幅塞一份就成了一次失败提示两处。文案交给请求层 toast。
+       */
+      set({ saveState: 'error' });
     }
   };
 
@@ -354,8 +358,8 @@ export const useNotesStore = create<NotesState>((set, get) => {
 
       try {
         await createUnder(target);
-      } catch (err) {
-        set({ error: apiErrorMessage(err, '新建笔记失败') });
+      } catch {
+        // 新建失败只走 toast，不占横幅
       }
     },
 
@@ -410,11 +414,11 @@ export const useNotesStore = create<NotesState>((set, get) => {
       try {
         await updateNote(targetId, { pinned: next });
         await get().loadNotes();
-      } catch (err) {
+      } catch {
+        // 回滚列表与详情；文案交给 toast，不再占用横幅
         set({
           notes: previousNotes,
           active: previousActive,
-          error: apiErrorMessage(err, '操作失败'),
         });
       }
     },
@@ -440,8 +444,9 @@ export const useNotesStore = create<NotesState>((set, get) => {
           for (const gone of doomed) delete expanded[gone];
           return { expanded };
         });
-      } catch (err) {
-        set({ notes: previous, error: apiErrorMessage(err, '删除失败') });
+      } catch {
+        // 删除失败：恢复列表原样，文案交给 toast
+        set({ notes: previous });
       }
     },
 
@@ -468,8 +473,9 @@ export const useNotesStore = create<NotesState>((set, get) => {
         await get().loadNotes();
         // 程序化刷新详情，不改动用户选中的目录
         if (activeId) await get().openNote(activeId, { force: true, keepSelection: true });
-      } catch (err) {
-        set({ notes: previous, error: apiErrorMessage(err, '移动失败') });
+      } catch {
+        // 移动失败：恢复列表原样，文案交给 toast
+        set({ notes: previous });
       }
     },
 
@@ -486,8 +492,8 @@ export const useNotesStore = create<NotesState>((set, get) => {
             ? { active: { ...state.active, attachments: [att, ...state.active.attachments] } }
             : {},
         );
-      } catch (err) {
-        set({ error: apiErrorMessage(err, '上传失败') });
+      } catch {
+        // 上传失败只走 toast
       }
     },
 
@@ -499,8 +505,9 @@ export const useNotesStore = create<NotesState>((set, get) => {
       set({ active: { ...active, attachments: previous.filter((a) => a.id !== id) } });
       try {
         await apiDeleteAttachment(id);
-      } catch (err) {
-        set({ active: { ...active, attachments: previous }, error: apiErrorMessage(err, '删除附件失败') });
+      } catch {
+        // 附件删除失败：恢复附件列表，文案交给 toast
+        set({ active: { ...active, attachments: previous } });
       }
     },
 
