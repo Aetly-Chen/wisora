@@ -386,8 +386,13 @@ const Inner: React.FC<{
            */
           ctx.update(remarkStringifyOptionsCtx, (prev) => ({
             ...prev,
-            bullet: '-',
-            rule: '-',
+            /**
+             * `as const` 不能省：对象字面量在回调返回值里会被放宽成 `string`，
+             * 而这两个字段声明的是 `'-' | '*' | '+'` 这类**字面量联合**。
+             * 去掉它 tsc 会报 TS2322（vite build 照样过，所以一直没被看见）。
+             */
+            bullet: '-' as const,
+            rule: '-' as const,
           }));
 
           /*

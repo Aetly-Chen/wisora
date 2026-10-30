@@ -79,6 +79,8 @@ export function isLangSupported(lang: string): boolean {
 
 type HastNode =
   | { type: 'text'; value: string }
+  /** hast 里还会有注释节点（语法包一般不会产出，但类型上存在），序列化时直接丢弃 */
+  | { type: 'comment'; value: string }
   | {
       type: 'element';
       tagName: string;
@@ -96,6 +98,7 @@ const ESCAPE_MAP: Record<string, string> = {
 const escapeHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ESCAPE_MAP[c]);
 
 function serialize(node: HastNode): string {
+  if (node.type === 'comment') return '';
   if (node.type === 'text') return escapeHtml(node.value);
 
   const cls = node.properties?.className;
@@ -116,7 +119,14 @@ export function highlightToHtml(code: string, lang: string): string {
   if (!key || !refractor.registered(key)) return escapeHtml(code);
 
   try {
-    return refractor.highlight(code, key).children.map(serialize).join('');
+    /**
+     * `children` 的静态类型是 hast 的 `RootContent`（含 doctype 等本文不处理的分支），
+     * 这里只关心 text / element / comment，所以收窄到自己的 `HastNode`。
+     */
+    return refractor
+      .highlight(code, key)
+      .children.map((node) => serialize(node as unknown as HastNode))
+      .join('');
   } catch {
     // 语法包本身抛错不该让整篇笔记渲染失败
     return escapeHtml(code);
