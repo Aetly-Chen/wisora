@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Editor,
   commandsCtx,
@@ -13,6 +13,14 @@ import { listener, listenerCtx } from '@milkdown/plugin-listener';
 import { history } from '@milkdown/plugin-history';
 import { prism, prismConfig } from '@milkdown/plugin-prism';
 import { commonmark } from '@milkdown/preset-commonmark';
+import {
+  createCodeBlockCommand,
+  insertHrCommand,
+  wrapInBlockquoteCommand,
+  wrapInBulletListCommand,
+  wrapInHeadingCommand,
+  wrapInOrderedListCommand,
+} from '@milkdown/preset-commonmark';
 import { gfm, insertTableCommand } from '@milkdown/preset-gfm';
 import { Milkdown, MilkdownProvider, useEditor } from '@milkdown/react';
 import { Plugin } from '@milkdown/prose/state';
@@ -30,6 +38,13 @@ import {
 } from '@/lib/attachment-url';
 import { uploadAttachment } from '@/request/notes';
 import { TableToolbar, type TableCommand } from './TableToolbar';
+import { SlashMenu } from './SlashMenu';
+import {
+  createSlashPlugin,
+  filterSlashItems,
+  type SlashAnchor,
+  type SlashItemDef,
+} from '../lib/slash';
 import './markdown-editor.css';
 
 /** 光标（或选区头）是否落在表格内 */
@@ -377,6 +392,114 @@ const Inner: React.FC<{
 
   const [inTable, setInTable] = useState(false);
 
+  /* ---------------- 斜杠命令 ---------------- */
+
+  const [slash, setSlash] = useState<SlashAnchor | null>(null);
+  const [slashActive, setSlashActive] = useState(0);
+
+  const slashItems = useMemo(
+    () => filterSlashItems(slash?.query ?? ''),
+    [slash?.query],
+  );
+
+  /**
+   * 插件只能拿到「创建时」的闭包，而 `slash` / `slashItems` / `slashActive`
+   * 每个 keystroke 都在变 —— 用 ref 做一份实时镜像给它读。
+   */
+  const slashRef = useRef<{
+    anchor: SlashAnchor | null;
+    items: SlashItemDef[];
+    active: number;
+  }>({ anchor: null, items: [], active: 0 });
+  slashRef.current.anchor = slash;
+  slashRef.current.items = slashItems;
+  slashRef.current.active = slashActive;
+
+  /** 按 Esc 关掉的菜单，在同一个 `/` 上不要再自己弹回来 */
+  const dismissedRef = useRef<number | null>(null);
+
+  /** 执行项的回调要后置注入（它依赖下面 useEditor 返回的 get） */
+  const pickRef = useRef<(item: SlashItemDef) => void>(() => {});
+
+  const shellRef = useRef<HTMLDivElement>(null);
+
+  const handleSlashAnchor = useCallback((anchor: SlashAnchor | null) => {
+    if (!anchor) {
+      dismissedRef.current = null;
+      setSlash((prev) => (prev === null ? prev : null));
+      return;
+    }
+    if (dismissedRef.current === anchor.from) {
+      setSlash((prev) => (prev === null ? prev : null));
+      return;
+    }
+    setSlash((prev) =>
+      /*
+       * 同一个锚点、同一段查询词就不换新对象：
+       * 每敲一个字都 setState 会让整棵编辑器跟着重渲染。
+       */
+      prev &&
+      prev.from === anchor.from &&
+      prev.to === anchor.to &&
+      prev.query === anchor.query
+        ? prev
+        : anchor,
+    );
+  }, []);
+
+  const handleSlashKey = useCallback((event: KeyboardEvent) => {
+    const anchor = slashRef.current.anchor;
+    if (!anchor) return false;
+    const items = slashRef.current.items;
+
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      if (items.length === 0) return true;
+      event.preventDefault();
+      setSlashActive((i) => {
+        const step = event.key === 'ArrowDown' ? 1 : -1;
+        return (i + step + items.length) % items.length;
+      });
+      return true;
+    }
+
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      const item = items[slashRef.current.active];
+      if (item) pickRef.current(item);
+      return true;
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      dismissedRef.current = anchor.from;
+      setSlash(null);
+      return true;
+    }
+
+    return false;
+  }, []);
+
+  // 查询词一变，高亮回到第一项（否则会停在一个已经不在列表里的下标上）
+  useEffect(() => {
+    setSlashActive(0);
+  }, [slash?.query]);
+
+  /*
+   * 滚动时关掉菜单：它用 `position: fixed` 定位，滚动后就跟光标错位了。
+   * 只监听外壳自身 —— 挂 window + capture 的话，菜单内部列表的
+   * `scrollIntoView` 也会被当成滚动，键盘一按菜单就自己关了。
+   */
+  useEffect(() => {
+    const shell = shellRef.current;
+    if (!shell || !slash) return;
+    const onScroll = () => {
+      dismissedRef.current = slash.from;
+      setSlash(null);
+    };
+    shell.addEventListener('scroll', onScroll, { passive: true });
+    return () => shell.removeEventListener('scroll', onScroll);
+  }, [slash]);
+
   const { loading, get } = useEditor(
     (root) =>
       Editor.make()
@@ -468,6 +591,11 @@ const Inner: React.FC<{
             taskCheckboxPlugin,
             // 光标进出表格时切换工具条
             tableWatcher(setInTable),
+            // `/` 插入菜单（触发判定 + 键盘接管都在这里）
+            createSlashPlugin({
+              onAnchor: handleSlashAnchor,
+              onKey: handleSlashKey,
+            }),
           ]);
 
           ctx.get(listenerCtx).markdownUpdated((_ctx, markdown) => {
@@ -481,6 +609,100 @@ const Inner: React.FC<{
         .use(listener),
     [],
   );
+
+  /**
+   * 执行一条斜杠命令。
+   *
+   * 顺序不能反：先把 `/查询` 删掉，命令才作用在**留下的空段落**上。
+   * 反过来先转标题、再删文本，删的就是标题里的字，看着像"命令没生效"。
+   *
+   * 命令走 `commandsCtx` 而不是自己拼 transaction —— 标题、列表、引用
+   * 这些 preset 都在命令里处理了「当前块能不能转」和转完的选区位置。
+   */
+  const runSlashItem = useCallback(
+    (item: SlashItemDef) => {
+      const anchor = slashRef.current.anchor;
+      if (!anchor) return;
+      const editor = get();
+      if (!editor) return;
+
+      editor.action((ctx) => {
+        const view = ctx.get(editorViewCtx);
+        view.dispatch(view.state.tr.delete(anchor.from, anchor.to));
+      });
+
+      editor.action((ctx) => {
+        const commands = ctx.get(commandsCtx);
+        switch (item.kind) {
+          case 'h1':
+            commands.call(wrapInHeadingCommand.key, 1);
+            break;
+          case 'h2':
+            commands.call(wrapInHeadingCommand.key, 2);
+            break;
+          case 'h3':
+            commands.call(wrapInHeadingCommand.key, 3);
+            break;
+          case 'bullet':
+          // 任务清单先当无序列表建，再补 checked 属性（见下）
+          case 'task':
+            commands.call(wrapInBulletListCommand.key);
+            break;
+          case 'ordered':
+            commands.call(wrapInOrderedListCommand.key);
+            break;
+          case 'quote':
+            commands.call(wrapInBlockquoteCommand.key);
+            break;
+          case 'code':
+            commands.call(createCodeBlockCommand.key);
+            break;
+          case 'table':
+            commands.call(insertTableCommand.key, { row: 3, col: 3 });
+            break;
+          case 'hr':
+            commands.call(insertHrCommand.key);
+            break;
+        }
+      });
+
+      /*
+       * 任务清单：gfm 的 `list_item` 靠 `checked` 属性决定是不是任务项
+       * （`null` = 普通列表项，`false` = 未勾选）。preset 没有提供
+       * 「建任务列表」的命令，所以建完列表再把这个属性补上。
+       */
+      if (item.kind === 'task') {
+        editor.action((ctx) => {
+          const view = ctx.get(editorViewCtx);
+          const { $from } = view.state.selection;
+          for (let depth = $from.depth; depth > 0; depth -= 1) {
+            if ($from.node(depth).type.name !== 'list_item') continue;
+            const pos = $from.before(depth);
+            const node = view.state.doc.nodeAt(pos);
+            if (node && node.attrs.checked == null) {
+              view.dispatch(
+                view.state.tr.setNodeMarkup(pos, undefined, {
+                  ...node.attrs,
+                  checked: false,
+                }),
+              );
+            }
+            break;
+          }
+        });
+      }
+
+      setSlash(null);
+      setSlashActive(0);
+      editor.action((ctx) => ctx.get(editorViewCtx).focus());
+    },
+    [get],
+  );
+
+  // 插件通过 ref 取最新的执行函数（它自己是在编辑器创建时捕获的）
+  useEffect(() => {
+    pickRef.current = runSlashItem;
+  }, [runSlashItem]);
 
   /**
    * 执行一条表格命令。
@@ -524,7 +746,7 @@ const Inner: React.FC<{
      * 这样「所见」和「所得」才是同一套字号与间距。
      * 少了这个类，ProseMirror 会退化成浏览器默认样式（标题不放大、列表没圆点）。
      */
-    <div className="md-editor-shell md-body">
+    <div className="md-editor-shell md-body" ref={shellRef}>
       <TableToolbar
         inTable={inTable}
         onCommand={runTableCommand}
@@ -536,6 +758,19 @@ const Inner: React.FC<{
         </div>
       )}
       <Milkdown />
+      {slash && (
+        <SlashMenu
+          left={slash.left}
+          bottom={slash.bottom}
+          items={slashItems}
+          active={slashActive}
+          onHover={setSlashActive}
+          onPick={(index) => {
+            const item = slashItems[index];
+            if (item) runSlashItem(item);
+          }}
+        />
+      )}
     </div>
   );
 };

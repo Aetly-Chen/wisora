@@ -186,3 +186,59 @@
   color: #94a3b8;
   font-size: 13px;
 }
+
+/*
+ * `/` 插入菜单。
+ *
+ * `position: fixed`：坐标直接来自 `view.coordsAtPos`（视口坐标系），
+ * 不用再折算外壳的滚动偏移；代价是滚动时会错位，所以外层在滚动时关掉它。
+ * z-index 要高于 sticky 的表格工具条（2）。
+ */
+.slash-menu {
+  position: fixed;
+  z-index: 40;
+  padding: 6px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 12px 32px -8px rgb(15 23 42 / 18%), 0 2px 6px rgb(15 23 42 / 6%);
+}
+
+.slash-menu-list {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.slash-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  height: 34px;
+  padding: 0 8px;
+  font-size: 13px;
+  color: #334155;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.slash-menu-item[data-active='true'] {
+  color: #3730a3;
+  background: #eef2ff;
+}
+
+.slash-menu-hint {
+  font-size: 11px;
+  color: #94a3b8;
+  font-variant-numeric: tabular-nums;
+}
+
+.slash-menu-empty {
+  padding: 10px 8px;
+  font-size: 12px;
+  color: #94a3b8;
+}
