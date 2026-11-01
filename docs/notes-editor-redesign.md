@@ -329,10 +329,10 @@ gfm 导出了 `addRowAfterCommand` 这些，但**没有删行删列** —— 只
 | 功能 | 状态 | 落点 |
 |---|---|---|
 | 斜杠命令 `/` | ✅ 2026-11-01 | `lib/slash.ts` + `components/SlashMenu.tsx` |
-| 公式 KaTeX | ⬜ 未做 | —— |
-| 图表 Mermaid | ⬜ 未做 | —— |
+| 公式 KaTeX | ⬜ 依赖已装，待接 schema 节点 | `katex` + `remark-math` |
+| 图表 Mermaid | ⬜ 依赖部分装好，待接 NodeView | `mermaid`（缺 5 个内部包） |
 | 双向链接 `[[]]` | ⬜ 未做（要后端配合） | —— |
-| 查找替换 `Ctrl+F` | ⬜ 未做 | —— |
+| 查找替换 `Ctrl+F` | ✅ 2026-11-01 | `lib/find.ts` + `components/FindBar.tsx` |
 | 专注模式 | ⬜ 未做 | —— |
 
 ### 10.1 斜杠命令的触发规则（别放宽）

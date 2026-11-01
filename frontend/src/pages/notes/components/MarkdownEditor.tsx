@@ -39,6 +39,8 @@ import {
 import { uploadAttachment } from '@/request/notes';
 import { TableToolbar, type TableCommand } from './TableToolbar';
 import { SlashMenu } from './SlashMenu';
+import { FindBar } from './FindBar';
+import { createFindPlugin, setFind, type FindState } from '../lib/find';
 import {
   createSlashPlugin,
   filterSlashItems,
@@ -500,6 +502,43 @@ const Inner: React.FC<{
     return () => shell.removeEventListener('scroll', onScroll);
   }, [slash]);
 
+  /* ---------------- 查找替换 ---------------- */
+
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState('');
+  const [findReplacement, setFindReplacement] = useState('');
+  const [findState, setFindState] = useState<FindState>({
+    query: '',
+    matches: [],
+    current: -1,
+  });
+
+  /*
+   * 插件与事件回调都是「创建时捕获」的，读不到最新的 React 状态 ——
+   * 这几个 ref 是给它们用的实时镜像。
+   */
+  const findOpenRef = useRef(false);
+  const findStateRef = useRef(findState);
+  const findReplacementRef = useRef(findReplacement);
+  findOpenRef.current = findOpen;
+  findStateRef.current = findState;
+  findReplacementRef.current = findReplacement;
+
+  const handleFindState = useCallback((next: FindState) => {
+    // 关闭状态下不跟着动，省掉每敲一个字都重渲染
+    if (!findOpenRef.current) return;
+    setFindState((prev) =>
+      prev.query === next.query &&
+      prev.current === next.current &&
+      prev.matches.length === next.matches.length &&
+      prev.matches[0]?.from === next.matches[0]?.from &&
+      prev.matches[prev.matches.length - 1]?.from ===
+        next.matches[next.matches.length - 1]?.from
+        ? prev
+        : next,
+    );
+  }, []);
+
   const { loading, get } = useEditor(
     (root) =>
       Editor.make()
@@ -596,6 +635,8 @@ const Inner: React.FC<{
               onAnchor: handleSlashAnchor,
               onKey: handleSlashKey,
             }),
+            // 查找命中高亮
+            createFindPlugin({ onState: handleFindState }),
           ]);
 
           ctx.get(listenerCtx).markdownUpdated((_ctx, markdown) => {
@@ -704,6 +745,126 @@ const Inner: React.FC<{
     pickRef.current = runSlashItem;
   }, [runSlashItem]);
 
+  /* ---------------- 查找替换的动作 ---------------- */
+
+  /*
+   * 四个动作都直接走 ProseMirror 事务，不经过 store：
+   * 替换应当是一次**可撤销的编辑**，而不是「改完再存」。
+   * 走 store 的话，撤销栈里就没有它，Ctrl+Z 也救不回来。
+   */
+  const applyFindQuery = useCallback(
+    (value: string) => {
+      setFindQuery(value);
+      const editor = get();
+      if (!editor) return;
+      editor.action((ctx) => {
+        const view = ctx.get(editorViewCtx);
+        view.dispatch(setFind(view.state, { query: value }));
+      });
+    },
+    [get],
+  );
+
+  const gotoMatch = useCallback(
+    (step: 1 | -1) => {
+      const { matches, current } = findStateRef.current;
+      if (matches.length === 0) return;
+      const index =
+        (((current + step) % matches.length) + matches.length) % matches.length;
+      const editor = get();
+      if (!editor) return;
+      editor.action((ctx) => {
+        const view = ctx.get(editorViewCtx);
+        view.dispatch(setFind(view.state, { current: index }));
+      });
+    },
+    [get],
+  );
+
+  const replaceCurrent = useCallback(() => {
+    const { matches, current } = findStateRef.current;
+    const match = matches[current];
+    const editor = get();
+    if (!editor || !match) return;
+    editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      view.dispatch(
+        view.state.tr.insertText(
+          findReplacementRef.current,
+          match.from,
+          match.to,
+        ),
+      );
+      /*
+       * 换完把焦点交回编辑器：
+       * 否则焦点还在按钮上，`Ctrl+Z` 落不到 ProseMirror 的撤销栈里 ——
+       * 用户会以为「替换撤不掉」。
+       */
+      view.focus();
+    });
+  }, [get]);
+
+  const replaceAll = useCallback(() => {
+    const { matches } = findStateRef.current;
+    const editor = get();
+    if (!editor || matches.length === 0) return;
+    editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      /*
+       * 从后往前改：位置是按原文档算的，倒序处理时后面的编辑
+       * 不会让前面区间的坐标失效。
+       */
+      let tr = view.state.tr;
+      for (let i = matches.length - 1; i >= 0; i -= 1) {
+        tr = tr.insertText(findReplacementRef.current, matches[i].from, matches[i].to);
+      }
+      view.dispatch(tr);
+      view.focus();
+    });
+  }, [get]);
+
+  const closeFind = useCallback(() => {
+    setFindOpen(false);
+    setFindQuery('');
+    setFindReplacement('');
+    const editor = get();
+    if (!editor) return;
+    editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      view.dispatch(setFind(view.state, { query: '', matches: [], current: -1 }));
+      view.focus();
+    });
+  }, [get]);
+
+  /* Ctrl+F 打开（只在所见即所得模式下存在 —— 源码/预览模式没有挂这个组件） */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        setFindOpen(true);
+        return;
+      }
+      /*
+       * Esc 关闭挂到 window，而不是只挂在查找条上：
+       * 替换之后焦点已经交回编辑器，只挂条上的话 Esc 就失效了。
+       */
+      if (e.key === 'Escape' && findOpenRef.current) {
+        e.preventDefault();
+        closeFind();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [closeFind]);
+
+  /* 当前命中滚进视野 */
+  useEffect(() => {
+    if (!findOpen || findState.current < 0) return;
+    shellRef.current
+      ?.querySelector('.find-hit-current')
+      ?.scrollIntoView({ block: 'center' });
+  }, [findOpen, findState.current, findState.matches.length]);
+
   /**
    * 执行一条表格命令。
    *
@@ -752,6 +913,21 @@ const Inner: React.FC<{
         onCommand={runTableCommand}
         onInsertTable={insertTable}
       />
+      {findOpen && (
+        <FindBar
+          query={findQuery}
+          replacement={findReplacement}
+          total={findState.matches.length}
+          current={findState.current}
+          onQueryChange={applyFindQuery}
+          onReplacementChange={setFindReplacement}
+          onPrev={() => gotoMatch(-1)}
+          onNext={() => gotoMatch(1)}
+          onReplaceOne={replaceCurrent}
+          onReplaceAll={replaceAll}
+          onClose={closeFind}
+        />
+      )}
       {loading && (
         <div className="md-editor-loading" aria-hidden>
           编辑器加载中…

@@ -242,3 +242,121 @@
   font-size: 12px;
   color: #94a3b8;
 }
+
+/* ---------------- 查找替换 ---------------- */
+
+/*
+ * 浮在编辑区右上角（`position: absolute` + 外壳 relative）：
+ * 不挤正文、不随滚动跑掉，也不影响表格工具条那一条 sticky。
+ */
+.find-bar {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 268px;
+  padding: 7px 8px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 9px;
+  box-shadow: 0 10px 28px -10px rgb(15 23 42 / 22%), 0 2px 6px rgb(15 23 42 / 6%);
+}
+
+.find-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.find-bar-icon {
+  flex: none;
+  color: #94a3b8;
+}
+
+.find-bar-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 24px;
+  padding: 0 6px;
+  font-size: 12px;
+  color: #0f172a;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 5px;
+  outline: none;
+}
+
+.find-bar-input:focus {
+  border-color: #a5b4fc;
+  background: #fff;
+}
+
+.find-bar-count {
+  flex: none;
+  min-width: 46px;
+  font-size: 11px;
+  color: #94a3b8;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.find-bar-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  color: #64748b;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.find-bar-btn:hover:not(:disabled) {
+  color: #0f172a;
+  background: #f1f5f9;
+}
+
+.find-bar-btn:disabled {
+  color: #cbd5e1;
+  cursor: default;
+}
+
+.find-bar-text-btn {
+  flex: none;
+  height: 24px;
+  padding: 0 8px;
+  font-size: 12px;
+  color: #475569;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 5px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.find-bar-text-btn:hover:not(:disabled) {
+  color: #0f172a;
+  background: #f1f5f9;
+}
+
+.find-bar-text-btn:disabled {
+  color: #cbd5e1;
+  cursor: default;
+}
+
+/* 命中高亮：所有命中淡黄，当前那个加深并描边 */
+.md-editor-shell .ProseMirror .find-hit {
+  background: #fef08a;
+  border-radius: 2px;
+}
+
+.md-editor-shell .ProseMirror .find-hit-current {
+  background: #fbbf24;
+  box-shadow: 0 0 0 1px #f59e0b;
+}
