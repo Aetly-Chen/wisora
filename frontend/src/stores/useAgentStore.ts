@@ -13,6 +13,7 @@ import {
   streamChat,
 } from "../request/ai-stream";
 import { useNotesStore } from "./useNotesStore";
+import { apiErrorMessage } from "../lib/api-error";
 
 /**
  * 会改动笔记数据的工具。
@@ -402,9 +403,25 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       });
     } catch (err) {
       const aborted = (err as Error)?.name === "AbortError";
+      /**
+       * 失败要分两类，否则「换票失败」会 toast 和横幅各来一次：
+       *
+       * - **请求层错误**（axios / 后端信封：有 `response`，或带 `code`/`msg`）
+       *   → 拦截器已经弹过 toast 了，这里不再写 `error`
+       * - **流本身出错**（SSE 走 fetch，不经过 axios 那条提示链）
+       *   → 横幅是唯一出口，必须留
+       */
+      const fromRequestLayer =
+        !!(err as { response?: unknown })?.response ||
+        typeof (err as { code?: unknown })?.code === "number" ||
+        typeof (err as { msg?: unknown })?.msg === "string";
+
       set({
         isStreaming: false,
-        error: aborted ? undefined : (err as Error)?.message || "生成失败",
+        error:
+          aborted || fromRequestLayer
+            ? undefined
+            : (err as Error)?.message || "生成失败",
       });
       if (aborted) {
         /*
@@ -514,9 +531,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       const mapped = mapHistoryMessages(messages);
       set({ messages: mapped.length > 0 ? mapped : [welcomeMessage()] });
     } catch (err) {
+      // 加载失败是「页面空了」的持续状态 → 走横幅，文案取后端 msg
       set({
         messages: [welcomeMessage()],
-        error: (err as Error)?.message || "加载会话失败",
+        error: apiErrorMessage(err, "加载会话失败"),
       });
     } finally {
       set({ loadingHistory: false });
@@ -542,11 +560,9 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           isStreaming: false,
         });
       }
-    } catch (err) {
-      set({
-        conversations: previous,
-        error: (err as Error)?.message || "删除会话失败",
-      });
+    } catch {
+      // 删除失败：回滚列表即可；提示交给请求层 toast，不再占横幅
+      set({ conversations: previous });
     }
   },
 }));
