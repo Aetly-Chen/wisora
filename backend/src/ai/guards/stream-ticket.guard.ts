@@ -40,11 +40,30 @@ export class StreamTicketGuard implements CanActivate {
     const ticket = url.searchParams.get('ticket');
     if (!ticket) throw new UnauthorizedException('缺少 ticket');
 
-    const raw = await this.redis.getClient().get(`ai:ticket:${ticket}`);
+    /**
+     * 读票据限时 300ms。
+     *
+     * Redis 断连时 `get` 会卡在重连队列里（实测数秒）然后抛错，
+     * 守卫里抛错等于整个 SSE 连接 500。用 `undefined` 当「服务不可用」的哨兵，
+     * 与「ticket 不存在」（`null`）区分开 —— 这两种情况给用户的提示不一样。
+     */
+    const raw = await this.redis.withTimeout<
+      string | null | undefined
+    >(
+      () => this.redis.getClient().get(`ai:ticket:${ticket}`),
+      undefined,
+    );
+
+    if (raw === undefined) {
+      throw new UnauthorizedException('ticket 校验服务暂不可用，请重试');
+    }
     if (!raw) throw new UnauthorizedException('ticket 无效或已过期');
 
-    // ticket 一次性，取完即焚
-    await this.redis.getClient().del(`ai:ticket:${ticket}`);
+    // ticket 一次性，取完即焚（失败也不阻塞，票据本身有 30 秒 TTL 兜底）
+    await this.redis.withTimeout(
+      () => this.redis.getClient().del(`ai:ticket:${ticket}`),
+      0,
+    );
 
     // 兼容早期只存 userId 的纯字符串 ticket
     let payload: TicketPayload;

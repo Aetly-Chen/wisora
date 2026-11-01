@@ -11,6 +11,7 @@ import {
   Post,
   Query,
   Req,
+  ServiceUnavailableException,
   Sse,
   UnauthorizedException,
   UseGuards,
@@ -117,13 +118,27 @@ export class AiController {
       userId,
       allowWrite: body?.allowWrite === true,
     };
-    await this.redis
-      .getClient()
-      .setex(
-        `ai:ticket:${ticket}`,
-        TICKET_TTL_SECONDS,
-        JSON.stringify(payload),
+    /**
+     * 写票据同样要限时：Redis 断连时 `setex` 会卡在重连队列里（实测约 8 秒）
+     * 然后抛错变成 500 —— 用户看到「转半天圈，然后服务器错误」。
+     * 超过 300ms 直接按不可用处理，给一句能看懂的话。
+     */
+    const staged = await this.redis.withTimeout(async () => {
+      await this.redis
+        .getClient()
+        .setex(
+          `ai:ticket:${ticket}`,
+          TICKET_TTL_SECONDS,
+          JSON.stringify(payload),
+        );
+      return true;
+    }, false);
+
+    if (!staged) {
+      throw new ServiceUnavailableException(
+        'AI 服务暂不可用（缓存未连接），请稍后再试',
       );
+    }
     return { ticket, allowWrite: payload.allowWrite };
   }
 

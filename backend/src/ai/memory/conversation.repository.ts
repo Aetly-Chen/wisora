@@ -126,14 +126,22 @@ export class ConversationRepository {
     // 写穿到 Redis 热缓存（缓存不致命，失败只打日志）
     try {
       const key = this.cacheKey(conversationId);
-      const raw = await this.redis.getClient().get(key);
+      // 读写都限时：Redis 断连时命令会卡在重连队列里，别让落库后的收尾拖住请求
+      const raw = await this.redis.withTimeout<string | null>(
+        () => this.redis.getClient().get(key),
+        null,
+      );
       const list: ChatMessage[] = raw ? (JSON.parse(raw) as ChatMessage[]) : [];
       list.push({ ...message, id: saved.id });
       // 只保留最近 HISTORY_LIMIT 条
       const trimmed = list.slice(-HISTORY_LIMIT);
-      await this.redis
-        .getClient()
-        .setex(key, CACHE_TTL_SECONDS, JSON.stringify(trimmed));
+      await this.redis.withTimeout(
+        () =>
+          this.redis
+            .getClient()
+            .setex(key, CACHE_TTL_SECONDS, JSON.stringify(trimmed)),
+        'TIMEOUT',
+      );
     } catch (err) {
       this.logger.warn(`cache write failed: ${(err as Error).message}`);
     }
@@ -146,7 +154,14 @@ export class ConversationRepository {
     const key = this.cacheKey(conversationId);
 
     try {
-      const raw = await this.redis.getClient().get(key);
+      /**
+       * ⚠️ 这是 AI 回答的**首字节前置路径**：取不到上下文就没法开始生成。
+       * 所以限时 300ms —— Redis 断连时宁可回源数据库，也不能让用户干等几秒。
+       */
+      const raw = await this.redis.withTimeout<string | null>(
+        () => this.redis.getClient().get(key),
+        null,
+      );
       if (raw) return JSON.parse(raw) as ChatMessage[];
     } catch {
       // Redis 异常时降级直查数据库
@@ -170,9 +185,13 @@ export class ConversationRepository {
     }));
 
     try {
-      await this.redis
-        .getClient()
-        .setex(key, CACHE_TTL_SECONDS, JSON.stringify(list));
+      await this.redis.withTimeout(
+        () =>
+          this.redis
+            .getClient()
+            .setex(key, CACHE_TTL_SECONDS, JSON.stringify(list)),
+        'TIMEOUT',
+      );
     } catch {
       // 缓存失败不影响主流程
     }
@@ -225,6 +244,10 @@ export class ConversationRepository {
       where: { id: conversationId, userId, deletedAt: null },
       data: { deletedAt: new Date() },
     });
-    await this.redis.getClient().del(this.cacheKey(conversationId));
+    // 删会话是收尾动作：缓存清不掉也不该让删除接口卡住（TTL 会兜底）
+    await this.redis.withTimeout(
+      () => this.redis.getClient().del(this.cacheKey(conversationId)),
+      0,
+    );
   }
 }
