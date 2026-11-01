@@ -17,7 +17,7 @@ import { gfm, insertTableCommand } from '@milkdown/preset-gfm';
 import { Milkdown, MilkdownProvider, useEditor } from '@milkdown/react';
 import { Plugin } from '@milkdown/prose/state';
 import type { EditorState } from '@milkdown/prose/state';
-import type { EditorView } from '@milkdown/prose/view';
+import type { EditorView, ViewMutationRecord } from '@milkdown/prose/view';
 import { toast } from 'sonner';
 // 副作用导入：注册 jsx / tsx 与一批别名。Prism 插件用的是**同一个** refractor
 // 实例（模块单例），所以这里注册完，插件那边直接能查到。
@@ -323,6 +323,17 @@ function codeBlockNodeView(initialNode: CodeBlockNode) {
       sync(node);
       return true;
     },
+    /**
+     * 忽略 contentDOM 之外的 DOM 变更 —— 否则「已复制」根本看不到。
+     *
+     * ProseMirror 的 DOMObserver 监听整个 view.dom，一旦发现在 contentDOM 外面
+     * 有它没做的改动，就判定为外部污染并**重绘这个节点**。而复制按钮的反馈
+     * 就是 `btn.textContent = '已复制'`，于是按钮被换成新节点、文案回到「复制」，
+     * 实测间隔 < 250ms（`b.click()` 后立刻 `__tag` 就丢了）。
+     *
+     * 这里只放行 `<code>` 内部的变化（真正的内容编辑）。
+     */
+    ignoreMutation: (m: ViewMutationRecord) => !code.contains(m.target),
   };
 }/** 编辑器内部：Milkdown 实例必须活在 Provider 里面 */
 const Inner: React.FC<{
