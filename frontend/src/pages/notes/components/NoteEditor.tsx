@@ -1,10 +1,18 @@
-import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   Check,
   Code2,
   Download,
   Eye,
   FileUp,
+  Focus,
   Loader2,
   Pencil,
   Pin,
@@ -23,6 +31,9 @@ import { ModeButton } from './ModeButton';
 import { ChildPages } from './ChildPages';
 import { AttachmentsPanel } from './AttachmentsPanel';
 import { OutlinePanel } from './OutlinePanel';
+
+/** 专注模式的偏好键：属于「写作习惯」，不属于笔记内容 */
+const FOCUS_KEY = 'notes.focus-mode';
 
 /**
  * 编辑器懒加载。
@@ -87,6 +98,24 @@ export const NoteEditor: React.FC<{
   const [exporting, setExporting] = useState(false);
 
   /**
+   * 专注模式。
+   *
+   * 偏好存 localStorage：这是「个人写作习惯」，不是笔记内容，
+   * 换一篇笔记、刷新页面都该保持。键名带 `notes.` 前缀避免和其他模块撞。
+   */
+  const [focusMode, setFocusMode] = useState(
+    () => localStorage.getItem(FOCUS_KEY) === '1',
+  );
+
+  const toggleFocus = useCallback(() => {
+    setFocusMode((on) => {
+      const next = !on;
+      localStorage.setItem(FOCUS_KEY, next ? '1' : '0');
+      return next;
+    });
+  }, []);
+
+  /**
    * 导出成 .md。
    *
    * 图片会被取回来转成 base64 内嵌 —— 否则 `attachment:<id>` 离开后端就是
@@ -127,11 +156,17 @@ export const NoteEditor: React.FC<{
       if ((e.ctrlKey || e.metaKey) && e.key === '/') {
         e.preventDefault();
         onModeChange(mode === 'source' ? 'edit' : 'source');
+        return;
+      }
+      // Ctrl+Shift+F 切专注模式（和 Ctrl+F 查找区分开）
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        toggleFocus();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [mode, onModeChange]);
+  }, [mode, onModeChange, toggleFocus]);
 
   /**
    * 大纲跳转。
@@ -179,6 +214,18 @@ export const NoteEditor: React.FC<{
             {SAVE_LABEL[saveState]}
           </span>
         </span>
+
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 rounded-lg px-2.5 text-[12.5px] text-slate-600"
+          onClick={toggleFocus}
+          title="只高亮当前段落，光标始终停在视野中部（Ctrl+Shift+F）"
+          aria-pressed={focusMode}
+        >
+          <Focus className="mr-1 h-3.5 w-3.5" />
+          {focusMode ? '专注中' : '专注'}
+        </Button>
 
         <Button
           variant="ghost"
@@ -298,6 +345,7 @@ export const NoteEditor: React.FC<{
                   initialValue={note.content}
                   onChange={editContent}
                   noteId={note.id}
+                  focusMode={focusMode}
                 />
               </React.Suspense>
             </div>

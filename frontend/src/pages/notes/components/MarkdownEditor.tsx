@@ -41,6 +41,7 @@ import { TableToolbar, type TableCommand } from './TableToolbar';
 import { SlashMenu } from './SlashMenu';
 import { FindBar } from './FindBar';
 import { createFindPlugin, setFind, type FindState } from '../lib/find';
+import { createFocusPlugin } from '../lib/focus';
 import {
   createSlashPlugin,
   filterSlashItems,
@@ -359,7 +360,9 @@ const Inner: React.FC<{
   onChange: (markdown: string) => void;
   /** 粘贴图片时要带上，附件挂在当前笔记下 */
   noteId: string;
-}> = ({ initialValue, onChange, noteId }) => {
+  /** 专注模式开关（只影响观感，不影响文档） */
+  focusMode: boolean;
+}> = ({ initialValue, onChange, noteId, focusMode }) => {
   /*
    * 用 ref 转一层，而不是把 onChange 塞进 useEditor 的依赖数组。
    *
@@ -393,6 +396,15 @@ const Inner: React.FC<{
   }, [noteId]);
 
   const [inTable, setInTable] = useState(false);
+
+  /* ---------------- 专注模式 ---------------- */
+
+  /*
+   * 插件在编辑器创建时捕获一次，开关却是随时变的 —— 用 ref 给它读最新值。
+   * 不用 state 触发重建：重建 ProseMirror 实例会把光标和撤销栈一起丢掉。
+   */
+  const focusModeRef = useRef(focusMode);
+  focusModeRef.current = focusMode;
 
   /* ---------------- 斜杠命令 ---------------- */
 
@@ -637,6 +649,8 @@ const Inner: React.FC<{
             }),
             // 查找命中高亮
             createFindPlugin({ onState: handleFindState }),
+            // 专注模式：只标当前块 + 打字机滚动
+            createFocusPlugin({ isEnabled: () => focusModeRef.current }),
           ]);
 
           ctx.get(listenerCtx).markdownUpdated((_ctx, markdown) => {
@@ -744,6 +758,22 @@ const Inner: React.FC<{
   useEffect(() => {
     pickRef.current = runSlashItem;
   }, [runSlashItem]);
+
+  /**
+   * 开关一变就补一个空事务。
+   *
+   * 装饰是「按 state 算」的：没有事务就不会重算，切开关时第一帧会是
+   * 全部淡化、却没有 `.focus-block`（实测如此）。用一个 meta 事务把
+   * 渲染踢一下，成本可以忽略。
+   */
+  useEffect(() => {
+    const editor = get();
+    if (!editor) return;
+    editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      view.dispatch(view.state.tr.setMeta('focus-mode', focusMode));
+    });
+  }, [focusMode, get]);
 
   /* ---------------- 查找替换的动作 ---------------- */
 
@@ -907,7 +937,11 @@ const Inner: React.FC<{
      * 这样「所见」和「所得」才是同一套字号与间距。
      * 少了这个类，ProseMirror 会退化成浏览器默认样式（标题不放大、列表没圆点）。
      */
-    <div className="md-editor-shell md-body" ref={shellRef}>
+    <div
+      className="md-editor-shell md-body"
+      ref={shellRef}
+      data-focus={focusMode ? 'on' : 'off'}
+    >
       <TableToolbar
         inTable={inTable}
         onCommand={runTableCommand}
@@ -964,8 +998,15 @@ export const MarkdownEditor: React.FC<{
   initialValue: string;
   onChange: (markdown: string) => void;
   noteId: string;
-}> = ({ initialValue, onChange, noteId }) => (
+  /** 专注模式（只作用于所见即所得这一态） */
+  focusMode: boolean;
+}> = ({ initialValue, onChange, noteId, focusMode }) => (
   <MilkdownProvider>
-    <Inner initialValue={initialValue} onChange={onChange} noteId={noteId} />
+    <Inner
+      initialValue={initialValue}
+      onChange={onChange}
+      noteId={noteId}
+      focusMode={focusMode}
+    />
   </MilkdownProvider>
 );

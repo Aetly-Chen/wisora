@@ -360,3 +360,20 @@
   background: #fbbf24;
   box-shadow: 0 0 0 1px #f59e0b;
 }
+
+/* ---------------- 专注模式 ---------------- */
+
+/*
+ * 只让「光标所在的那一块」保持不透明。
+ *
+ * 用 `opacity` 而不是改颜色：色阶一旦写死，就会和 `.md-body` 里
+ * 标题/引用/代码块各自的文字色打架（淡了之后对比度也不够）。
+ */
+.md-editor-shell[data-focus='on'] .ProseMirror > * {
+  opacity: 0.28;
+  transition: opacity 0.18s ease;
+}
+
+.md-editor-shell[data-focus='on'] .ProseMirror > .focus-block {
+  opacity: 1;
+}

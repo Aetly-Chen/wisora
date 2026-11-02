@@ -333,7 +333,7 @@ gfm 导出了 `addRowAfterCommand` 这些，但**没有删行删列** —— 只
 | 图表 Mermaid | ⬜ 依赖部分装好，待接 NodeView | `mermaid`（缺 5 个内部包） |
 | 双向链接 `[[]]` | ⬜ 未做（要后端配合） | —— |
 | 查找替换 `Ctrl+F` | ✅ 2026-11-01 | `lib/find.ts` + `components/FindBar.tsx` |
-| 专注模式 | ⬜ 未做 | —— |
+| 专注模式 | ✅ 2026-11-02 | `lib/focus.ts` + `NoteEditor` 工具条 |
 
 ### 10.1 斜杠命令的触发规则（别放宽）
 
@@ -344,3 +344,30 @@ gfm 导出了 `addRowAfterCommand` 这些，但**没有删行删列** —— 只
 菜单用 `position: fixed` 定位（坐标来自 `coordsAtPos`，视口坐标系），
 所以**滚动时必须关掉**——监听要挂在编辑器外壳上，**不能挂 window + capture**：
 那样菜单内部列表的 `scrollIntoView` 也会冒到 window，键盘一按菜单就自己关了。
+
+### 10.2 专注模式的两个效果都在「观感层」
+
+只做两件事，都不碰文档：
+
+1. **块级淡化**：`Decoration.node()` 给光标所在的**顶层块**加 `.focus-block`，
+   CSS 把 `.ProseMirror > *` 压到 `opacity: .28`、把 `.focus-block` 拉回 1。
+   用透明度而不是改文字颜色，是因为色阶一旦写死就会和标题/引用/代码块各自的
+   字号颜色打架，淡下去之后对比度也不够。
+2. **打字机滚动**：`keepCaretInBand()` —— 光标离开容器高度 22%~62% 的区间时，
+   把 `scrollTop` 调到让光标回到 38% 处。
+
+几个容易踩的点：
+
+- **开关是 ref，不是布尔捕获**。插件在 `useEditor` 里只创建一次，`isEnabled`
+  必须是 `() => focusModeRef.current`，否则开关永远读的是初始值。
+- **切开关要补一个空事务**。装饰是「按 state 算」的，没有事务就不会重算，
+  切过去的第一帧会变成「全部淡化但没有高亮」。`tr.setMeta('focus-mode', on)`
+  即可；实测不进撤销栈，也不触发 `markdownUpdated`（doc 没变，库里的
+  `updatedAt` 未变）。
+- **不要用 `scrollIntoView`**：它把整块顶到顶部，长段落等于跳页；诉求是
+  「细碎地跟着走」，所以直接算 `scrollTop` 增量。
+- **点击同一个位置不会触发滚动**（`prev.selection.eq` 提前 return）。这是有意
+  为之：selection 没变就没有重算的必要。**验证时别拿同一个坐标点两次**，
+  否则会得出「滚动失效」的错误结论（2026-11-02 验收时踩过一次）。
+- **文末有物理上限**：滚到 `maxScroll` 后光标到不了 38%，此时停在视口底部
+  属正常。想让文末也居中，得给编辑器补底部 padding，那是另一个决定。
