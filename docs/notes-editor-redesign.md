@@ -329,7 +329,7 @@ gfm 导出了 `addRowAfterCommand` 这些，但**没有删行删列** —— 只
 | 功能 | 状态 | 落点 |
 |---|---|---|
 | 斜杠命令 `/` | ✅ 2026-11-01 | `lib/slash.ts` + `components/SlashMenu.tsx` |
-| 公式 KaTeX | ⬜ 依赖已装，待接 schema 节点 | `katex` + `remark-math` |
+| 公式 KaTeX | ✅ 2026-11-04 | `lib/math.ts`（行内 `$…$` + 块级 `$$…$$`） |
 | 图表 Mermaid | ⬜ 依赖部分装好，待接 NodeView | `mermaid`（缺 5 个内部包） |
 | 双向链接 `[[]]` | ⬜ 未做（要后端配合） | —— |
 | 查找替换 `Ctrl+F` | ✅ 2026-11-01 | `lib/find.ts` + `components/FindBar.tsx` |
@@ -371,3 +371,29 @@ gfm 导出了 `addRowAfterCommand` 这些，但**没有删行删列** —— 只
   否则会得出「滚动失效」的错误结论（2026-11-02 验收时踩过一次）。
 - **文末有物理上限**：滚到 `maxScroll` 后光标到不了 38%，此时停在视口底部
   属正常。想让文末也居中，得给编辑器补底部 padding，那是另一个决定。
+
+### 10.3 公式：官方没发布插件，三处坑都得自己躲
+
+`@milkdown/plugin-math` 停在 7.5.9，与 core 7.22 的 ctx 不兼容。crepe 的
+latex feature 也是自己拼的，所以照它的路子做：`remark-math` 出 mdast 节点、
+`$node` 建两个 atom、**在 `toDOM` 里调 `katex.render`**。
+
+1. **别用 `$view` 做渲染。** `$view` 的注册发生在 `await ctx.wait(SchemaReady)`
+   之后，而 EditorView 构造时读的是当时的 `nodeViewCtx` 快照；两者是并行 handler，
+   谁先完成不定。实测 7.22 上必输，症状极具误导性：节点**是** math 节点（属性、
+   KaTeX 的 `data-*` 都对），DOM 却是纯文本 —— 因为没有 NodeView 就回落到 `toDOM`。
+   写 NodeView 之前先想清楚这一点。
+2. **序列化侧的 `addNode` 是三参数 `(type, children, value)`，不是解析侧的
+   `(type, attrs, content)`。** 把 attrs 塞在第二参会被当成 children 去 `reduce`，
+   抛 `children.reduce is not a function` —— 整个编辑器**挂载失败**，白屏只留在
+   控制台里，页面上看是「编辑模式但没有任何输入区」。
+3. **必须给 `$…$` 配 input rule，否则用户造不出公式。** remark-stringify 会把
+   手打的 `$` 转义成 `\$`（remark-math 把 `$` 加进了 unsafe 字符集），存进库是
+   `\$y^2\$`，再打开就不是公式了 —— 实测确认。所以入口只能是 input rule：先变成
+   atom 节点，再由我们自己的 handler 序列化成 `$y^2$`。`inCode` 默认 false，
+   代码块里打 `$` 不会误触发。
+
+**已知没做的**：块级公式还没有输入入口（atom 节点里没法打字）。目前的来源是
+导入/AI 写入的 Markdown，打开即渲染。要能边写边渲染，得学 crepe 用
+「`language=latex` 的代码块 + 预览」，或者换成可编辑的 NodeView（见坑 1）。
+

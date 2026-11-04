@@ -377,3 +377,36 @@
 .md-editor-shell[data-focus='on'] .ProseMirror > .focus-block {
   opacity: 1;
 }
+
+/* ---------------- 公式（KaTeX） ---------------- */
+
+/*
+ * KaTeX 自带字形、间距与字号，这里只调「和正文的关系」。
+ * 不覆盖 .katex 内部任何尺寸 —— 一改字宽公式就会歪，且不同字号下歪法不同。
+ */
+.md-math-inline {
+  display: inline-block;
+  vertical-align: baseline;
+  padding: 0 1px;
+  cursor: default;
+}
+
+.md-math-block {
+  display: block;
+  margin: 0.7em 0;
+  padding: 4px 0;
+  overflow-x: auto;
+  text-align: center;
+  cursor: default;
+}
+
+/*
+ * 空公式给个占位。`$$` 刚打出来时 value 是空串，KaTeX 渲染出 0 高度，
+ * 看起来像「什么都没插入」，会让人以为命令没生效。
+ */
+.md-math-inline:empty::after,
+.md-math-block:empty::after {
+  content: '公式';
+  color: #94a3b8;
+  font-size: 12px;
+}

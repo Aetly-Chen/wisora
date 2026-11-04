@@ -42,12 +42,14 @@ import { SlashMenu } from './SlashMenu';
 import { FindBar } from './FindBar';
 import { createFindPlugin, setFind, type FindState } from '../lib/find';
 import { createFocusPlugin } from '../lib/focus';
+import { mathBlockSchema, mathInlineInputRule, mathInlineSchema, remarkMath } from '../lib/math';
 import {
   createSlashPlugin,
   filterSlashItems,
   type SlashAnchor,
   type SlashItemDef,
 } from '../lib/slash';
+import 'katex/dist/katex.min.css';
 import './markdown-editor.css';
 
 /** 光标（或选区头）是否落在表格内 */
@@ -578,6 +580,21 @@ const Inner: React.FC<{
              */
             bullet: '-' as const,
             rule: '-' as const,
+            /*
+             * 公式的序列化。
+             *
+             * remark-stringify 不认识 mdast 的 `inlineMath` / `math` 节点
+             * （`remark-math` v6 只导出了解析侧的插件，没导出 toMarkdown 扩展），
+             * 不补 handler 的话公式会被**静默丢弃**，用户保存一次就没了。
+             *
+             * 格式钉死在 `$…$` 与 `$$\n…\n$$`：`Note.content` 是 Markdown 契约，
+             * RAG 切块、AI 工具、导入导出都按这个读。
+             */
+            handlers: {
+              ...(prev.handlers as Record<string, unknown> | undefined),
+              inlineMath: (node: { value?: string }) => `$${node.value ?? ''}$`,
+              math: (node: { value?: string }) => `$$\n${node.value ?? ''}\n$$`,
+            } as never,
           }));
 
           /*
@@ -659,6 +676,11 @@ const Inner: React.FC<{
         })
         .use(commonmark)
         .use(gfm)
+        // 公式：解析（remark-math）+ 两个 atom 节点，渲染在各自的 toDOM 里
+        .use(remarkMath)
+        .use(mathInlineSchema)
+        .use(mathBlockSchema)
+        .use(mathInlineInputRule)
         .use(prism)
         .use(history)
         .use(listener),
