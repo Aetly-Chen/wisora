@@ -98,6 +98,18 @@ interface NotesState {
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
+ * 编辑版本号 / 已保存版本号。
+ *
+ * 为什么不能只看 `saveState`：它是「界面状态」，不是「数据是否落库」。
+ * 一次保存在飞的时候用户继续打字，回来时 `set({ saveState: 'saved' })` 会把
+ * 期间置上的 `dirty` 覆盖掉，紧接着触发的保存又因为「已经是 saved」直接
+ * 早退 —— 那段编辑就静默丢了（实测撞到过：编辑器里 3 个公式，库里只有 2 个）。
+ * 两个计数器把「有没有新改动」和「界面显示什么」彻底分开。
+ */
+let editSeq = 0;
+let savedSeq = 0;
+
+/**
  * 兜底补齐后端可能漏掉的字段。
  *
  * 后端若某个接口漏返回，页面会在 `attachments.length` 处整页崩掉。
@@ -198,18 +210,25 @@ export const useNotesStore = create<NotesState>((set, get) => {
 
   const doSave = async () => {
     const { active, saveState } = get();
-    if (!active || saveState === 'saving' || saveState === 'saved') return;
+    if (!active) return;
+    // 正在保存：等它回来，回来时若还有新改动会自动补一次，这里不用再排队
+    if (saveState === 'saving') return;
+    // 没有新改动（版本号没动）就不必打接口
+    if (editSeq === savedSeq) return;
+
+    const seq = editSeq;
+    const snapshot = { title: active.title, content: active.content };
 
     set({ saveState: 'saving' });
     try {
-      const saved = await updateNote(active.id, {
-        title: active.title,
-        content: active.content,
-      });
+      const saved = await updateNote(active.id, snapshot);
+      // 只有这次请求覆盖到的那个版本才算「已保存」
+      savedSeq = seq;
       // 保存期间用户可能已经切走，回来再判断是否还是同一篇
       if (get().activeId !== saved.id) return;
 
-      set({ saveState: 'saved', error: undefined });
+      // 期间又编辑过就别显示「已保存」——那会让用户以为改动已经落库
+      set({ saveState: editSeq === seq ? 'saved' : 'dirty', error: undefined });
       // 列表里的标题/时间要同步，否则侧边栏显示的还是旧标题
       set((state) => ({
         notes: state.notes.map((n) =>
@@ -218,6 +237,9 @@ export const useNotesStore = create<NotesState>((set, get) => {
             : n,
         ),
       }));
+
+      // 保存期间攒下的新改动：补一次，别等用户下次动键盘
+      if (editSeq !== savedSeq) scheduleSave();
     } catch {
       /**
        * 保存失败：顶栏的保存状态本身就是可见反馈（会变成「保存失败」），
@@ -251,6 +273,8 @@ export const useNotesStore = create<NotesState>((set, get) => {
       saveState: 'idle',
       error: undefined,
     }));
+    // 刚建出来的就是库里的样子，别把它当成为保存的改动
+    savedSeq = editSeq;
     return note;
   };
 
@@ -341,6 +365,8 @@ export const useNotesStore = create<NotesState>((set, get) => {
       try {
         const note = await getNote(id);
         set({ active: withNoteShape(note), detailLoading: false });
+        // 刚从库里取回来的就是已落库版本，避免下次 flush 把没改的内容再 PATCH 一遍
+        savedSeq = editSeq;
       } catch (err) {
         set({
           detailLoading: false,
@@ -366,6 +392,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
     editTitle: (title) => {
       const active = get().active;
       if (!active) return;
+      editSeq += 1;
       set({ active: { ...active, title }, saveState: 'dirty' });
       scheduleSave();
     },
@@ -373,6 +400,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
     editContent: (content) => {
       const active = get().active;
       if (!active) return;
+      editSeq += 1;
       set({ active: { ...active, content }, saveState: 'dirty' });
       scheduleSave();
     },
