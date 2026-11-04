@@ -93,6 +93,7 @@ export type SlashKind =
   | 'task'
   | 'quote'
   | 'code'
+  | 'mermaid'
   | 'table'
   | 'hr';
 
@@ -115,6 +116,12 @@ export const SLASH_ITEMS: SlashItemDef[] = [
   { kind: 'task', label: '任务清单', hint: '☑', keywords: ['task', 'todo', 'check', 'qingdan'] },
   { kind: 'quote', label: '引用', hint: '❝', keywords: ['quote', 'blockquote', 'yinyong'] },
   { kind: 'code', label: '代码块', hint: '```', keywords: ['code', 'pre', 'daima'] },
+  {
+    kind: 'mermaid',
+    label: '图表',
+    hint: 'Mermaid',
+    keywords: ['mermaid', 'chart', 'diagram', 'tubiao', 'liucheng'],
+  },
   { kind: 'table', label: '表格', hint: '3×3', keywords: ['table', 'biaoge'] },
   { kind: 'hr', label: '分割线', hint: '---', keywords: ['hr', 'divider', 'line', 'fenge'] },
 ];

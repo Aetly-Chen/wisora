@@ -43,6 +43,7 @@ import { FindBar } from './FindBar';
 import { createFindPlugin, setFind, type FindState } from '../lib/find';
 import { createFocusPlugin } from '../lib/focus';
 import { mathBlockSchema, mathInlineInputRule, mathInlineSchema, remarkMath } from '../lib/math';
+import { mermaidPlugin } from '../lib/mermaid';
 import {
   createSlashPlugin,
   filterSlashItems,
@@ -681,6 +682,8 @@ const Inner: React.FC<{
         .use(mathInlineSchema)
         .use(mathBlockSchema)
         .use(mathInlineInputRule)
+        // 图表：```mermaid 代码块下方的预览（装饰实现，源码照常可编辑）
+        .use(mermaidPlugin)
         .use(prism)
         .use(history)
         .use(listener),
@@ -733,6 +736,10 @@ const Inner: React.FC<{
             break;
           case 'code':
             commands.call(createCodeBlockCommand.key);
+            break;
+          // 图表就是一个 `language=mermaid` 的代码块，预览由装饰插件画在它下面
+          case 'mermaid':
+            commands.call(createCodeBlockCommand.key, 'mermaid');
             break;
           case 'table':
             commands.call(insertTableCommand.key, { row: 3, col: 3 });

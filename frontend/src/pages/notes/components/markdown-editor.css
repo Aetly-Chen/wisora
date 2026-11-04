@@ -410,3 +410,43 @@
   color: #94a3b8;
   font-size: 12px;
 }
+
+/* ---------------- 图表（Mermaid） ---------------- */
+
+/*
+ * 预览挂在代码块**下面**（装饰 widget），不动源码块本身：
+ * 想改图就去上面的代码块改，改完 350ms 重画。
+ */
+.md-mermaid {
+  margin: 4px 0 16px;
+  padding: 12px 14px;
+  border: 1px solid #e6e4df;
+  border-radius: 10px;
+  background: #fcfcfb;
+  overflow-x: auto;
+  text-align: center;
+  font-size: 12.5px;
+  color: #94a3b8;
+  cursor: default;
+  /* 图表里的文字不参与正文行高，否则会和编辑器正文的 rhythm 打架 */
+  line-height: normal;
+}
+
+/* mermaid 吐出来的 svg 宽度是按容器算的，窄屏要允许它缩 */
+.md-mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.md-mermaid--empty {
+  border-style: dashed;
+}
+
+.md-mermaid--error {
+  text-align: left;
+  color: #b91c1c;
+  background: #fef2f2;
+  border-color: #fecaca;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  white-space: pre-wrap;
+}
