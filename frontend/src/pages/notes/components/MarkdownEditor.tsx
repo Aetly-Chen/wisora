@@ -37,11 +37,13 @@ import {
   parseAttachmentRef,
 } from '@/lib/attachment-url';
 import { uploadAttachment } from '@/request/notes';
+import { useNotesStore } from '@/stores/useNotesStore';
 import { TableToolbar, type TableCommand } from './TableToolbar';
 import { SlashMenu } from './SlashMenu';
 import { FindBar } from './FindBar';
 import { createFindPlugin, setFind, type FindState } from '../lib/find';
 import { createFocusPlugin } from '../lib/focus';
+import { createWikilinkPlugin } from '../lib/wikilink';
 import {
   mathBlockInputRule,
   mathBlockSchema,
@@ -675,6 +677,19 @@ const Inner: React.FC<{
             createFindPlugin({ onState: handleFindState }),
             // 专注模式：只标当前块 + 打字机滚动
             createFocusPlugin({ isEnabled: () => focusModeRef.current }),
+            /*
+             * 双向链接 `[[标题]]`。
+             *
+             * 解析与跳转都走 store 的**即时快照**（`getState()`），而不是闭包里的
+             * 旧值：侧边栏改了标题、新建了同名页，这里的解析要立刻跟着变。
+             */
+            createWikilinkPlugin({
+              resolve: (title) =>
+                useNotesStore.getState().notes.find((n) => n.title === title)?.id,
+              open: (id) => {
+                void useNotesStore.getState().openNote(id);
+              },
+            }),
           ]);
 
           ctx.get(listenerCtx).markdownUpdated((_ctx, markdown) => {

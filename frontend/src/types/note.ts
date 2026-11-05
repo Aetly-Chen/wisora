@@ -34,6 +34,14 @@ export interface NoteDetail extends NoteSummary {
   attachments: AttachmentMeta[]; // 挂在这篇笔记上的附件
 }
 
+/** 反向链接：另一篇笔记里写了 `[[当前标题]]` */
+export interface NoteBacklink {
+  id: string; // 引用方主键，点击时用它跳转
+  title: string; // 引用方标题
+  updatedAt: string; // 引用方最后更新时间
+  snippet: string; // 引用处前后的一小段，压成一行
+}
+
 /** 本地保存状态，用于编辑器顶部提示 */
 export type SaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
 

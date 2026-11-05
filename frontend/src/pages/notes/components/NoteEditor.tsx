@@ -24,12 +24,14 @@ import { Button } from '@/components/ui/button';
 import { MarkdownView } from '@/components/MarkdownView';
 import { exportNoteAsMarkdown } from '@/lib/export-note';
 import { useNotesStore } from '@/stores/useNotesStore';
-import type { AttachmentMeta, NoteDetail, SaveState } from '@/types/note';
+import { getBacklinks } from '@/request/notes';
+import type { AttachmentMeta, NoteBacklink, NoteDetail, SaveState } from '@/types/note';
 import { PREVIEW_MAX_CHARS, SAVE_LABEL, type ViewMode } from '../constants';
 import { extractHeadings } from '../lib/headings';
 import { ModeButton } from './ModeButton';
 import { ChildPages } from './ChildPages';
 import { AttachmentsPanel } from './AttachmentsPanel';
+import { BacklinksPanel } from './BacklinksPanel';
 import { OutlinePanel } from './OutlinePanel';
 
 /** 专注模式的偏好键：属于「写作习惯」，不属于笔记内容 */
@@ -96,6 +98,29 @@ export const NoteEditor: React.FC<{
   const contentRef = useRef<HTMLDivElement>(null);
   const { editTitle, editContent } = useNotesStore();
   const [exporting, setExporting] = useState(false);
+
+  /**
+   * 反向链接。
+   *
+   * 挂在这篇笔记上而不是全局：切笔记就要换一批。
+   * 用 `cancelled` 标记挡住「切得太快、旧请求后到」把新笔记的链接覆盖掉。
+   */
+  const [backlinks, setBacklinks] = useState<NoteBacklink[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    setBacklinks([]);
+    void getBacklinks(note.id)
+      .then((list) => {
+        if (!cancelled) setBacklinks(list);
+      })
+      .catch(() => {
+        // 面板是辅助信息，失败就当没有；不打扰用户
+        if (!cancelled) setBacklinks([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [note.id]);
 
   /**
    * 专注模式。
@@ -407,6 +432,8 @@ export const NoteEditor: React.FC<{
           className="hidden w-[164px] shrink-0 overflow-y-auto border-l border-slate-200/70 py-1 pl-2 xl:block"
         />
       </div>
+
+      <BacklinksPanel backlinks={backlinks} onOpen={onOpenNote} />
 
       <AttachmentsPanel
         attachments={note.attachments}

@@ -70,6 +70,27 @@ const MAX_DEPTH = 6;
 const TITLE_MAX_LENGTH = 120;
 
 /**
+ * 截取 `[[..]]` 前后一小段做摘要。
+ *
+ * 正文是 Markdown，换行/缩进直接塞进列表会很丑，所以压成一行再截；
+ * 两侧被裁掉时补省略号，让用户知道这句是从中间摘出来的。
+ */
+function backlinkSnippet(content: string, needle: string): string {
+  const at = content.indexOf(needle);
+  if (at < 0) return '';
+  const start = Math.max(0, at - 24);
+  const end = Math.min(content.length, at + needle.length + 24);
+  const text = content
+    .slice(start, end)
+    .replace(/\s+/g, ' ')
+    // 摘出来的片段常常正好从 `# 标题` / `- 列表` 起头，那点 Markdown 记号
+    // 在列表里只会碍眼（截图验收时被自己看出来了）
+    .replace(/^[#>*-]+[\s]*/, '')
+    .trim();
+  return `${start > 0 ? '…' : ''}${text}${end < content.length ? '…' : ''}`;
+}
+
+/**
  * 校验标题长度并原样返回。
  *
  * 判的是 **trim 后**的长度 —— 与调用点 `title || '无标题'` 的取值口径一致，
@@ -131,6 +152,50 @@ export class NotesService {
     if (!owned) {
       throw new NotFoundException('笔记不存在或无权访问');
     }
+  }
+
+  /**
+   * 反向链接：有哪些笔记引用了当前这篇。
+   *
+   * 判定方式是「正文里出现 `[[标题]]`」，**读取时现算，不建链接表**。
+   * 取舍写在 `docs/notes-editor-redesign.md` §11：换来零迁移、零后台抽取任务、
+   * 不存在「链接表与正文不一致」；代价是标题一改旧引用就断
+   * （和 Obsidian 不带别名的 `[[标题]]` 一致）。
+   *
+   * ⚠️ 先用 `contains` 粗筛，再在 JS 里精确比对一遍：Prisma 的 `contains` 走
+   * LIKE，标题里的 `%` / `_` 会被当成通配符。
+   */
+  async backlinks(userId: string, noteId: string) {
+    await this.assertOwned(userId, noteId);
+
+    const target = await this.prisma.note.findFirst({
+      where: { id: noteId, userId, deletedAt: null },
+      select: { title: true },
+    });
+    if (!target) throw new NotFoundException('笔记不存在或无权访问');
+
+    const needle = `[[${target.title}]]`;
+    const candidates = await this.prisma.note.findMany({
+      where: {
+        userId,
+        deletedAt: null,
+        id: { not: noteId },
+        content: { contains: needle },
+      },
+      select: { id: true, title: true, content: true, updatedAt: true },
+      orderBy: { updatedAt: 'desc' },
+      take: 50,
+    });
+
+    return candidates
+      .filter((n) => n.content.includes(needle))
+      .map((n) => ({
+        id: n.id,
+        title: n.title,
+        updatedAt: n.updatedAt,
+        // 摘一句上下文，前端直接显示，省得再发一次详情请求
+        snippet: backlinkSnippet(n.content, needle),
+      }));
   }
 
   /** 列表：置顶优先，其余按更新时间倒序。返回扁平结构，树由前端组装 */

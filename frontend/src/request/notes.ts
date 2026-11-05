@@ -1,5 +1,5 @@
 import request from './index';
-import type { AttachmentMeta, NoteDetail, NoteSummary } from '../types/note';
+import type { AttachmentMeta, NoteBacklink, NoteDetail, NoteSummary } from '../types/note';
 
 const BASE = import.meta.env.VITE_BASE_API ?? '';
 
@@ -29,6 +29,19 @@ export function createNote(
 
 export function getNote(id: string) {
   return request.get<NoteDetail>(`/notes/${id}`, { loading: false });
+}
+
+/**
+ * 反向链接：哪些笔记里写了 `[[这一篇的标题]]`。
+ *
+ * `ignoreError: true` 与列表同理 —— 失败不该弹 toast，面板自己显示空态，
+ * 否则每次切到一篇没人引用的笔记都可能闪一条错误。
+ */
+export function getBacklinks(id: string) {
+  return request.get<NoteBacklink[]>(`/notes/${id}/backlinks`, {
+    loading: false,
+    ignoreError: true,
+  });
 }
 
 export function updateNote(

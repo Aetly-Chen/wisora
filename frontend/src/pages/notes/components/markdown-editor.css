@@ -411,6 +411,34 @@
   font-size: 12px;
 }
 
+/* ---------------- 双向链接 [[标题]] ---------------- */
+
+/*
+ * 纯文本 + 装饰。这里只改观感，源码一个字都不动 ——
+ * 所以复制出去、导出 .md、被 RAG 切块读到的都还是 `[[标题]]`。
+ */
+.md-wikilink {
+  color: #4f46e5;
+  background: #eef2ff;
+  border-radius: 4px;
+  padding: 0 2px;
+  cursor: pointer;
+  /* 引用跨行时底色不要断成两截 */
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.md-wikilink:hover {
+  background: #e0e7ff;
+}
+
+/* 找不到同名笔记：给「悬空链接」的提示色，但仍照字面可读 */
+.md-wikilink--missing {
+  color: #b45309;
+  background: #fef3c7;
+  cursor: help;
+}
+
 /* ---------------- 图表（Mermaid） ---------------- */
 
 /*

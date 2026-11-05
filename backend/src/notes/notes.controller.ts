@@ -41,6 +41,16 @@ export class NotesController {
     return this.notes.get(userId, id);
   }
 
+  /**
+   * 反向链接：哪些笔记里写了 `[[当前标题]]`。
+   *
+   * 两段路径，不会被上面的 `@Get(':id')` 抢走（段数不同）。
+   */
+  @Get(':id/backlinks')
+  backlinks(@CurrentUser() userId: string, @Param('id') id: string) {
+    return this.notes.backlinks(userId, id);
+  }
+
   @Patch(':id')
   update(
     @CurrentUser() userId: string,
