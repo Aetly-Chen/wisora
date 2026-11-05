@@ -130,9 +130,50 @@ export const mathInlineInputRule = $inputRule((ctx) => {
     (state, match, start, end) => {
       const value = match[1] ?? '';
       if (!value.trim()) return null;
+      /*
+       * 段首是 `$$` 时让行内规则闭嘴，交给下面的块级规则。
+       * 否则输 `$$x$$` 的过程中，敲到第三个 `$`（文字是 `$$x$`）就会先把
+       * `$x$` 抢成行内公式，后面那个 `$` 落单 —— 块级公式永远输不完。
+       */
+      if (state.doc.resolve(start).parent.textContent.startsWith('$$')) return null;
       // 替换范围正好是 [开 $, 闭 $]，换成一个 1 宽的 atom 后光标自然落到它右边
       return state.tr.replaceWith(start, end, type.create({ value }));
     },
   );
+});
+
+/**
+ * 输入 `$$…$$` 时转成块级公式。
+ *
+ * 要求**整段只有这一个公式**（前后允许空白）：块级公式是独立的块，
+ * 和正文混在一行里就说不清该按行内还是按块渲染了。
+ *
+ * ⚠️ 转成 atom 之后没法再改内容（和行内公式同一个取舍）：要改就选中它删掉重打。
+ * 想「边写边渲染」得像图表那样走装饰，那是另一个决定。
+ */
+export const mathBlockInputRule = $inputRule((ctx) => {
+  const type = mathBlockSchema.type(ctx);
+  return new InputRule(/\$\$([\s\S]+?)\$\$$/, (state, match, start, end) => {
+    const value = (match[1] ?? '').trim();
+    if (!value) return null;
+
+    const $start = state.doc.resolve(start);
+    const parent = $start.parent;
+    if (parent.type.name !== 'paragraph') return null;
+    /*
+     * 公式必须从段首开始。
+     *
+     * ⚠️ 不能拿 `parent.textContent` 跟 match 比 —— 这条规则执行时**新输入的文字
+     * 还没进文档**（state 是插入前的），那段 textContent 是空的；
+     * 拿它去比会永远不相等，规则就静默失效（实测踩过）。
+     * 段首判断才是不依赖新文本的正确写法。
+     */
+    if (start !== $start.start()) return null;
+
+    const from = $start.start() - 1;
+    const to = from + parent.nodeSize;
+    if (end > to) return null;
+    return state.tr.replaceWith(from, to, type.create({ value }));
+  });
 });
 
