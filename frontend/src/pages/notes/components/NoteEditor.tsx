@@ -352,10 +352,15 @@ export const NoteEditor: React.FC<{
           {mode === 'edit' && (
             /* 单栏居中、阅读宽度 760px —— 全宽长行读起来很累 */
             /*
-             * key={note.id} 是必需的：Milkdown 只在挂载时读一次初始值，
+             * key 是必需的：Milkdown 只在挂载时读一次初始值，
              * 换笔记必须强制重挂载，否则会继续显示上一篇的内容。
              * 用 key 而不是「把新 content 回灌编辑器」，是因为回灌会让
              * 每次输入后光标跳位（编辑 → store → 新值 → 回灌 形成环）。
+             *
+             * 带上 `updatedAt`：多端/Agent 改过后 `reloadActive()` 会换掉
+             * `active`，此时同一个 id 也要重挂载才能看到新正文。
+             * 本地保存**不会**改 `active.updatedAt`（见 store 的
+             * `lastKnownUpdatedAt`），所以正常打字不会触发重挂载。
              */
             <div className="mx-auto h-full max-w-[760px]">
               <React.Suspense
@@ -366,7 +371,7 @@ export const NoteEditor: React.FC<{
                 }
               >
                 <MarkdownEditor
-                  key={note.id}
+                  key={`${note.id}:${note.updatedAt}`}
                   initialValue={note.content}
                   onChange={editContent}
                   noteId={note.id}

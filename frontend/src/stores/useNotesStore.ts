@@ -70,6 +70,17 @@ interface NotesState {
     opts?: { force?: boolean; keepSelection?: boolean },
   ) => Promise<void>;
   /**
+   * 回读当前打开的那篇（多端 / Agent 改过之后用）。
+   *
+   * 与 `openNote({force:true})` 的区别：**不置 detailLoading**、不清空 active，
+   * 所以编辑器不会闪一下「加载中」—— 只有内容真的变了（`updatedAt` 不同）
+   * 才会替换 active，编辑器靠 `key` 里的 updatedAt 重挂载拿到新正文。
+   *
+   * - `dirty`：本地有未保存改动，**不覆盖**（宁可本地赢）
+   * - `unchanged`：服务端版本没变
+   */
+  reloadActive: () => Promise<'no-op' | 'dirty' | 'unchanged' | 'reloaded'>;
+  /**
    * 新建笔记。
    * - 传 parentId：挂到指定页面下（行内「+」用）
    * - 传 null：建为一级目录
@@ -108,6 +119,15 @@ let saveTimer: ReturnType<typeof setTimeout> | null = null;
  */
 let editSeq = 0;
 let savedSeq = 0;
+
+/**
+ * 本地「已知的最新 updatedAt」。
+ *
+ * 多端回读时用它判断服务端是否真的变了：不能拿 `active.updatedAt` 比 ——
+ * 本地保存成功后 `active` 并不会跟着更新（那是刻意的，否则每次保存都会让
+ * 编辑器重挂载、光标乱跳）。所以自己存一份，保存成功时推进它。
+ */
+let lastKnownUpdatedAt = '';
 
 /**
  * 兜底补齐后端可能漏掉的字段。
@@ -227,6 +247,9 @@ export const useNotesStore = create<NotesState>((set, get) => {
       // 保存期间用户可能已经切走，回来再判断是否还是同一篇
       if (get().activeId !== saved.id) return;
 
+      // 自己刚存过，这个 updatedAt 就是「已知最新」，别让多端回读把自己当外部改动
+      lastKnownUpdatedAt = saved.updatedAt;
+
       // 期间又编辑过就别显示「已保存」——那会让用户以为改动已经落库
       set({ saveState: editSeq === seq ? 'saved' : 'dirty', error: undefined });
       // 列表里的标题/时间要同步，否则侧边栏显示的还是旧标题
@@ -275,6 +298,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
     }));
     // 刚建出来的就是库里的样子，别把它当成为保存的改动
     savedSeq = editSeq;
+    lastKnownUpdatedAt = note.updatedAt;
     return note;
   };
 
@@ -294,6 +318,8 @@ export const useNotesStore = create<NotesState>((set, get) => {
     reset: () => {
       // 先取消待执行的自动保存，否则定时器到点会把内容写进已登出的会话
       cancelPending();
+      // 换账号后「已知最新」必须清掉，否则下一篇会被误判成「没变」
+      lastKnownUpdatedAt = '';
       set({
         notes: [],
         keyword: '',
@@ -367,12 +393,37 @@ export const useNotesStore = create<NotesState>((set, get) => {
         set({ active: withNoteShape(note), detailLoading: false });
         // 刚从库里取回来的就是已落库版本，避免下次 flush 把没改的内容再 PATCH 一遍
         savedSeq = editSeq;
+        lastKnownUpdatedAt = note.updatedAt;
       } catch (err) {
         set({
           detailLoading: false,
           error: apiErrorMessage(err, '加载笔记失败'),
         });
       }
+    },
+
+    reloadActive: async () => {
+      const { activeId, active } = get();
+      if (!activeId || !active) return 'no-op';
+      /*
+       * 本地有未保存改动就不回读。
+       *
+       * 这里的取舍是「本地赢」：用户正在写的东西比远端新版本重要，
+       * 悄悄把他手上的内容换掉是更糟的体验（他自己会发现文字跳了）。
+       * 真要做到「提示 + 让用户选」，得有一条可见的冲突提示条，
+       * 那是另一个决定（见 docs §12）。
+       */
+      if (editSeq !== savedSeq) return 'dirty';
+
+      const fresh = await getNote(activeId).catch(() => null);
+      if (!fresh) return 'unchanged';
+      // 比的是「已知最新」，不是 active.updatedAt —— 后者在本地保存后并不会推进
+      if (lastKnownUpdatedAt === fresh.updatedAt) return 'unchanged';
+
+      set({ active: withNoteShape(fresh) });
+      savedSeq = editSeq;
+      lastKnownUpdatedAt = fresh.updatedAt;
+      return 'reloaded';
     },
 
     createNote: async (parentId) => {

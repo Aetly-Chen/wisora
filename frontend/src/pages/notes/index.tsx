@@ -82,6 +82,45 @@ const NotesPage: React.FC = () => {
   // 离开页面前把未保存内容落盘
   useEffect(() => () => void flush(), [flush]);
 
+  /*
+   * 回到页面时跟服务端对一下。
+   *
+   * 场景：同一篇笔记在两个标签页打开（或 Agent 在 /agent 里改过），这边一直挂着
+   * 旧内容 —— 一保存就把对方的改动盖掉，而且用户完全看不出来。
+   *
+   * 只处理「本地没有未保存改动」的情况（`reloadActive` 内部判断），
+   * 用户正在写的时候悄悄替换正文比起丢改动更糟。**没有做 WebSocket 实时推送**，
+   * 是刻意的取舍：笔记页目前不连 socket，为这点延迟加一条常驻连接不划算（见 docs §12）。
+   */
+  const reloadActive = useNotesStore((s) => s.reloadActive);
+  useEffect(() => {
+    /** 连续 alt-tab 时合并成一次，避免每次切窗口都打两个请求 */
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const poke = () => {
+      if (document.hidden) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        void (async () => {
+          await reloadActive();
+          // 列表也要跟上：别处新建/改名的笔记只会出现在列表里
+          await loadNotes();
+        })().catch(() => {
+          // 后台对齐失败不打扰用户，下次回来再试
+        });
+      }, 400);
+    };
+
+    window.addEventListener('focus', poke);
+    document.addEventListener('visibilitychange', poke);
+    return () => {
+      if (timer) clearTimeout(timer);
+      window.removeEventListener('focus', poke);
+      document.removeEventListener('visibilitychange', poke);
+    };
+  }, [reloadActive, loadNotes]);
+
   // 换了一篇就收回「仍然渲染」的放行，避免上一篇的选择影响下一篇
   useEffect(() => {
     setForcePreview(false);
