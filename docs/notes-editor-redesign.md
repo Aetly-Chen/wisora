@@ -489,3 +489,26 @@ latex feature 也是自己拼的，所以照它的路子做：`remark-math` 出 
 
 - 改名不重写引用（见上表）。
 - 补全不做拼音首字母检索：中文标题直接打两个字比记拼音快。
+
+### 10.5 包体：KaTeX 按需加载
+
+公式刚接上时是静态 `import katex`，于是 258 kB 的 JS + 28 kB CSS + 字体全被算进
+**编辑器 chunk**（743 kB），打开任何笔记都要先下它 —— 而大多数笔记里没有公式。
+
+现在：
+
+- `lib/math.ts` 的 `preloadKatex()` 动态 `import('katex')` 与
+  `import('katex/dist/katex.min.css')`，并缓存 `renderToString` 的结果
+  （`toDOM` 每次重绘都会走，同一份源码不该重复算）。
+- `MarkdownEditor` 外层挡一道：`initialValue` 里出现 `$` 才等 KaTeX 就位再挂
+  编辑器。`toDOM` 是同步的，不等就会「先闪一下源码再变成公式」。
+  不含 `$` 的笔记完全不下载 KaTeX。
+- 打开之后才开始写的公式走异步填充：先按源码显示，加载完替换。
+  实测从输入到出图 < 0.5s（katex.js + css + 2 个字体文件）。
+
+结果：编辑器 chunk **743 → 489.66 kB**；katex 独立成 258.90 kB(+28.83 kB CSS)。
+⚠️ 构建产物里会有**两个** katex chunk —— 另一个是 mermaid 自己依赖的，
+不是重复打包，别顺手去「优化」它。
+
+⚠️ 写播种脚本时的坑：LaTeX 一律用 `String.raw`，普通模板字符串会把 `\f`/`\i`/`\,`
+当转义吃掉，公式进库就是坏的（表现为 KaTeX 的 ParseError，很容易误判成产品 bug）。
