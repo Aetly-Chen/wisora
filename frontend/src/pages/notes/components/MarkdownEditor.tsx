@@ -39,11 +39,11 @@ import {
 import { uploadAttachment } from '@/request/notes';
 import { useNotesStore } from '@/stores/useNotesStore';
 import { TableToolbar, type TableCommand } from './TableToolbar';
-import { SlashMenu } from './SlashMenu';
+import { SlashMenu, type MenuItem } from './SlashMenu';
 import { FindBar } from './FindBar';
 import { createFindPlugin, setFind, type FindState } from '../lib/find';
 import { createFocusPlugin } from '../lib/focus';
-import { createWikilinkPlugin } from '../lib/wikilink';
+import { createWikilinkPlugin, createWikilinkSuggestPlugin, insertWikilink, unescapeWikilinks, type WikilinkAnchor } from '../lib/wikilink';
 import {
   mathBlockInputRule,
   mathBlockSchema,
@@ -427,6 +427,12 @@ const Inner: React.FC<{
     [slash?.query],
   );
 
+  /** 菜单组件只吃 {key,label,hint}；命令项额外带 kind，这里剥掉 */
+  const slashMenuItems = useMemo<MenuItem[]>(
+    () => slashItems.map((i) => ({ key: i.kind, label: i.label, hint: i.hint })),
+    [slashItems],
+  );
+
   /**
    * 插件只能拿到「创建时」的闭包，而 `slash` / `slashItems` / `slashActive`
    * 每个 keystroke 都在变 —— 用 ref 做一份实时镜像给它读。
@@ -524,6 +530,125 @@ const Inner: React.FC<{
     shell.addEventListener('scroll', onScroll, { passive: true });
     return () => shell.removeEventListener('scroll', onScroll);
   }, [slash]);
+
+  /* ---------------- `[[` 选笔记 ---------------- */
+
+  const [wiki, setWiki] = useState<WikilinkAnchor | null>(null);
+  const [wikiActive, setWikiActive] = useState(0);
+  /*
+   * 订阅笔记列表：菜单的候选就是它。
+   *
+   * 这里用**订阅**而不是 `getState()`：列表本身变了（新建/改名/删除）候选要跟着变，
+   * 而列表变化频率很低，多这一次重渲染可以忽略。
+   */
+  const notes = useNotesStore((s) => s.notes);
+
+  /**
+   * 候选：排除自己（自引用没有意义），前缀命中排前面，最多 8 条。
+   * 不做拼音检索 —— 笔记标题是中文时拼音首字母的意义远不如「直接打两个字」。
+   */
+  const wikiItems = useMemo<MenuItem[]>(() => {
+    const q = (wiki?.query ?? '').trim().toLowerCase();
+    const rank = (title: string) => (q && title.toLowerCase().startsWith(q) ? 0 : 1);
+    return notes
+      .filter((n) => n.id !== noteId)
+      .filter((n) => !q || n.title.toLowerCase().includes(q))
+      .sort(
+        (a, b) =>
+          rank(a.title) - rank(b.title) ||
+          a.title.localeCompare(b.title, 'zh-Hans-CN'),
+      )
+      .slice(0, 8)
+      .map((n) => ({
+        key: n.id,
+        label: n.title || '无标题',
+        hint: n.pinned ? '置顶' : '',
+      }));
+  }, [notes, wiki?.query, noteId]);
+
+  const wikiRef = useRef<{
+    anchor: WikilinkAnchor | null;
+    items: MenuItem[];
+    active: number;
+  }>({ anchor: null, items: [], active: 0 });
+  wikiRef.current.anchor = wiki;
+  wikiRef.current.items = wikiItems;
+  wikiRef.current.active = wikiActive;
+
+  /** Esc 关掉的菜单，别在同一个 `[[` 上自己弹回来 */
+  const wikiDismissedRef = useRef<number | null>(null);
+
+  const handleWikiAnchor = useCallback((anchor: WikilinkAnchor | null) => {
+    if (!anchor) {
+      wikiDismissedRef.current = null;
+      setWiki((prev) => (prev === null ? prev : null));
+      return;
+    }
+    if (wikiDismissedRef.current === anchor.from) {
+      setWiki((prev) => (prev === null ? prev : null));
+      return;
+    }
+    setWiki((prev) =>
+      prev &&
+      prev.from === anchor.from &&
+      prev.to === anchor.to &&
+      prev.query === anchor.query
+        ? prev
+        : anchor,
+    );
+  }, []);
+
+  const handleWikiKey = useCallback((event: KeyboardEvent) => {
+    const anchor = wikiRef.current.anchor;
+    if (!anchor) return false;
+    const items = wikiRef.current.items;
+
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      if (items.length === 0) return true;
+      event.preventDefault();
+      setWikiActive((i) => {
+        const step = event.key === 'ArrowDown' ? 1 : -1;
+        return (i + step + items.length) % items.length;
+      });
+      return true;
+    }
+
+    // Tab 也当确认：手不用离开主键区
+    if (event.key === 'Enter' || event.key === 'Tab') {
+      event.preventDefault();
+      const item = items[wikiRef.current.active];
+      if (item) pickWikiRef.current(item.label);
+      else setWiki(null);
+      return true;
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      wikiDismissedRef.current = anchor.from;
+      setWiki(null);
+      return true;
+    }
+
+    return false;
+  }, []);
+
+  useEffect(() => {
+    setWikiActive(0);
+  }, [wiki?.query]);
+
+  const pickWikiRef = useRef<(title: string) => void>(() => {});
+
+  /** 滚动时同样要关：fixed 定位的菜单不会跟着走 */
+  useEffect(() => {
+    const shell = shellRef.current;
+    if (!shell || !wiki) return;
+    const onScroll = () => {
+      wikiDismissedRef.current = wiki.from;
+      setWiki(null);
+    };
+    shell.addEventListener('scroll', onScroll, { passive: true });
+    return () => shell.removeEventListener('scroll', onScroll);
+  }, [wiki]);
 
   /* ---------------- 查找替换 ---------------- */
 
@@ -690,10 +815,20 @@ const Inner: React.FC<{
                 void useNotesStore.getState().openNote(id);
               },
             }),
+            // `[[` 选笔记（触发判定 + 键盘接管）
+            createWikilinkSuggestPlugin({
+              onAnchor: handleWikiAnchor,
+              onKey: handleWikiKey,
+            }),
           ]);
 
           ctx.get(listenerCtx).markdownUpdated((_ctx, markdown) => {
-            onChangeRef.current(markdown);
+            /*
+             * `unescapeWikilinks` 不能省：remark-stringify 会把 `[[` 转义成 `\[\[`，
+             * 存进库就变成 `\[\[标题]]`，后端按 `[[标题]]` 匹配反链会全部落空。
+             * 详见 `lib/wikilink.ts` 里那段注释。
+             */
+            onChangeRef.current(unescapeWikilinks(markdown));
           });
         })
         .use(commonmark)
@@ -809,6 +944,29 @@ const Inner: React.FC<{
   useEffect(() => {
     pickRef.current = runSlashItem;
   }, [runSlashItem]);
+
+  /**
+   * `[[` 选中某一篇后把它写成链接。
+   *
+   * 与 `runSlashItem` 一样放这里而不是上面的状态区：它要用 `get()`，
+   * 而 `get` 来自下面的 `useEditor` 返回值。
+   */
+  const runWikiPick = useCallback(
+    (title: string) => {
+      const anchor = wikiRef.current.anchor;
+      if (!anchor) return;
+      const editor = get();
+      if (!editor) return;
+      editor.action((ctx) => insertWikilink(ctx.get(editorViewCtx), anchor, title));
+      setWiki(null);
+      editor.action((ctx) => ctx.get(editorViewCtx).focus());
+    },
+    [get],
+  );
+
+  useEffect(() => {
+    pickWikiRef.current = runWikiPick;
+  }, [runWikiPick]);
 
   /**
    * 开关一变就补一个空事务。
@@ -1023,13 +1181,28 @@ const Inner: React.FC<{
         <SlashMenu
           left={slash.left}
           bottom={slash.bottom}
-          items={slashItems}
+          items={slashMenuItems}
           active={slashActive}
           onHover={setSlashActive}
           onPick={(index) => {
             const item = slashItems[index];
             if (item) runSlashItem(item);
           }}
+        />
+      )}
+      {wiki && (
+        <SlashMenu
+          left={wiki.left}
+          bottom={wiki.bottom}
+          items={wikiItems}
+          active={wikiActive}
+          onHover={setWikiActive}
+          onPick={(index) => {
+            const item = wikiItems[index];
+            if (item) runWikiPick(item.label);
+          }}
+          emptyText="没有匹配的笔记"
+          ariaLabel="插入链接"
         />
       )}
     </div>

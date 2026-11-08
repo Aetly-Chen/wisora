@@ -1,5 +1,7 @@
 import { Plugin, PluginKey } from '@milkdown/prose/state';
+import type { EditorState } from '@milkdown/prose/state';
 import { Decoration, DecorationSet } from '@milkdown/prose/view';
+import type { EditorView } from '@milkdown/prose/view';
 import type { Node as ProseNode } from '@milkdown/prose/model';
 
 /**
@@ -85,4 +87,109 @@ export function createWikilinkPlugin(opts: WikilinkOptions): Plugin {
       },
     },
   });
+}
+
+/* ---------------- `[[` 触发选笔记 ---------------- */
+
+export interface WikilinkAnchor {
+  /** 第一个 `[` 的文档位置（插入时要连同它一起替换） */
+  from: number;
+  /** 光标位置 */
+  to: number;
+  /** `[[` 之后已经输入的内容，用来过滤笔记 */
+  query: string;
+  /** 菜单锚点的视口坐标（菜单用 position: fixed 定位） */
+  left: number;
+  bottom: number;
+}
+
+/**
+ * 光标前是不是「正在输入 `[[…`」。
+ *
+ * 只看**当前文本块**内、光标之前的文字：`[[` 出现在前面段落里不该弹菜单。
+ * 查询词里一旦出现 `[` / `]` / 换行就认为不是链接了（用户大概率在写
+ * `[[1,2],[3,4]]` 这种矩阵），菜单自己关掉。
+ */
+export function detectWikilink(
+  state: EditorState,
+  view: EditorView,
+): WikilinkAnchor | null {
+  const { selection } = state;
+  if (!selection.empty) return null;
+
+  const { $from } = selection;
+  if (!$from.parent.isTextblock || $from.parent.type.spec.code) return null;
+
+  const before = $from.parent.textContent.slice(0, $from.parentOffset);
+  const match = /\[\[([^[\]\n]{0,60})$/.exec(before);
+  if (!match) return null;
+
+  const coords = view.coordsAtPos($from.pos);
+  if (!coords || coords.left == null || coords.bottom == null) return null;
+
+  return {
+    from: $from.start() + match.index,
+    to: $from.pos,
+    query: match[1],
+    left: coords.left,
+    bottom: coords.bottom,
+  };
+}
+
+/**
+ * 把 `[[query` 整段换成 `[[标题]]`。
+ *
+ * 用 `insertText` 而不是插节点：链接在文档里就是文本，换完光标自然落在
+ * `]]` 后面，继续打字是正文。
+ */
+export function insertWikilink(view: EditorView, anchor: WikilinkAnchor, title: string): void {
+  view.dispatch(view.state.tr.insertText(`[[${title}]]`, anchor.from, anchor.to));
+}
+
+/**
+ * 触发/键盘插件：和斜杠命令那套同构 —— 这里只负责「什么时候该开、
+ * 按键交给谁」，菜单是 React 组件（见 SlashMenu）。
+ */
+export function createWikilinkSuggestPlugin(opts: {
+  onAnchor: (anchor: WikilinkAnchor | null) => void;
+  onKey: (event: KeyboardEvent) => boolean;
+}): Plugin {
+  return new Plugin({
+    key: new PluginKey('wikilink-suggest'),
+    view: () => ({
+      update(next) {
+        opts.onAnchor(detectWikilink(next.state, next));
+      },
+      destroy() {
+        opts.onAnchor(null);
+      },
+    }),
+    props: {
+      handleKeyDown: (_view, event) => opts.onKey(event),
+    },
+  });
+}
+
+/* ---------------- 序列化侧的转义 ---------------- */
+
+/**
+ * remark-stringify 会把正文里的 `[[` 转义成 `\[\[`。
+ *
+ * 因为 `[` 在 Markdown 里是链接起点，serializer 一律保守转义。后果是：
+ * 用户打的 `[[周报]]` 存进库变成 `\[\[周报]]` —— 读回来虽然还能渲染成 chip
+ * （反解析会把 `\[` 还原成 `[`），但**后端按 `content.includes('[[标题]]')`
+ * 匹配反链时会全部落空**（真机验出来的：库里就是 `\[\[周报 2026-11]]`，
+ * 而目标笔记的反链面板是空的）。
+ *
+ * 所以在交给上层保存之前把这种转义还原掉。
+ *
+ * ⚠️ 用 `split/join` 而不是正则字面量：这个模式里「一个反斜杠 + 一个 `[`」
+ * 在正则字面量里要写成三个反斜杠，落到文件里极易被某层转义吃掉一个，
+ * 变成非法正则（`Unmatched ')'`）—— 整页白屏，而且只有打开笔记才暴露。
+ * 普通字符串没有这个问题。
+ */
+const ESCAPED_OPEN = '\\[\\[';
+
+export function unescapeWikilinks(markdown: string): string {
+  return markdown.split(ESCAPED_OPEN).join('[[');
 }

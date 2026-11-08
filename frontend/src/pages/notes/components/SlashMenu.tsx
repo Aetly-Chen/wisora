@@ -1,23 +1,37 @@
 import React, { useEffect, useMemo, useRef } from 'react';
-import type { SlashItemDef } from '../lib/slash';
 
 /**
- * `/` 触发的插入菜单。
+ * 菜单项的最小形状。
+ *
+ * 刻意不直接吃 `SlashItemDef`：这个菜单现在同时服务「`/` 插入命令」和
+ * 「`[[` 选笔记」两条路，两者只有 label/hint 是共通的。
+ */
+export interface MenuItem {
+  key: string;
+  label: string;
+  hint: string;
+}
+
+/**
+ * `/` 或 `[[` 触发的浮层菜单（同一个组件，两条触发路径）。
  *
  * 定位用 `position: fixed`：坐标直接来自 `coordsAtPos`（视口坐标系），
  * 不用再折算外壳的滚动偏移。代价是页面滚动时菜单不会跟着走 ——
  * 所以外层在滚动时会把它关掉（见 MarkdownEditor 的 scroll 监听）。
  */
 export const SlashMenu: React.FC<{
-  /** 锚点视口坐标：`/` 输入行的左边缘与基线底部 */
+  /** 锚点视口坐标：输入行的左边缘与基线底部 */
   left: number;
   bottom: number;
-  items: SlashItemDef[];
+  items: MenuItem[];
   /** 键盘高亮的第几项 */
   active: number;
   onPick: (index: number) => void;
   onHover: (index: number) => void;
-}> = ({ left, bottom, items, active, onPick, onHover }) => {
+  /** 空列表时的提示，两条路径文案不同 */
+  emptyText?: string;
+  ariaLabel?: string;
+}> = ({ left, bottom, items, active, onPick, onHover, emptyText, ariaLabel }) => {
   const listRef = useRef<HTMLDivElement>(null);
 
   const style = useMemo(() => {
@@ -48,14 +62,14 @@ export const SlashMenu: React.FC<{
   }, [active]);
 
   return (
-    <div className="slash-menu" style={style} role="listbox" aria-label="插入">
+    <div className="slash-menu" style={style} role="listbox" aria-label={ariaLabel ?? '插入'}>
       {items.length === 0 ? (
-        <p className="slash-menu-empty">没有匹配的命令</p>
+        <p className="slash-menu-empty">{emptyText ?? '没有匹配的命令'}</p>
       ) : (
         <div className="slash-menu-list" ref={listRef}>
           {items.map((item, i) => (
             <button
-              key={item.kind}
+              key={item.key}
               type="button"
               role="option"
               aria-selected={i === active}
