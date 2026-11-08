@@ -7,6 +7,7 @@ import React, {
   useState,
 } from 'react';
 import {
+  AlertTriangle,
   Check,
   Code2,
   Download,
@@ -96,7 +97,8 @@ export const NoteEditor: React.FC<{
   const sourceRef = useRef<HTMLTextAreaElement>(null);
   /** 包住「编辑器 / 源码 / 预览」三个面板，大纲跳转在它里面找标题元素 */
   const contentRef = useRef<HTMLDivElement>(null);
-  const { editTitle, editContent } = useNotesStore();
+  const { editTitle, editContent, remoteConflict, loadRemoteVersion, keepLocalVersion } =
+    useNotesStore();
   const [exporting, setExporting] = useState(false);
 
   /**
@@ -324,6 +326,35 @@ export const NoteEditor: React.FC<{
           导出
         </Button>
       </div>
+
+      {/*
+        冲突提示：远端（另一个标签页 / Agent）改过这篇，而本地也有未保存的改动。
+        这时候不替用户选 —— 两个按钮把事情讲清楚，正文保持本地那份不动。
+      */}
+      {remoteConflict && (
+        <div className="mx-4 mt-2 flex flex-wrap items-center gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12.5px] text-amber-800 sm:mx-6">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+          <span className="min-w-0 flex-1">
+            这篇笔记在别处被修改过（另一个标签页或 AI），而你这里有未保存的改动。
+          </span>
+          <button
+            type="button"
+            onClick={() => void loadRemoteVersion()}
+            className="rounded-md border border-amber-300 bg-white px-2 py-1 text-[12px] font-medium text-amber-800 hover:bg-amber-100"
+            title="放弃你这里的改动，载入远端版本"
+          >
+            载入最新版本
+          </button>
+          <button
+            type="button"
+            onClick={keepLocalVersion}
+            className="rounded-md px-2 py-1 text-[12px] text-amber-700 hover:bg-amber-100"
+            title="继续编辑；下次保存会覆盖远端版本"
+          >
+            保留我的
+          </button>
+        </div>
+      )}
 
       {/* 标题 */}
       <div className="px-4 pt-4 sm:px-6">

@@ -88,6 +88,16 @@ interface NotesState {
    */
   applyRemoteNoteChange: (event: NoteEvent) => Promise<void>;
   /**
+   * 冲突提示：远端有更新，但本地也有未保存的改动。
+   *
+   * 非 null 表示「这篇需要用户拍板」—— 正文仍是本地那份，没被悄悄换掉。
+   */
+  remoteConflict: { noteId: string; updatedAt: string } | null;
+  /** 丢掉本地改动，载入远端那份 */
+  loadRemoteVersion: () => Promise<void>;
+  /** 保留本地那份（继续编辑，下次保存会覆盖远端） */
+  keepLocalVersion: () => void;
+  /**
    * 新建笔记。
    * - 传 parentId：挂到指定页面下（行内「+」用）
    * - 传 null：建为一级目录
@@ -258,7 +268,12 @@ export const useNotesStore = create<NotesState>((set, get) => {
       lastKnownUpdatedAt = saved.updatedAt;
 
       // 期间又编辑过就别显示「已保存」——那会让用户以为改动已经落库
-      set({ saveState: editSeq === seq ? 'saved' : 'dirty', error: undefined });
+      set({
+        saveState: editSeq === seq ? 'saved' : 'dirty',
+        error: undefined,
+        // 本地已经存进去了，之前那条冲突提示过期了
+        remoteConflict: null,
+      });
       // 列表里的标题/时间要同步，否则侧边栏显示的还是旧标题
       set((state) => ({
         notes: state.notes.map((n) =>
@@ -321,6 +336,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
     saveState: 'idle',
     error: undefined,
     notice: undefined,
+    remoteConflict: null,
 
     reset: () => {
       // 先取消待执行的自动保存，否则定时器到点会把内容写进已登出的会话
@@ -339,6 +355,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
         saveState: 'idle',
         error: undefined,
         notice: undefined,
+        remoteConflict: null,
       });
     },
 
@@ -387,6 +404,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
         detailLoading: true,
         active: undefined,
         saveState: 'idle',
+        remoteConflict: null,
         // 只有用户主动打开才算「选中」；程序化切换保持原选中项
         selectedId: keepSelection ? state.selectedId : id,
         expanded: ancestors.reduce(
@@ -427,7 +445,7 @@ export const useNotesStore = create<NotesState>((set, get) => {
       // 比的是「已知最新」，不是 active.updatedAt —— 后者在本地保存后并不会推进
       if (lastKnownUpdatedAt === fresh.updatedAt) return 'unchanged';
 
-      set({ active: withNoteShape(fresh) });
+      set({ active: withNoteShape(fresh), remoteConflict: null });
       savedSeq = editSeq;
       lastKnownUpdatedAt = fresh.updatedAt;
       return 'reloaded';
@@ -447,12 +465,41 @@ export const useNotesStore = create<NotesState>((set, get) => {
       if (event.updatedAt === lastKnownUpdatedAt) return;
 
       if (get().activeId === event.noteId) {
-        // 有未保存改动时 reloadActive 会返回 'dirty'，不覆盖本地
-        await get().reloadActive();
+        if (editSeq !== savedSeq) {
+          /*
+           * 本地有未保存的改动 —— 两边都动过，这时候**不能替用户选**：
+           * 悄悄换成远端会丢他正在写的东西，径直保存又会盖掉对方。
+           * 立个冲突标记，让编辑器顶上出现一条提示，由他点。
+           */
+          set({ remoteConflict: { noteId: event.noteId, updatedAt: event.updatedAt } });
+        } else {
+          await get().reloadActive();
+        }
       }
       // 标题、排序、别处新建的笔记都只在列表里体现
       await get().loadNotes();
     },
+
+    loadRemoteVersion: async () => {
+      const { activeId } = get();
+      if (!activeId) return;
+
+      // 丢掉排队中的自动保存，否则它会把本地旧内容写回去
+      cancelPending();
+      const fresh = await getNote(activeId).catch(() => null);
+      set({ remoteConflict: null });
+      if (!fresh) return;
+
+      set({ active: withNoteShape(fresh), saveState: 'idle' });
+      /*
+       * 本地改动被丢弃了，两个版本号要对齐 —— 不然下一次 flush 会把
+       * 已经不在界面上的旧内容当成「待保存」再写一遍。
+       */
+      editSeq = savedSeq;
+      lastKnownUpdatedAt = fresh.updatedAt;
+    },
+
+    keepLocalVersion: () => set({ remoteConflict: null }),
 
     createNote: async (parentId) => {
       cancelPending();
