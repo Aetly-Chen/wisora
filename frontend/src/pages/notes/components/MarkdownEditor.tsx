@@ -49,6 +49,7 @@ import {
   mathBlockSchema,
   mathInlineInputRule,
   mathInlineSchema,
+  preloadKatex,
   remarkMath,
 } from '../lib/math';
 import { mermaidPlugin } from '../lib/mermaid';
@@ -58,9 +59,10 @@ import {
   type SlashAnchor,
   type SlashItemDef,
 } from '../lib/slash';
-import 'katex/dist/katex.min.css';
+// ⚠️ KaTeX 的样式不在这里静态引入：它跟着 `lib/math.ts` 的动态 import 一起
+// 下载，见那里的 `preloadKatex()` —— 否则「编辑器 chunk 里塞进整套 KaTeX」
+// 这件事只解决了一半（JS 拆出去了、CSS 还留在这里）。
 import './markdown-editor.css';
-
 /** 光标（或选区头）是否落在表格内 */
 function isInTable(state: EditorState): boolean {
   const { $from } = state.selection;
@@ -1224,13 +1226,43 @@ export const MarkdownEditor: React.FC<{
   noteId: string;
   /** 专注模式（只作用于所见即所得这一态） */
   focusMode: boolean;
-}> = ({ initialValue, onChange, noteId, focusMode }) => (
-  <MilkdownProvider>
-    <Inner
-      initialValue={initialValue}
-      onChange={onChange}
-      noteId={noteId}
-      focusMode={focusMode}
-    />
-  </MilkdownProvider>
-);
+}> = ({ initialValue, onChange, noteId, focusMode }) => {
+  /*
+   * 含公式的笔记先等 KaTeX 就位再挂编辑器。
+   *
+   * `toDOM` 是同步的：KaTeX 还没到就只能先按源码显示，等加载完再替换 ——
+   * 打开笔记时那一闪很难看。所以这里挡一道，代价是多一次「加载中」。
+   * 不含 `$` 的笔记直接挂，KaTeX 一个字节都不下。
+   */
+  const needsKatex = initialValue.includes('$');
+  const [katexReady, setKatexReady] = useState(!needsKatex);
+  useEffect(() => {
+    if (katexReady) return;
+    let cancelled = false;
+    void preloadKatex().then(() => {
+      if (!cancelled) setKatexReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [katexReady]);
+
+  if (!katexReady) {
+    return (
+      <div className="flex h-full items-center justify-center rounded-xl border border-slate-200 bg-white text-[13px] text-slate-400">
+        公式组件加载中…
+      </div>
+    );
+  }
+
+  return (
+    <MilkdownProvider>
+      <Inner
+        initialValue={initialValue}
+        onChange={onChange}
+        noteId={noteId}
+        focusMode={focusMode}
+      />
+    </MilkdownProvider>
+  );
+};

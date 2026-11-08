@@ -1,7 +1,6 @@
 import { $inputRule, $node, $remark } from '@milkdown/utils';
 import { InputRule } from '@milkdown/prose/inputrules';
 import remarkMathPlugin from 'remark-math';
-import katex from 'katex';
 
 /**
  * 公式支持（行内 `$…$` + 块级 `$$…$$`）。
@@ -28,19 +27,71 @@ import katex from 'katex';
 export const remarkMath = $remark('remarkMath', () => remarkMathPlugin);
 
 /**
+ * KaTeX 懒加载。
+ *
+ * KaTeX 本体（含字体样式）约 250 kB，而**大多数笔记里没有公式**。
+ * 静态 import 会把它算进编辑器 chunk，谁打开笔记都要先下它 ——
+ * 所以拆成动态 import：只有内容里真的出现 `$` 时才下载
+ * （见 `MarkdownEditor` 顶部那道 katexReady 门）。
+ *
+ * JS 与 CSS 一起 import：只加载 JS 的话，`renderToString` 出来的 HTML
+ * 没有 KaTeX 的规则与字体，会先看到一团排错的公式。
+ */
+type Katex = {
+  renderToString: (
+    value: string,
+    options: { throwOnError: boolean; displayMode: boolean; output: 'html' },
+  ) => string;
+};
+
+let katexPromise: Promise<Katex> | null = null;
+
+export function preloadKatex(): Promise<Katex> {
+  if (!katexPromise) {
+    katexPromise = Promise.all([import('katex'), import('katex/dist/katex.min.css')]).then(
+      ([mod]) => ((mod as unknown as { default?: Katex }).default ?? (mod as unknown as Katex)),
+    );
+  }
+  return katexPromise;
+}
+
+/**
+ * 渲染结果缓存：`toDOM` 每次重绘（光标移动、撤销都可能触发）都会走一遍，
+ * 同一份源码不该重复算。键带上 displayMode —— 行内和块级的输出不同。
+ */
+const htmlCache = new Map<string, string>();
+
+/**
  * 渲染到指定容器。
  *
  * `throwOnError: false` 是刻意的：写错一个 `\frac` 不该让整个编辑器炸掉，
  * 让 KaTeX 自己渲染成红字错误提示，用户还看得见自己写了什么。
+ *
+ * 还没加载完时先按源码显示，加载好再替换 —— 只有「打开后才开始打公式」
+ * 才会走到这一支（打开时就有的公式，外层已经等 KaTeX 就位了）。
  */
 function renderInto(dom: HTMLElement, value: string, displayMode: boolean): void {
   if (!value.trim()) return; // 空公式留给 CSS 的 :empty 占位
-  try {
-    katex.render(value, dom, { throwOnError: false, displayMode, output: 'html' });
-  } catch {
-    // 理论上 throwOnError:false 不会抛，留一层兜底避免单条公式带崩整篇渲染
-    dom.textContent = value;
+
+  const key = `${displayMode ? 'b' : 'i'}:${value}`;
+  const cached = htmlCache.get(key);
+  if (cached !== undefined) {
+    dom.innerHTML = cached;
+    return;
   }
+
+  dom.textContent = value;
+  void preloadKatex().then((katex) => {
+    let html: string;
+    try {
+      html = katex.renderToString(value, { throwOnError: false, displayMode, output: 'html' });
+    } catch {
+      return; // 保留源码
+    }
+    htmlCache.set(key, html);
+    // 异步回来时这个节点可能已经被重绘替换掉了
+    if (dom.isConnected) dom.innerHTML = html;
+  });
 }
 
 /** 行内公式：`$E = mc^2$` */
