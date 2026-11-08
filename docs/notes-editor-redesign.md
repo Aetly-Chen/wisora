@@ -512,3 +512,44 @@ latex feature 也是自己拼的，所以照它的路子做：`remark-math` 出 
 
 ⚠️ 写播种脚本时的坑：LaTeX 一律用 `String.raw`，普通模板字符串会把 `\f`/`\i`/`\,`
 当转义吃掉，公式进库就是坏的（表现为 KaTeX 的 ParseError，很容易误判成产品 bug）。
+
+## 12. 多端 / Agent 改过之后：编辑器怎么跟上
+
+一篇笔记可能同时存在于两个标签页，也可能刚被 Agent 在 `/agent` 里改过。
+这边一直挂着旧内容，一保存就把对方的改动静默盖掉 —— 和 §11 之前那个
+「丢更新」是同一类问题，只是发生在两个客户端之间。
+
+### v1：回到页面对一下服务端
+
+`index.tsx` 监听 `focus` 与 `visibilitychange`（400ms 防抖，`document.hidden`
+时跳过），回调里：
+
+```text
+reloadActive() → 'dirty'     本地有未保存改动，什么都不做（本地赢）
+              → 'unchanged'  服务端 updatedAt 与「已知最新」相同，什么都不做
+              → 'reloaded'   换掉 active → 编辑器靠 key 里的 updatedAt 重挂载
+```
+
+然后顺手 `loadNotes()`，别处新建/改名的笔记才会出现在侧边栏。
+
+### 为什么要有 `lastKnownUpdatedAt`
+
+编辑器的 `key` 是 `${note.id}:${note.updatedAt}`（换正文必须重挂载，见 §9）。
+如果本地保存成功后也去更新 `active.updatedAt`，**每次保存都会重挂载** ——
+光标乱跳、输入法上屏被打断。所以保存在 store 里只推进 `lastKnownUpdatedAt`
+（模块级变量），`active.updatedAt` 保持「上次从服务端读到的值」。
+
+多端回读时比的也是 `lastKnownUpdatedAt`，不是 `active.updatedAt` ——
+否则自己刚存完的那次也会被当成「外部改动」，白重挂载一次。
+实测：保存完再触发 focus，`.ProseMirror` 节点引用不变（`sameNode: true`）。
+
+### 没做的两件（都是刻意的）
+
+- **WebSocket 实时推送**：`chat.gateway` 已经把每个连接 join 进以 userId 命名的
+  房间，后端在 `NotesService` 写成功处 emit 一下就能做到「另一端的编辑器立刻变」。
+  没做是因为笔记页目前**不连 socket** —— 为一个可能几分钟才发生一次的同步
+  挂一条常驻连接（含重连/鉴权/退出清理）不划算。要升级的话，`reloadActive()`
+  就是现成的落点，只需把触发源从 focus 换成事件。
+- **冲突提示 UI**：现在「本地有未保存改动」就静默保留本地，用户并不知道
+  对方改了什么。真要做冲突解决，需要一条可见的提示条 + 「载入远端 / 保留本地」，
+  那是产品决定，不是顺手能加的。
