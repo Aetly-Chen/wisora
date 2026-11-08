@@ -543,13 +543,43 @@ reloadActive() → 'dirty'     本地有未保存改动，什么都不做（本�
 否则自己刚存完的那次也会被当成「外部改动」，白重挂载一次。
 实测：保存完再触发 focus，`.ProseMirror` 节点引用不变（`sameNode: true`）。
 
-### 没做的两件（都是刻意的）
+### 实时推送（v1 之后补上的那一半）
 
-- **WebSocket 实时推送**：`chat.gateway` 已经把每个连接 join 进以 userId 命名的
-  房间，后端在 `NotesService` 写成功处 emit 一下就能做到「另一端的编辑器立刻变」。
-  没做是因为笔记页目前**不连 socket** —— 为一个可能几分钟才发生一次的同步
-  挂一条常驻连接（含重连/鉴权/退出清理）不划算。要升级的话，`reloadActive()`
-  就是现成的落点，只需把触发源从 focus 换成事件。
+focus 回读只管「回到页面时对齐」，断开期间发生的事要等下次回来。所以又接了一条
+WebSocket 推送 —— 复用的是聊天那条既有连接，没有新增端口、没有新增握手逻辑。
+
+链路：
+
+```
+NotesService.create/update/move/remove
+  → RealtimeService.emitToUser(userId, 'event', { type: 'note.updated', … })
+  → socket.io 房间 = userId（握手时已 join，见 chat.gateway）
+  → 前端 subscribeRealtimeEvents → useNotesStore.applyRemoteNoteChange()
+```
+
+几个关键决定：
+
+- **`RealtimeService` 是全局模块，不创建 socket server**。server 仍归 `chat.gateway`，
+  它在 `afterInit` 里把 server 注册进来。方向是「网关交给服务」，而不是让
+  `NotesModule` imports `ChatModule` —— 后者会成环（`ChatModule` 已经为了分享
+  笔记 imports 了 `NotesModule`）。
+- **在 service 层发事件，不在 controller 发**。AI 的笔记工具走的是同一个
+  `NotesService`，这样「Agent 改完 → 打开着的编辑器跟着变」才是同一条路径，
+  而不是给 HTTP 单独开一条。
+- **和聊天共用一个 `event` 通道**：前端只挂一次 `socket.on('event')`，按载荷里的
+  `type` 分派（聊天那条订阅先滤掉 `note.*`）。
+- **自己写的那次也会收到推送**，靠 `lastKnownUpdatedAt` 挡掉，否则每保存一次就
+  重挂载一次编辑器。
+- 推送失败只记日志，不影响写接口 —— 库里已经写成功了，客户端下次 focus 也能对齐。
+
+实测：接口 PATCH 之后 **542 ms** 编辑器就换成了新内容（全程没有 focus）；
+删掉笔记后编辑器与侧边栏同时收起；自己打字保存后 `.ProseMirror`
+节点引用不变（无重挂载）。
+
+### 还没做（刻意）
+
 - **冲突提示 UI**：现在「本地有未保存改动」就静默保留本地，用户并不知道
   对方改了什么。真要做冲突解决，需要一条可见的提示条 + 「载入远端 / 保留本地」，
   那是产品决定，不是顺手能加的。
+- 删除是软删 + 逐个通知子树（`note.removed` ×N）；量大时可以改成一条
+  `{ ids: [...] }`，现在没必要。
