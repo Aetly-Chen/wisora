@@ -33,10 +33,10 @@ import {
   sendMessage,
   setCurrentUser,
   shareNote as apiShareNote,
-  subscribeChatEvents,
   updateConversationFlags,
   uploadAttachment,
 } from '@/request/chat';
+import { subscribeRealtimeEvents } from '@/request/realtime';
 import { apiErrorMessage } from '@/lib/api-error';
 
 /* ------------------------------ 派生工具 ------------------------------ */
@@ -246,7 +246,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
      * 否则一次推送会被处理两遍（表现为消息重复一条）。
      */
     unsubscribe?.();
-    unsubscribe = subscribeChatEvents((event) => {
+    unsubscribe = subscribeRealtimeEvents((event) => {
+      // 同一条连接也推笔记事件（见 request/realtime.ts），这边先滤掉
+      if (event.type.startsWith('note.')) return;
+
       const { activeId, meId } = get();
 
       switch (event.type) {

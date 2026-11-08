@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NoteIndexService } from '../rag/note-index.service';
+import { REALTIME_EVENT, RealtimeService } from '../common/realtime/realtime.service';
+import type { NoteServerEvent } from './types/note-events';
 import type { CreateNoteDto, UpdateNoteDto } from './dto/note.dto';
 
 /** 列表项：不返回正文，避免列表接口拖着几十 KB 的 Markdown */
@@ -110,7 +112,19 @@ export class NotesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly index: NoteIndexService,
+    private readonly realtime: RealtimeService,
   ) {}
+
+  /**
+   * 通知该用户的所有在线端：笔记动了。
+   *
+   * 为什么放在 service 而不是 controller：AI 的笔记工具也走这里 ——
+   * 只有这样「Agent 改完 → 打开着的编辑器跟着变」才是同一条路径。
+   * 推送失败不影响写操作（`RealtimeService` 内部吞掉并记日志）。
+   */
+  private notifyNote(userId: string, event: NoteServerEvent): void {
+    this.realtime.emitToUser(userId, REALTIME_EVENT, event);
+  }
 
   /**
    * 后台重建某篇笔记的检索索引。
@@ -296,6 +310,11 @@ export class NotesService {
     });
 
     this.reindexLater(note.id);
+    this.notifyNote(userId, {
+      type: 'note.created',
+      noteId: note.id,
+      updatedAt: note.updatedAt.toISOString(),
+    });
     return note;
   }
 
@@ -364,11 +383,18 @@ export class NotesService {
       newParentId = parentId;
     }
 
-    return this.prisma.note.update({
+    const moved = await this.prisma.note.update({
       where: { id: noteId },
       data: { parentId: newParentId },
       select: DETAIL_SELECT,
     });
+    // 移动也算「笔记变了」：另一端的侧边栏要重新拉树
+    this.notifyNote(userId, {
+      type: 'note.updated',
+      noteId,
+      updatedAt: moved.updatedAt.toISOString(),
+    });
+    return moved;
   }
 
   /** 更新：只改传了的字段，避免把没传的字段覆盖成空 */
@@ -401,6 +427,11 @@ export class NotesService {
     if (dto.title !== undefined || dto.content !== undefined) {
       this.reindexLater(noteId);
     }
+    this.notifyNote(userId, {
+      type: 'note.updated',
+      noteId,
+      updatedAt: note.updatedAt.toISOString(),
+    });
     return note;
   }
 
@@ -449,6 +480,11 @@ export class NotesService {
      * 检索侧虽然有 note.deletedAt 兜底，但正确性不该只押在一处。
      */
     this.dropIndexLater(ids);
+
+    // 子树一起删，逐个通知：另一端的侧边栏要为每一篇都收掉
+    for (const id of ids) {
+      this.notifyNote(userId, { type: 'note.removed', noteId: id });
+    }
 
     return { deleted: true, count: ids.length };
   }

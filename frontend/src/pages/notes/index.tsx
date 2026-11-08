@@ -4,6 +4,7 @@ import { FileUp, Loader2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ShareToFriendDialog } from '@/components/chat/ShareToFriendDialog';
 import { useNotesStore } from '@/stores/useNotesStore';
+import { subscribeRealtimeEvents } from '@/request/realtime';
 import type { AttachmentMeta } from '@/types/note';
 import type { SharedNotePayload } from '@/types/chat';
 import type { ViewMode } from './constants';
@@ -93,6 +94,26 @@ const NotesPage: React.FC = () => {
    * 是刻意的取舍：笔记页目前不连 socket，为这点延迟加一条常驻连接不划算（见 docs §12）。
    */
   const reloadActive = useNotesStore((s) => s.reloadActive);
+  /*
+   * 实时推送：另一端的保存、或 Agent 通过工具改完，这里立刻收到。
+   *
+   * 和 focus 回读是互补的 —— 推送负责「在线时立刻变」，focus 兜住
+   * 「断线期间发生的改动」。
+   */
+  const applyRemoteNoteChange = useNotesStore((s) => s.applyRemoteNoteChange);
+  useEffect(() => {
+    const off = subscribeRealtimeEvents((event) => {
+      if (
+        event.type === 'note.created' ||
+        event.type === 'note.updated' ||
+        event.type === 'note.removed'
+      ) {
+        void applyRemoteNoteChange(event);
+      }
+    });
+    return off;
+  }, [applyRemoteNoteChange]);
+
   useEffect(() => {
     /** 连续 alt-tab 时合并成一次，避免每次切窗口都打两个请求 */
     let timer: ReturnType<typeof setTimeout> | null = null;

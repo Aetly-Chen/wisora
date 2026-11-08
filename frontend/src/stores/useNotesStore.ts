@@ -16,6 +16,7 @@ import {
   updateNote,
   uploadAttachment,
 } from '../request/notes';
+import type { NoteEvent } from '../request/realtime';
 import { detectImportKind, readNoteFile } from '../lib/import-note';
 import { apiErrorMessage } from '../lib/api-error';
 
@@ -80,6 +81,12 @@ interface NotesState {
    * - `unchanged`：服务端版本没变
    */
   reloadActive: () => Promise<'no-op' | 'dirty' | 'unchanged' | 'reloaded'>;
+  /**
+   * 收到「笔记被改了」的推送（多端 / Agent）。
+   *
+   * 自己写进去的那次会被 `lastKnownUpdatedAt` 挡掉，所以重复调用是安全的。
+   */
+  applyRemoteNoteChange: (event: NoteEvent) => Promise<void>;
   /**
    * 新建笔记。
    * - 传 parentId：挂到指定页面下（行内「+」用）
@@ -424,6 +431,27 @@ export const useNotesStore = create<NotesState>((set, get) => {
       savedSeq = editSeq;
       lastKnownUpdatedAt = fresh.updatedAt;
       return 'reloaded';
+    },
+
+    applyRemoteNoteChange: async (event) => {
+      if (event.type === 'note.removed') {
+        // 正开着的那篇被别人删了：直接放掉，别留一个打不开的页面
+        if (get().activeId === event.noteId) {
+          set({ activeId: undefined, active: undefined, saveState: 'idle' });
+        }
+        await get().loadNotes();
+        return;
+      }
+
+      // 自己刚存下的那次推送：`lastKnownUpdatedAt` 就是它，忽略（否则白重挂载）
+      if (event.updatedAt === lastKnownUpdatedAt) return;
+
+      if (get().activeId === event.noteId) {
+        // 有未保存改动时 reloadActive 会返回 'dirty'，不覆盖本地
+        await get().reloadActive();
+      }
+      // 标题、排序、别处新建的笔记都只在列表里体现
+      await get().loadNotes();
     },
 
     createNote: async (parentId) => {

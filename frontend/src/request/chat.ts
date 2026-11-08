@@ -12,12 +12,10 @@
  * 走 WS 反而要自己切分片；而输入状态、已读回执这类是双向高频小包，REST 不合适。
  */
 
-import io, { type Socket } from 'socket.io-client';
 import request from './index';
 import { getToken } from './storage';
 import type {
   ChatAttachment,
-  ChatEvent,
   Conversation,
   CreateGroupPayload,
   Friend,
@@ -296,43 +294,4 @@ export async function downloadChatAttachment(id: string, filename: string) {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
-}
-
-/* ------------------------------ 实时事件 ------------------------------ */
-
-/**
- * 订阅服务端推送。
- *
- * 用 socket.io 连服务端的 `chat` 命名空间。
- *
- * 令牌通过握手载荷（auth）传递，**不放 query string** ——
- * query 会进访问日志与代理记录。这一点与 ai 模块当初为 SSE
- * 引入一次性 ticket 是同一个理由。
- *
- * `auth` 传函数形式：socket.io 每次重连都会重新调用它，
- * 这样访问令牌过期刷新后，重连拿到的是新令牌而不是握手时的旧值。
- *
- * 事件名固定 `event`，载荷是带 type 字段的 ChatEvent ——
- * 与服务端 chat.gateway.ts 的 EVENT_CHANNEL 对应。
- *
- * 返回取消订阅函数，组件卸载时必须调用。
- */
-export function subscribeChatEvents(handler: (event: ChatEvent) => void): () => void {
-  const socket: Socket = io(`${BASE}/chat`, {
-    // 只用 websocket：省掉 polling 升级那一步，实时性更直接
-    transports: ['websocket'],
-    auth: (cb) => cb({ token: getToken() ?? '' }),
-  });
-
-  socket.on('event', (event: ChatEvent) => handler(event));
-
-  // 断线不静默：至少让开发者能在控制台看到，否则「消息不来了」无从下手
-  socket.on('connect_error', (err) => {
-    console.warn('[chat] 实时连接失败：', err.message);
-  });
-
-  return () => {
-    socket.off('event');
-    socket.disconnect();
-  };
 }

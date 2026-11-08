@@ -5,12 +5,14 @@ import {
   MessageBody,
   OnGatewayConnection,
   OnGatewayDisconnect,
+  OnGatewayInit,
   SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
 import type { Server, Socket } from 'socket.io';
 import { RedisService } from '../redis/redis.service';
+import { RealtimeService } from '../common/realtime/realtime.service';
 import { ConversationsService } from './conversations.service';
 import { onlineKey } from './friends.service';
 import type { ChatClientEvent, ChatServerEvent } from './types/chat-events';
@@ -52,7 +54,9 @@ interface AuthedSocket extends Socket {
    */
   cors: { origin: true, credentials: true },
 })
-export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class ChatGateway
+  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
+{
   @WebSocketServer()
   server!: Server;
 
@@ -62,7 +66,18 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly jwt: JwtService,
     private readonly redis: RedisService,
     private readonly conversations: ConversationsService,
+    private readonly realtime: RealtimeService,
   ) {}
+
+  /**
+   * 把 server 交给 `RealtimeService`，让其它模块（笔记）也能按 userId 推送。
+   *
+   * 方向是「网关注册给服务」，不是让笔记模块去 imports ChatModule ——
+   * 后者会成环（ChatModule 已经为了分享笔记 imports 了 NotesModule）。
+   */
+  afterInit(server: Server) {
+    this.realtime.attach(server);
+  }
 
   /* ------------------------------ 连接生命周期 ------------------------------ */
 

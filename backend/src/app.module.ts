@@ -11,6 +11,7 @@ import { NotesModule } from './notes/notes.module';
 import { ChatModule } from './chat/chat.module';
 import { StorageModule } from './common/storage/storage.module';
 import { RateLimitModule } from './common/rate-limit/rate-limit.module';
+import { RealtimeModule } from './common/realtime/realtime.module';
 import { RagModule } from './rag/rag.module';
 import { PrismaModule } from './prisma/prisma.module';
 
@@ -29,6 +30,7 @@ import { PrismaModule } from './prisma/prisma.module';
     RedisModule,
     StorageModule,
     RateLimitModule,
+    RealtimeModule,
     RagModule,
 
     // 业务模块：基础设施由上面的全局注册提供，各自不需要再 imports
