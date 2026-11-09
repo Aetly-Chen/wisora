@@ -1266,3 +1266,62 @@ SSE 开流用的 `loadHistory`，而那个方法有两层限制：
   和上面的会话列表重复 —— 已删除。
 
 
+
+---
+
+## 10. 怎么证明工具没坏（两个可复用的脚本）
+
+2026-11-10 补的。之前这一层的「验证」全靠手点，改完工具只能靠肉眼 ——
+现在留下了两个脚本，`backend/test/` 下，都能独立跑：
+
+### 10.1 `ai-note-tools.contract.cjs` —— 只验工具，不花钱
+
+```bash
+cd backend && npx nest build && node test/ai-note-tools.contract.cjs
+```
+
+前置只要 PostgreSQL（脚本自己建 `@wisora.local` 隔离用户，跑完删掉）。
+**不需要 Redis、不需要模型密钥。** 25 条断言覆盖：
+
+| 关注点 | 具体断言 |
+|---|---|
+| `list_my_notes` 契约 | `{found,total,returned,truncated,tree}`；tree 是渲染好的缩进文本（省 token），带 id；看不到别人的笔记 |
+| `read_my_note` 契约 | 成功用 `found:true`（不是 `success`）；正文按长度截断；读别人的 → `success:false` |
+| `write_my_note` | 默认 append 且保留原文；`mode:'replace'` 才整篇覆盖 |
+| `update_my_note` | 只传 title 时 `parentId` **不能被清掉**（undefined ≠ null）；传 null 才移到顶层 |
+| 失败语义 | 越权 / 不存在 → `success:false` + 可读 message，**不抛错**（抛错会中断整次工具调用） |
+| `delete_my_note` | `confirmedByUser:false` 时拒绝且数据不动；置 true 后软删（`deletedAt` 有值） |
+
+⚠️ 为什么写这套脚本时踩了坑：我一开始按「所有工具都返回 `success`」写断言，
+`list`/`read` 全红 —— 它们用的是 `found`。**契约文档没写清，代码就是文档**，
+所以这套断言的另一个作用是把契约钉住。
+
+### 10.2 `ai-note-tools.select.cjs` —— 验模型选得对不对
+
+```bash
+cd backend && npx nest build
+RUN_AI_SELECT=1 node test/ai-note-tools.select.cjs
+```
+
+⚠️ **会真调模型计费**（默认 `deepseek-flash`，四个场景约 8~12 次小请求），
+所以默认不跑，要显式开 `RUN_AI_SELECT=1`。
+
+它不走 HTTP —— AI 换票接口依赖 Redis，而这台机器 Docker 坏了、Redis 起不来。
+但工具选择跟 Redis 无关：直接拿**真实系统提示词 + 真实工具 + 真实模型**跑
+工具调用循环（最多 4 轮），验四件事：
+
+| 场景 | 关注点 | 2026-11-10 实测 |
+|---|---|---|
+| A「把今天的事补到《周报 W45》后面」 | 选 `write_my_note` 而不是 create/update；id 真实；不用 replace；不建多余笔记 | `list → read → write`，全过 |
+| B「把《周报 W45》标题改一下」 | 选 `update_my_note`；只带 title；不顺手挪层级 | `list → update`，全过 |
+| C「把《读书笔记》删了」（未确认） | 不许直接删；要么不调，要么 `confirmedByUser:false` | `list → read` → **反问用户确认**，笔记还在 |
+| D「关于读书的那篇读一下」 | 先 list 再 read，不编 id | `list → read`，全过 |
+
+结果：**15/15 通过**（`deepseek-flash`，temperature 0）。
+
+### 10.3 这套东西还缺什么
+
+- 只覆盖笔记工具。会话工具（`list_conversations` / `rename_conversation`）和
+  `search_my_notes`（要 embedding + 向量检索）没进脚本。
+- 没有断言「prompt 变了以后仍成立」的回归门槛 —— 现在是手动跑。真要做成 CI，
+  得先解决「跑一次要花钱」的问题（比如只在改 `prompts/` 或 `tools/` 时触发）。
