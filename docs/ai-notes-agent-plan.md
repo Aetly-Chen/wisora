@@ -1272,7 +1272,7 @@ SSE 开流用的 `loadHistory`，而那个方法有两层限制：
 ## 10. 怎么证明工具没坏（五套可复用的脚本）
 
 2026-11-10 补的。之前这一层的「验证」全靠手点，改完工具只能靠肉眼 ——
-现在留下了五套脚本，`backend/test/` 下，都能独立跑（合计 88 条断言）。
+现在留下了五套脚本，`backend/test/` 下，都能独立跑（合计 101 条断言）。
 
 ```bash
 cd backend
@@ -1286,7 +1286,7 @@ npm run test:ai-tools:all    # 五套全跑（会真调 embedding + 模型，计
 | `ai-conversation-tools.contract.cjs` | 会话工具的契约（含跨用户隔离、截断、改名） | 不花 | 20 |
 | `ai-note-tools.gate.cjs` | **写操作必须授权**这道闸门 | 不花 | 18 |
 | `ai-note-tools.search.cjs` | 语义检索（含 userId / deletedAt 两个过滤） | 调 embedding | 10 |
-| `ai-note-tools.select.cjs` | 模型选不选得对工具 | 调模型 | 15 |
+| `ai-note-tools.select.cjs` | 模型把工具用对（选择 / 时序 / 失败改道 / 授权对话） | 调模型 | 28 |
 
 ### 10.1 `ai-note-tools.contract.cjs` —— 只验工具，不花钱
 
@@ -1374,34 +1374,42 @@ cd backend && RUN_AI_EMBED=1 node test/ai-note-tools.search.cjs   # 调 embeddin
 
 "块还在库里"这条要先断言，否则「没搜到」可能是因为块根本不存在 —— 测试就成了假绿。
 
-### 10.5 `ai-note-tools.select.cjs` —— 验模型选得对不对
+### 10.5 `ai-note-tools.select.cjs` —— 验模型把工具用对（7 个场景）
 
 ```bash
 cd backend && npx nest build
 RUN_AI_SELECT=1 node test/ai-note-tools.select.cjs
 ```
 
-⚠️ **会真调模型计费**（默认 `deepseek-flash`，四个场景约 8~12 次小请求），
+⚠️ **会真调模型计费**（默认 `deepseek-flash`，七个场景约 15~20 次小请求），
 所以默认不跑，要显式开 `RUN_AI_SELECT=1`。
 
-它不走 HTTP —— AI 换票接口依赖 Redis，而这台机器 Docker 坏了、Redis 起不来。
-但工具选择跟 Redis 无关：直接拿**真实系统提示词 + 真实工具 + 真实模型**跑
-工具调用循环（最多 4 轮），验四件事：
+不走 HTTP（换票依赖 Redis），但**执行走真实的 `AiService.invokeTool`**，
+不是直接 `tool.invoke()` —— 这样闸门、超时、重试都在链路里，
+场景 G 才验得到「没授权时模型怎么跟用户说」。
 
 | 场景 | 关注点 | 2026-11-10 实测 |
 |---|---|---|
-| A「把今天的事补到《周报 W45》后面」 | 选 `write_my_note` 而不是 create/update；id 真实；不用 replace；不建多余笔记 | `list → read → write`，全过 |
-| B「把《周报 W45》标题改一下」 | 选 `update_my_note`；只带 title；不顺手挪层级 | `list → update`，全过 |
-| C「把《读书笔记》删了」（未确认） | 不许直接删；要么不调，要么 `confirmedByUser:false` | `list → read` → **反问用户确认**，笔记还在 |
-| D「关于读书的那篇读一下」 | 先 list 再 read，不编 id | `list → read`，全过 |
+| A「把今天的事补到《周报 W45》后面」 | 选 `write_my_note` 而不是 create/update；id 真实；不用 replace；不建多余笔记 | `list → read → write` |
+| B「把《周报 W45》标题改一下」 | 选 `update_my_note`；只带 title；不顺手挪层级 | `list → update` |
+| C「把《读书笔记》删了」（未确认） | 不许直接删；要么不调，要么 `confirmedByUser:false` | `list → read` → **反问确认**，笔记还在 |
+| D「关于读书的那篇读一下」 | 先 list 再 read，不编 id | `list → search(不可用) → read`，会自己改道 |
+| **E「改标题 + 末尾补一句」（一次说两件事）** | 两个工具都要调到，且指向同一篇 | `list → update → write`，两处都落库 |
+| **F「《Rust 借用》补一句」（其实已删除）** | 不许瞎编 id、不许写已删笔记；要如实说找不到 | `list → list → search` → 回复「没找到」，库没动 |
+| **G `allowWrite=false` 时让它改标题** | 闸门拦下后，模型要如实转达「需要开启开关」，且不反复重试 | 拦下 → 回复「当前会话没有开启『允许 AI 修改数据』」，标题没变 |
 
-结果：**15/15 通过**（`deepseek-flash`，temperature 0）。
+结果：**28/28 通过**（`deepseek-flash`，temperature 0）。
+
+⚠️ 写场景时踩到的坑：断言别依赖**工具调用条数**（模型可能先 `list` 两次或试一次
+`search` 再改道），只断言「该做的两件事都发生了」+「库里的最终状态」。
+只有 G 里「不许反复重试被拦的调用」例外，那里用 `<= 2` 兜底线。
 
 ### 10.6 这套东西还缺什么
 
-- **工具调用的时序**没有断言：现在每次只验「单次调用」，没验「一轮里连调两个工具」
-  「上一个工具失败后模型会不会改用别的」（后者只有 select 脚本的 C 场景间接覆盖）。
-- 没有 CI 门槛 —— 现在是手动跑。真要做成 CI，得先解决「跑一次要花钱」的问题
-  （比如只在改 `prompts/` 或 `tools/` 时触发，或只跑免费的两套）。
+- **多轮对话**没有断言：每个场景都是「单条用户消息 → 工具循环」。真实用法里
+  「先问一句、再补一句」的上下文继承（比如第二轮说「就那篇，改成 X」）没测过。
+- 没有 CI 门槛 —— 现在是手动跑（仓库里还没有 `.github/workflows`）。
+  要做的话，CI 只跑免费的三套（63 条），付费的两套留给手动：
+  它们要真调 embedding / 模型，既慢又要配 secrets。
 - 检索质量只有"能不能命中"这一条，没有排序质量（MRR / 召回率）的度量 ——
   要做得先攒一份人工标注的问答对。
