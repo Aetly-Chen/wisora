@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -43,6 +44,15 @@ import {
 
 /** ticket 有效期（秒）：换票后须在此时长内打开 SSE 流 */
 const TICKET_TTL_SECONDS = 30;
+
+/**
+ * 引用上下文长度上限（字符）。
+ *
+ * 为什么不设更大：它会被整段塞进 HumanMessage，超过这个量级既烧 token
+ * 又超出「选中一段问问」的实际需要（`read_my_note` 的截断是 4000，对齐）。
+ * 超限走 400，不静默截断。
+ */
+const CONTEXT_MAX_CHARS = 6000;
 
 @Injectable()
 @Controller('ai')
@@ -95,14 +105,46 @@ export class AiController {
     };
   }
 
-  /** 1) 先换票：用 JWT 换取 30 秒有效的一次性 ticket */
+  /**
+   * 1) 换票 + 暂存上下文：`POST /ai/chat/prepare`
+   *
+   * 为什么把「引用上下文」（笔记里选中的那段）放在这里、而不是拼进 query：
+   *
+   * - SSE 走 GET，`q` 在 URL 里。中文经 encodeURIComponent 是 9 字节/字，
+   *   撞 Node 的 16KB 请求头上限 —— **实测 1800 汉字能进、1850 汉字直接 431**。
+   *   而「选中一整节问 AI」轻易超过这个长度。
+   * - `question` 还要被拿去落库和当会话标题（见 chatStream），
+   *   把整段正文塞进去会污染历史与标题。
+   *
+   * 所以：短问题仍走 `q`，长上下文存 Redis（与 ticket 同期 30s、绑 userId、
+   * 取用即删），流接口只带一个 `ctxId`。
+   */
+  @Post('chat/prepare')
+  async prepare(
+    @Req() req: Request,
+    @Body() body?: { allowWrite?: boolean; context?: string },
+  ) {
+    const userId = await this.getUserId(req);
+    return this.stage(userId, body?.allowWrite === true, body?.context);
+  }
+
+  /**
+   * 旧入口：只换票。
+   *
+   * 保留是因为它没有 `context`，语义与 prepare 完全一样；
+   * 前端已经改用 prepare，这里只是不让旧客户端 404。
+   */
   @Post('chat/ticket')
   async createTicket(
     @Req() req: Request,
     @Body() body?: { allowWrite?: boolean },
   ) {
     const userId = await this.getUserId(req);
+    return this.stage(userId, body?.allowWrite === true);
+  }
 
+  /** 换票与上下文暂存的唯一实现（两条路由共用，别写成两份） */
+  private async stage(userId: string, allowWrite: boolean, context?: string) {
     // 顺带限流：防止刷票
     const limit = await this.rateLimit.check(userId);
     if (!limit.allowed) {
@@ -112,25 +154,38 @@ export class AiController {
       );
     }
 
+    const text = typeof context === 'string' ? context.trim() : '';
+    if (text.length > CONTEXT_MAX_CHARS) {
+      // 显式拒绝，而不是悄悄截断 —— 截断会让模型以为看到的是全部
+      throw new BadRequestException(
+        `引用上下文过长（上限 ${CONTEXT_MAX_CHARS} 字，当前 ${text.length} 字）`,
+      );
+    }
+
     const ticket = randomUUID();
-    // ticket 存 JSON：除 userId 外还携带本次会话的写操作授权
-    const payload: TicketPayload = {
-      userId,
-      allowWrite: body?.allowWrite === true,
-    };
+    const ctxId = text ? randomUUID() : undefined;
+    // 两者都存 JSON：除 userId 外还携带本次会话的写操作授权 / 上下文正文
+    const payload: TicketPayload = { userId, allowWrite };
+
     /**
-     * 写票据同样要限时：Redis 断连时 `setex` 会卡在重连队列里（实测约 8 秒）
+     * 写票据要限时：Redis 断连时 `setex` 会卡在重连队列里（实测约 8 秒）
      * 然后抛错变成 500 —— 用户看到「转半天圈，然后服务器错误」。
      * 超过 300ms 直接按不可用处理，给一句能看懂的话。
      */
     const staged = await this.redis.withTimeout(async () => {
-      await this.redis
-        .getClient()
-        .setex(
-          `ai:ticket:${ticket}`,
+      const client = this.redis.getClient();
+      if (ctxId) {
+        await client.setex(
+          `ai:ctx:${ctxId}`,
           TICKET_TTL_SECONDS,
-          JSON.stringify(payload),
+          JSON.stringify({ userId, context: text }),
         );
+      }
+      await client.setex(
+        `ai:ticket:${ticket}`,
+        TICKET_TTL_SECONDS,
+        JSON.stringify(payload),
+      );
       return true;
     }, false);
 
@@ -139,7 +194,45 @@ export class AiController {
         'AI 服务暂不可用（缓存未连接），请稍后再试',
       );
     }
-    return { ticket, allowWrite: payload.allowWrite };
+    return { ticket, allowWrite, ctxId };
+  }
+
+  /**
+   * 取出并消费上下文（一次性）。
+   *
+   * `ctxId` 和 `ticket` 一样来自 URL，所以**必须校验它属于当前 userId**，
+   * 否则拿到别人的 ctxId 就能把别人的笔记内容读进自己的对话（IDOR）。
+   */
+  private async takeContext(
+    userId: string,
+    ctxId?: string,
+  ): Promise<string | undefined> {
+    if (!ctxId) return undefined;
+
+    const key = `ai:ctx:${ctxId}`;
+    const raw = await this.redis.withTimeout<string | null | undefined>(
+      () => this.redis.getClient().get(key),
+      undefined,
+    );
+    if (raw === undefined) {
+      throw new ServiceUnavailableException('AI 服务暂不可用（缓存未连接），请稍后再试');
+    }
+    if (!raw) return undefined; // 过期/已用过：按"没有上下文"处理，不报错
+
+    // 取用即删：同一次引用不能被重放
+    void this.redis.withTimeout(() => this.redis.getClient().del(key), 0);
+
+    try {
+      const parsed = JSON.parse(raw) as { userId?: string; context?: string };
+      if (parsed.userId !== userId) {
+        // 别人的上下文：当作不存在，且不透露原因
+        this.logger.warn(`ctxId 归属不匹配，已忽略 userId=${userId}`);
+        return undefined;
+      }
+      return parsed.context;
+    } catch {
+      return undefined;
+    }
   }
 
   /** 2) 再开流：GET /ai/chat/stream?ticket=xxx&q=...&conversationId=...
@@ -153,6 +246,7 @@ export class AiController {
     @Query('q') question: string,
     @Query('conversationId') conversationId?: string,
     @Query('model') model?: string,
+    @Query('ctxId') ctxId?: string,
   ) {
     if (!question) {
       throw new HttpException('缺少参数 q', 400);
@@ -190,6 +284,12 @@ export class AiController {
     // 白名单校验：不在 CHAT_MODEL_OPTIONS 里的名字会被回落到默认模型
     const resolvedModel = this.models.resolve(model);
 
+    /*
+     * 引用上下文（笔记里选中的那段）：只喂模型、不落库。
+     * 取用即删，且校验归属（见 takeContext）。
+     */
+    const context = await this.takeContext(userId, ctxId);
+
     // signal 透传进 Agent Loop：客户端断开时可中断 LLM 请求
     return this.aiService.toSse((signal) =>
       this.chatStream({
@@ -201,6 +301,7 @@ export class AiController {
         allowWrite,
         userTools,
         model: resolvedModel,
+        context,
       }),
     );
   }
@@ -249,8 +350,10 @@ export class AiController {
     userTools?: ToolWithPolicy[];
     /** 本次使用的模型（已过白名单校验） */
     model: string;
+    /** 引用上下文：只喂模型，不落库、不当会话标题 */
+    context?: string;
   }): AsyncGenerator<StreamEvent> {
-    const { userId, question, conversationId, model } = params;
+    const { userId, question, conversationId, model, context } = params;
 
     // 无会话则新建，标题取问题前 30 字
     const conv = conversationId
@@ -310,6 +413,8 @@ export class AiController {
         allowWrite: params.allowWrite,
         extraTools: params.userTools,
         model,
+        // 引用上下文只喂模型；落库与标题用的仍是干净的 question
+        context,
       })) {
         if (ev.type === 'token') fullText += ev.content;
 
