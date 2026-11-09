@@ -58,11 +58,17 @@ const LONG = '长'.repeat(600);
   const conv = await prisma.conversation.create({
     data: { userId: owner.id, title: '性能排查', model: 'deepseek-flash' },
   });
+  /*
+   * ⚠️ 必须显式给 createdAt：`createMany` 三条消息在同一语句里，默认 now() 完全相同，
+   * 而 `orderBy createdAt asc` 遇到平局时顺序是不确定的 —— 第一版就是这么"碰巧通过"的，
+   * 后来复跑红了才知道。真实链路里消息是一条条插入的，不会并列，所以这是**测试的问题**。
+   */
+  const t0 = Date.now() - 30_000;
   await prisma.message.createMany({
     data: [
-      { conversationId: conv.id, role: 'user', content: '首屏为什么慢' },
-      { conversationId: conv.id, role: 'assistant', content: '看 LCP 与长任务' },
-      { conversationId: conv.id, role: 'user', content: LONG },
+      { conversationId: conv.id, role: 'user', content: '首屏为什么慢', createdAt: new Date(t0) },
+      { conversationId: conv.id, role: 'assistant', content: '看 LCP 与长任务', createdAt: new Date(t0 + 1000) },
+      { conversationId: conv.id, role: 'user', content: LONG, createdAt: new Date(t0 + 2000) },
     ],
   });
   // 无标题的会话（标题回退）
