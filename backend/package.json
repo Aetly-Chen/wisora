@@ -13,6 +13,8 @@
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/src/main.js",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
+    "test:ai-tools": "node test/ai-note-tools.contract.cjs && node test/ai-note-tools.gate.cjs",
+    "test:ai-tools:all": "node test/ai-note-tools.contract.cjs && node test/ai-note-tools.gate.cjs && RUN_AI_EMBED=1 node test/ai-note-tools.search.cjs && RUN_AI_SELECT=1 node test/ai-note-tools.select.cjs",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",

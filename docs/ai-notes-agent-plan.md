@@ -1269,10 +1269,23 @@ SSE 开流用的 `loadHistory`，而那个方法有两层限制：
 
 ---
 
-## 10. 怎么证明工具没坏（两个可复用的脚本）
+## 10. 怎么证明工具没坏（四套可复用的脚本）
 
 2026-11-10 补的。之前这一层的「验证」全靠手点，改完工具只能靠肉眼 ——
-现在留下了两个脚本，`backend/test/` 下，都能独立跑：
+现在留下了四套脚本，`backend/test/` 下，都能独立跑。
+
+```bash
+cd backend
+npm run test:ai-tools        # 免费的两套（contract + gate），改完工具就跑这个
+npm run test:ai-tools:all    # 四套全跑（会真调 embedding + 模型，计费）
+```
+
+| 脚本 | 验什么 | 要不要花钱 | 断言数 |
+|---|---|---|---|
+| `ai-note-tools.contract.cjs` | 工具自身的契约（参数/返回值/错误语义） | 不花 | 25 |
+| `ai-note-tools.gate.cjs` | **写操作必须授权**这道闸门 | 不花 | 18 |
+| `ai-note-tools.search.cjs` | 语义检索（含 userId / deletedAt 两个过滤） | 调 embedding | 10 |
+| `ai-note-tools.select.cjs` | 模型选不选得对工具 | 调模型 | 15 |
 
 ### 10.1 `ai-note-tools.contract.cjs` —— 只验工具，不花钱
 
@@ -1296,7 +1309,48 @@ cd backend && npx nest build && node test/ai-note-tools.contract.cjs
 `list`/`read` 全红 —— 它们用的是 `found`。**契约文档没写清，代码就是文档**，
 所以这套断言的另一个作用是把契约钉住。
 
-### 10.2 `ai-note-tools.select.cjs` —— 验模型选得对不对
+### 10.2 `ai-note-tools.gate.cjs` —— 写操作必须授权
+
+```bash
+cd backend && node test/ai-note-tools.gate.cjs     # 不花钱
+```
+
+闸门在 `AiService.invokeTool`：`policy.write && !allowWrite` → 不执行，只回一句话给模型。
+前面两套都是**绕过闸门**直接 `tool.invoke()` 的，所以「没授权时 AI 不会改库」
+这条其实一直没被验过 —— 而它最不能坏。
+
+| 断言 | 说明 |
+|---|---|
+| 5 个写工具都标了 `write:true` | 用正则挑出 `create_/write_/update_/delete_/rename_` 开头的工具逐个查策略 —— 以后新增写工具忘标记，这里会红 |
+| 读工具没被误标 | 避免读也被拦 |
+| `allowWrite=false` 调 `write_my_note` | `ok:false`、说明里提到授权、**库里内容没变** |
+| `allowWrite=true` 调同一个 | `ok:true`、真的落库 |
+| 读工具 + `allowWrite=false` | 照常执行（闸门只管写） |
+| 未注册的工具 | `ok:false` + 「未注册」 |
+| 写工具放进全局注册表、不传 extraTools | 仍然被拦（闸门不认路径，只认策略） |
+
+⚠️ 做法：`invokeTool` 是 TS 的 `private`，但运行时只是类型约束，能直接调；
+`AiService` 的构造只要 `(models, registry)`，而这条路径根本不碰 models，传 `{}` 即可。
+
+### 10.3 `ai-note-tools.search.cjs` —— 语义检索的两个过滤
+
+```bash
+cd backend && RUN_AI_EMBED=1 node test/ai-note-tools.search.cjs   # 调 embedding，计费
+```
+
+这是全仓唯一「AI 能捞回自己没提过的词」的路径，也是最容易出安全问题的路径 ——
+**少一个过滤条件不会报错，只会悄悄多返回**。所以断言的重点不是"能搜到"：
+
+| 断言 | 构造方式 |
+|---|---|
+| 语义命中 | 问题「网页打开很慢，怎么让它快点出来」与正文（讲 LCP / WebP / 懒加载）**零字面重叠**，仍要命中最相关那篇（实测 relevance 0.605） |
+| `userId` 过滤 | 另建一个用户，写**一模一样的内容**，绝不能出现在结果里 |
+| `deletedAt` 过滤 | 先建索引、再软删（块故意留在库里，确认残留 > 0），搜它必须搜不到 |
+| `limit` | `limit:1` 只回一条 |
+
+"块还在库里"这条要先断言，否则「没搜到」可能是因为块根本不存在 —— 测试就成了假绿。
+
+### 10.4 `ai-note-tools.select.cjs` —— 验模型选得对不对
 
 ```bash
 cd backend && npx nest build
@@ -1319,9 +1373,11 @@ RUN_AI_SELECT=1 node test/ai-note-tools.select.cjs
 
 结果：**15/15 通过**（`deepseek-flash`，temperature 0）。
 
-### 10.3 这套东西还缺什么
+### 10.5 这套东西还缺什么
 
-- 只覆盖笔记工具。会话工具（`list_conversations` / `rename_conversation`）和
-  `search_my_notes`（要 embedding + 向量检索）没进脚本。
-- 没有断言「prompt 变了以后仍成立」的回归门槛 —— 现在是手动跑。真要做成 CI，
-  得先解决「跑一次要花钱」的问题（比如只在改 `prompts/` 或 `tools/` 时触发）。
+- 会话工具（`list_conversations` / `read_conversation` / `rename_conversation`）
+  只在 gate 脚本里被顺带查了策略，没有行为断言。
+- 没有 CI 门槛 —— 现在是手动跑。真要做成 CI，得先解决「跑一次要花钱」的问题
+  （比如只在改 `prompts/` 或 `tools/` 时触发，或只跑免费的两套）。
+- 检索质量只有"能不能命中"这一条，没有排序质量（MRR / 召回率）的度量 ——
+  要做得先攒一份人工标注的问答对。
