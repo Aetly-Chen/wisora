@@ -1269,20 +1269,21 @@ SSE 开流用的 `loadHistory`，而那个方法有两层限制：
 
 ---
 
-## 10. 怎么证明工具没坏（四套可复用的脚本）
+## 10. 怎么证明工具没坏（五套可复用的脚本）
 
 2026-11-10 补的。之前这一层的「验证」全靠手点，改完工具只能靠肉眼 ——
-现在留下了四套脚本，`backend/test/` 下，都能独立跑。
+现在留下了五套脚本，`backend/test/` 下，都能独立跑（合计 88 条断言）。
 
 ```bash
 cd backend
-npm run test:ai-tools        # 免费的两套（contract + gate），改完工具就跑这个
-npm run test:ai-tools:all    # 四套全跑（会真调 embedding + 模型，计费）
+npm run test:ai-tools        # 免费的三套（两份 contract + gate），改完工具就跑这个
+npm run test:ai-tools:all    # 五套全跑（会真调 embedding + 模型，计费）
 ```
 
 | 脚本 | 验什么 | 要不要花钱 | 断言数 |
 |---|---|---|---|
-| `ai-note-tools.contract.cjs` | 工具自身的契约（参数/返回值/错误语义） | 不花 | 25 |
+| `ai-note-tools.contract.cjs` | 笔记工具的契约（参数/返回值/错误语义） | 不花 | 25 |
+| `ai-conversation-tools.contract.cjs` | 会话工具的契约（含跨用户隔离、截断、改名） | 不花 | 20 |
 | `ai-note-tools.gate.cjs` | **写操作必须授权**这道闸门 | 不花 | 18 |
 | `ai-note-tools.search.cjs` | 语义检索（含 userId / deletedAt 两个过滤） | 调 embedding | 10 |
 | `ai-note-tools.select.cjs` | 模型选不选得对工具 | 调模型 | 15 |
@@ -1309,7 +1310,30 @@ cd backend && npx nest build && node test/ai-note-tools.contract.cjs
 `list`/`read` 全红 —— 它们用的是 `found`。**契约文档没写清，代码就是文档**，
 所以这套断言的另一个作用是把契约钉住。
 
-### 10.2 `ai-note-tools.gate.cjs` —— 写操作必须授权
+### 10.2 `ai-conversation-tools.contract.cjs` —— 会话工具的契约
+
+```bash
+cd backend && node test/ai-conversation-tools.contract.cjs     # 不花钱
+```
+
+会话工具和笔记工具的实现方式不同：它们**直接查 Prisma**（笔记走 NotesService），
+所以 `userId` 过滤只写在 `where` 里 —— 少写一处就是跨用户泄漏，且不会报错。
+断言里专门造了「另一个用户 + **相同的会话标题**」来抓这个。
+
+| 关注点 | 断言 |
+|---|---|
+| 隔离 | 列表只出自己两条；读/改别人的会话都失败，且**返回体里不含对方消息** |
+| 形状（三处不一致） | 列表 `{found,conversations[]}`、读 `{found,title,messages[]}`、改名 `{success,...}`；空列表 `{found:false}` |
+| 截断 | 600 字消息读出来是 501 字（500 + `…`） |
+| 顺序 | 消息按 `createdAt` 正序 |
+| 回退 | 无标题会话显示 `(未命名)` |
+| 边界 | 不存在的会话：读 `found:false` + 原因、改名 `success:false`；`limit` 生效 |
+
+⚠️ 踩到的坑：第一版断言「列表第一条带 model」，红了 —— 列表按 `updatedAt` 倒序，
+而「无标题会话」与「改过名的会话」谁先谁后不直观。**断言不该依赖排序**，
+改成「每条都有 updatedAt、至少一条带 model」。
+
+### 10.3 `ai-note-tools.gate.cjs` —— 写操作必须授权
 
 ```bash
 cd backend && node test/ai-note-tools.gate.cjs     # 不花钱
@@ -1332,7 +1356,7 @@ cd backend && node test/ai-note-tools.gate.cjs     # 不花钱
 ⚠️ 做法：`invokeTool` 是 TS 的 `private`，但运行时只是类型约束，能直接调；
 `AiService` 的构造只要 `(models, registry)`，而这条路径根本不碰 models，传 `{}` 即可。
 
-### 10.3 `ai-note-tools.search.cjs` —— 语义检索的两个过滤
+### 10.4 `ai-note-tools.search.cjs` —— 语义检索的两个过滤
 
 ```bash
 cd backend && RUN_AI_EMBED=1 node test/ai-note-tools.search.cjs   # 调 embedding，计费
@@ -1350,7 +1374,7 @@ cd backend && RUN_AI_EMBED=1 node test/ai-note-tools.search.cjs   # 调 embeddin
 
 "块还在库里"这条要先断言，否则「没搜到」可能是因为块根本不存在 —— 测试就成了假绿。
 
-### 10.4 `ai-note-tools.select.cjs` —— 验模型选得对不对
+### 10.5 `ai-note-tools.select.cjs` —— 验模型选得对不对
 
 ```bash
 cd backend && npx nest build
@@ -1373,10 +1397,10 @@ RUN_AI_SELECT=1 node test/ai-note-tools.select.cjs
 
 结果：**15/15 通过**（`deepseek-flash`，temperature 0）。
 
-### 10.5 这套东西还缺什么
+### 10.6 这套东西还缺什么
 
-- 会话工具（`list_conversations` / `read_conversation` / `rename_conversation`）
-  只在 gate 脚本里被顺带查了策略，没有行为断言。
+- **工具调用的时序**没有断言：现在每次只验「单次调用」，没验「一轮里连调两个工具」
+  「上一个工具失败后模型会不会改用别的」（后者只有 select 脚本的 C 场景间接覆盖）。
 - 没有 CI 门槛 —— 现在是手动跑。真要做成 CI，得先解决「跑一次要花钱」的问题
   （比如只在改 `prompts/` 或 `tools/` 时触发，或只跑免费的两套）。
 - 检索质量只有"能不能命中"这一条，没有排序质量（MRR / 召回率）的度量 ——
