@@ -1,6 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { BookOpen, FolderOpen, MessageSquare, PanelRightClose, PanelRightOpen, Plus, Trash2 } from 'lucide-react';
+import {
+  BookOpen,
+  FolderOpen,
+  MessageSquare,
+  PanelRightClose,
+  PanelRightOpen,
+  Plus,
+  Sparkles,
+  Trash2,
+} from 'lucide-react';
 import { ContextMenu, type ContextMenuItem } from '@/components/ContextMenu';
 import { useNotesStore } from '@/stores/useNotesStore';
 import { useAgentStore } from '@/stores/useAgentStore';
@@ -10,7 +19,7 @@ import { AgentPage } from '@/pages/agent';
 import type { ViewMode } from '@/pages/notes/constants';
 import type { AttachmentMeta } from '@/types/note';
 import type { SharedNotePayload } from '@/types/chat';
-import type { SelectionPayload } from '@/pages/notes/lib/selection-menu';
+import { replaceRange, type SelectionPayload } from '@/pages/notes/lib/selection-menu';
 
 /**
  * 三栏工作台：左（会话 / 笔记 / 文件）· 中（笔记编辑）· 右（Agent 对话）。
@@ -27,6 +36,14 @@ import type { SelectionPayload } from '@/pages/notes/lib/selection-menu';
  */
 
 type LeftTab = 'chat' | 'notes' | 'files';
+
+/** 改写的定位信息：from/to 是选区时的文档位置，expected 用来在应用前校验原文没变 */
+interface RewriteAnchor {
+  noteId: string;
+  from: number;
+  to: number;
+  expected: string;
+}
 
 const RIGHT_MIN = 360;
 const RIGHT_MAX = 620;
@@ -58,6 +75,7 @@ const WorkbenchPage: React.FC = () => {
     conversations,
     conversationId,
     isStreaming,
+    messages,
     loadConversations,
     openConversation,
     removeConversation,
@@ -75,6 +93,15 @@ const WorkbenchPage: React.FC = () => {
   });
   /** 选区的右键菜单：null 表示关闭 */
   const [menu, setMenu] = useState<SelectionPayload | null>(null);
+  /**
+   * 「改写」的两段状态：
+   * - pendingRewrite：已发出请求，等流式结束（记下锚点，供结束后取结果）
+   * - rewrite：拿到了改写文本，等用户点「应用」
+   */
+  const [pendingRewrite, setPendingRewrite] = useState<RewriteAnchor | null>(null);
+  const [rewrite, setRewrite] = useState<(RewriteAnchor & { text: string }) | null>(null);
+  const [applyMsg, setApplyMsg] = useState<string | null>(null);
+  const wasStreaming = useRef(false);
 
   const shellRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ startX: number; startW: number } | null>(null);
@@ -180,6 +207,54 @@ const WorkbenchPage: React.FC = () => {
     [menu, send, buildContext],
   );
 
+  /*
+   * 流式刚结束且有待应用的改写 → 抓最后一条助手消息。
+   *
+   * 用「上一帧还在流、这一帧停了」这个沿来判定，而不是等某个事件：
+   * store 没有暴露 done 回调，而消息数组在结束后会稳定下来。
+   */
+  useEffect(() => {
+    if (wasStreaming.current && !isStreaming && pendingRewrite) {
+      const last = [...messages]
+        .reverse()
+        .find((m) => m.role === 'ai' && m.content.trim().length > 0);
+      if (last) setRewrite({ ...pendingRewrite, text: last.content.trim() });
+      setPendingRewrite(null);
+    }
+    wasStreaming.current = isStreaming;
+  }, [isStreaming, pendingRewrite, messages]);
+
+  // 换笔记就让待应用的结果失效，避免把 A 的改写写进 B
+  useEffect(() => {
+    setRewrite(null);
+    setPendingRewrite(null);
+    setApplyMsg(null);
+  }, [activeId]);
+
+  const applyRewrite = () => {
+    if (!rewrite) return;
+    if (rewrite.noteId && rewrite.noteId !== activeId) {
+      setApplyMsg('笔记已切换，无法应用');
+      return;
+    }
+    const result = replaceRange({
+      from: rewrite.from,
+      to: rewrite.to,
+      expected: rewrite.expected,
+      text: rewrite.text,
+    });
+    if (result === 'ok') {
+      setRewrite(null);
+      setApplyMsg('已应用到选区（Cmd+Z 可撤销）');
+    } else if (result === 'stale') {
+      // 原文被改过：宁可不写，也不要插到错的位置
+      void navigator.clipboard?.writeText(rewrite.text).catch(() => {});
+      setApplyMsg('原文已被修改，无法定位；改写结果已复制到剪贴板');
+    } else {
+      setApplyMsg('编辑器不可用，请重试');
+    }
+  };
+
   const menuItems = useMemo<ContextMenuItem[]>(() => {
     const busy = isStreaming;
     return [
@@ -203,7 +278,21 @@ const WorkbenchPage: React.FC = () => {
         group: 'agent',
         disabled: busy || !menu?.singleBlock,
         hint: menu && !menu.singleBlock ? '请选中同一段落内' : undefined,
-        onSelect: () => askAgent('把这段内容改写得更清晰简洁，直接给出改写后的文本'),
+        onSelect: () => {
+          if (!menu) return;
+          /*
+           * 记下锚点：AI 要几秒才吐完，这期间文档可能被改；
+           * 应用时用 expected 校验原文是否还在原位（见 replaceRange）。
+           */
+          setPendingRewrite({
+            noteId: active?.id ?? '',
+            from: menu.from,
+            to: menu.to,
+            expected: menu.text,
+          });
+          // 明确「只输出正文」，否则回包里会带「改写后：」这类前缀，应用到文档很难看
+          askAgent('把这段内容改写得更清晰简洁。只输出改写后的正文本身，不要任何解释或前后缀');
+        },
       },
     ];
   }, [askAgent, isStreaming, menu]);
@@ -336,6 +425,50 @@ const WorkbenchPage: React.FC = () => {
 
       {/* ------------------------------ 中：编辑区 ------------------------------ */}
       <main className="flex min-h-0 flex-col">
+        {/*
+          改写结果条：AI 吐完但不自动写 —— 由用户点「应用」才改文档。
+          这样才有机会校验锚点、也才有 undo 可言。
+        */}
+        {rewrite && (
+          <div className="flex shrink-0 items-start gap-2 border-b border-emerald-200 bg-emerald-50 px-3 py-2 text-[12.5px] text-emerald-900">
+            <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="mb-0.5 font-medium">改写结果（尚未写入文档）</p>
+              <p className="line-clamp-2 text-emerald-800/80">{rewrite.text}</p>
+            </div>
+            <button
+              type="button"
+              onClick={applyRewrite}
+              className="shrink-0 rounded-md bg-emerald-600 px-2.5 py-1 text-[12px] font-medium text-white hover:bg-emerald-700"
+            >
+              应用到选区
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setRewrite(null);
+                setApplyMsg(null);
+              }}
+              className="shrink-0 rounded-md px-2 py-1 text-[12px] text-emerald-700 hover:bg-emerald-100"
+            >
+              丢弃
+            </button>
+          </div>
+        )}
+
+        {applyMsg && (
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-3 py-1.5 text-[12px] text-slate-600">
+            <span>{applyMsg}</span>
+            <button
+              type="button"
+              onClick={() => setApplyMsg(null)}
+              className="text-slate-400 hover:text-slate-700"
+            >
+              知道了
+            </button>
+          </div>
+        )}
+
         <div className="flex shrink-0 items-center justify-end gap-2 border-b border-slate-200 px-3 py-1.5">
           {!rightOpen && (
             <button

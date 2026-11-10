@@ -6,7 +6,8 @@ import type { EditorState } from '@milkdown/prose/state';
 /**
  * 「选中文本 → 右键 → 问 Agent」的编辑器侧。
  *
- * 这里只做一件事：**把选区摘出来交给宿主**，不碰 UI、不发请求。
+ * 两件事：① 把选区摘出来交给宿主；② 提供「把 AI 的改写结果写回选区」的入口。
+ * 都不碰 UI、不发请求。
  * 菜单与发送都在页面层（工作台），因为：
  * - 菜单要用已有的 `components/ContextMenu`（视口收缩/键盘/焦点都做好了）
  * - 「发给谁」是页面的事：`/notes` 里没有 Agent 面板，`/workbench` 右侧才有
@@ -36,6 +37,53 @@ export interface SelectionPayload {
 type Handler = (payload: SelectionPayload) => void;
 
 let handler: Handler | null = null;
+
+/**
+ * 当前编辑器 view（最近一次真实交互时记下的那个）。
+ *
+ * ⚠️ 别在 `$prose` 工厂里取：那里拿到的 `editorViewCtx` 是 Milkdown 建实例时的
+ * **临时 view**，建完就被替换/销毁了。真机上表现为点「应用到选区」抛
+ * `Cannot destructure property 'doc' of 'view.state' as it is undefined`。
+ * 所以改成「用户每次在编辑器里按下鼠标/右键时记一份」，那时拿到的必然是活的。
+ */
+let currentView: EditorView | null = null;
+
+export type ReplaceResult = 'ok' | 'stale' | 'no-view';
+
+/**
+ * 把改写结果写回某个区间。
+ *
+ * ⚠️ 必须先校验锚点：AI 流式输出要几秒到几十秒，这期间用户可能继续编辑，
+ * `from/to` 早就漂了。原文对不上就**不写**，让调用方提示用户，而不是
+ * 把错位的内容插进文档 —— 那是最难被用户发现的一类破坏。
+ *
+ * 成功时走 `tr.insertText`，自动进入 undo 栈（Cmd+Z 可撤销）；
+ * 之后 `markdownUpdated` 会触发 store 的 editContent → 自动保存，不用另外处理。
+ */
+export function replaceRange(params: {
+  from: number;
+  to: number;
+  expected: string;
+  text: string;
+}): ReplaceResult {
+  const view = currentView;
+  // 被销毁的 view 上 `state` 是 undefined —— 当成不可用，别让异常冒出去
+  if (!view || !view.state) return 'no-view';
+
+  const { from, to, expected, text } = params;
+  const { doc } = view.state;
+  if (to > doc.content.size) return 'stale';
+
+  // 只比空白归一化后的文本：Markdown 里软换行/行尾空格不该导致「对不上」
+  const normalize = (v: string) => v.replace(/\s+/g, ' ').trim();
+  if (normalize(doc.textBetween(from, to, '\n')) !== normalize(expected)) {
+    return 'stale';
+  }
+
+  view.dispatch(view.state.tr.insertText(text, from, to).scrollIntoView());
+  view.focus();
+  return 'ok';
+}
 
 /** 由页面在挂载时注册、卸载时传 null 清掉 */
 export function setSelectionMenuHandler(fn: Handler | null): void {
@@ -71,7 +119,13 @@ export const selectionMenuPlugin = $prose(
     new Plugin({
       props: {
         handleDOMEvents: {
+          // 每次按下鼠标都记一份：这是最便宜的「拿到活 view」的时机
+          mousedown(view: EditorView) {
+            currentView = view;
+            return false;
+          },
           contextmenu(view: EditorView, event: Event) {
+            currentView = view;
             if (!handler) return false;
             const mouse = event as MouseEvent;
             const { selection } = view.state;
