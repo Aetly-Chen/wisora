@@ -20,9 +20,6 @@ import {
   Trash2,
   Loader2,
   NotebookPen,
-  Cpu,
-  ChevronDown,
-  Check,
   Mic,
   ShieldCheck,
   ShieldOff,
@@ -64,100 +61,6 @@ const toolLabel = (name: string) => TOOL_LABELS[name] ?? name;
  */
 
 /** 模型切换器：输入框右侧的下拉 */
-const ModelSwitcher: React.FC<{
-  model: string;
-  models: string[];
-  disabled?: boolean;
-  onChange: (model: string) => void;
-}> = ({ model, models, disabled, onChange }) => {
-  const [open, setOpen] = useState(false);
-  const boxRef = useRef<HTMLDivElement>(null);
-
-  // 点击组件外部时收起，避免菜单一直悬着
-  useEffect(() => {
-    if (!open) return;
-    const onDocDown = (e: MouseEvent) => {
-      if (boxRef.current && !boxRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    const onEsc = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onDocDown);
-    document.addEventListener("keydown", onEsc);
-    return () => {
-      document.removeEventListener("mousedown", onDocDown);
-      document.removeEventListener("keydown", onEsc);
-    };
-  }, [open]);
-
-  return (
-    <div className="relative shrink-0" ref={boxRef}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        disabled={disabled}
-        title={model ? `当前模型：${model}` : "使用后端默认模型"}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        className="flex h-9 items-center gap-1.5 rounded-full px-2.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
-      >
-        <Cpu className="h-4 w-4" />
-        {/* 模型 id 比原先的中文短标签长，留够宽度；truncate 仅作兜底 */}
-        <span className="max-w-[112px] truncate text-[12px] font-medium">
-          {model || "模型"}
-        </span>
-        <ChevronDown
-          className={`h-3 w-3 transition-transform ${open ? "rotate-180" : ""}`}
-        />
-      </button>
-
-      {open && (
-        <div
-          role="listbox"
-          className="absolute bottom-full right-0 z-50 mb-2 w-60 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl"
-        >
-          <p className="px-3 py-1.5 text-[11px] font-medium text-slate-400">
-            选择模型
-          </p>
-          {models.length === 0 ? (
-            <p className="px-3 py-2 text-[12px] text-slate-400">
-              后端未配置可选模型
-            </p>
-          ) : (
-            models.map((m) => {
-              const active = m === model;
-              return (
-                <button
-                  key={m}
-                  type="button"
-                  role="option"
-                  aria-selected={active}
-                  onClick={() => {
-                    onChange(m);
-                    setOpen(false);
-                  }}
-                  className={`flex w-full items-center gap-2 px-3 py-2 text-left transition-colors ${
-                    active ? "bg-indigo-50" : "hover:bg-slate-100"
-                  }`}
-                >
-                  <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-slate-800">
-                    {m}
-                  </span>
-                  {active && (
-                    <Check className="h-3.5 w-3.5 shrink-0 text-indigo-600" />
-                  )}
-                </button>
-              );
-            })
-          )}
-        </div>
-      )}
-    </div>
-  );
-};
-
 /** 浏览器语音识别的最小类型（TS 标准库未收录） */
 interface SpeechRecognitionLike {
   lang: string; // 识别语言（这里固定 zh-CN）
@@ -290,9 +193,6 @@ interface InputBarProps {
   isStreaming: boolean; // 是否流式中，决定显示发送还是停止
   inputRef: React.RefObject<HTMLInputElement | null>; // 外部持有的输入框 ref（自动聚焦用）
   /** 模型切换 */
-  model: string; // 当前模型名
-  models: string[]; // 可选模型列表
-  onModelChange: (model: string) => void; // 切模型回调
   /** 语音识别结果，追加到输入框 */
   onVoiceResult: (text: string) => void;
   /**
@@ -314,9 +214,6 @@ const InputBar: React.FC<InputBarProps> = ({
   onStop,
   isStreaming,
   inputRef,
-  model,
-  models,
-  onModelChange,
   onVoiceResult,
   allowWrite,
   onAllowWriteChange,
@@ -376,13 +273,6 @@ const InputBar: React.FC<InputBarProps> = ({
             <ShieldOff className="h-4 w-4" />
           )}
         </Button>
-
-        <ModelSwitcher
-          model={model}
-          models={models}
-          disabled={isStreaming}
-          onChange={onModelChange}
-        />
 
         <VoiceInputButton disabled={isStreaming} onResult={onVoiceResult} />
 
@@ -481,10 +371,6 @@ export const AgentPage: React.FC<{ variant?: "page" | "panel" }> = ({
     removeConversation,
     conversationId,
     loadingHistory,
-    model,
-    models,
-    setModel,
-    loadModels,
     allowWrite,
     setAllowWrite,
   } = useAgentStore();
@@ -501,11 +387,6 @@ export const AgentPage: React.FC<{ variant?: "page" | "panel" }> = ({
   useEffect(() => {
     void loadConversations();
   }, [loadConversations]);
-
-  // 可选模型列表同样只拉一次（后端 env 决定，运行期不变）
-  useEffect(() => {
-    void loadModels();
-  }, [loadModels]);
 
   /**
    * 补齐用户资料。
@@ -761,24 +642,52 @@ export const AgentPage: React.FC<{ variant?: "page" | "panel" }> = ({
             </div>
           </div>
         ) : !hasStarted ? (
-          /* Empty state */
-          <div className="flex-1 min-h-0 overflow-y-auto flex flex-col items-center justify-center px-4 py-16">
+          /*
+           * 空态分两种密度：
+           * - page：整页欢迎（大图标 + 大标题），给独立使用 /agent 时看的
+           * - panel：右栏很窄，塞一个大标题只会挤掉上下文，压成一行提示
+           */
+          <div
+            className={
+              variant === "panel"
+                ? "flex-1 min-h-0 overflow-y-auto flex flex-col px-4 pt-5"
+                : "flex-1 min-h-0 overflow-y-auto flex flex-col items-center justify-center px-4 py-16"
+            }
+          >
             <motion.div
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4 }}
-              className="w-full max-w-2xl"
+              className={
+                variant === "panel"
+                  ? "flex h-full w-full flex-col"
+                  : "w-full max-w-2xl"
+              }
             >
-              <div className="flex justify-center mb-8">
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-                  <Sparkles className="w-6 h-6 text-white" />
+              {variant !== "panel" && (
+                <div className="flex justify-center mb-8">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+                    <Sparkles className="w-6 h-6 text-white" />
+                  </div>
                 </div>
-              </div>
+              )}
 
-              <h1 className="text-center text-2xl sm:text-3xl md:text-4xl font-semibold text-slate-800 mb-8 md:mb-10 tracking-tight px-2">
+              <h1
+                className={
+                  variant === "panel"
+                    ? "mb-1 text-[13px] font-medium text-slate-600 px-1"
+                    : "text-center text-2xl sm:text-3xl md:text-4xl font-semibold text-slate-800 mb-8 md:mb-10 tracking-tight px-2"
+                }
+              >
                 我们先从哪里开始呢？
               </h1>
+              {variant === "panel" && (
+                <p className="mb-3 px-1 text-[12px] leading-relaxed text-slate-400">
+                  选中笔记里的文字后右键可以「解释 / 总结 / 改写」，也可以直接在这里提问。
+                </p>
+              )}
 
+              <div className={variant === "panel" ? "mt-auto pb-2" : ""}>
               <InputBar
                 floating
                 value={input}
@@ -787,15 +696,13 @@ export const AgentPage: React.FC<{ variant?: "page" | "panel" }> = ({
                 onStop={stop}
                 isStreaming={isStreaming}
                 inputRef={inputRef}
-                model={model}
-                models={models}
-                onModelChange={setModel}
                 onVoiceResult={(t) =>
                   setInput((prev) => (prev ? `${prev}${t}` : t))
                 }
                 allowWrite={allowWrite}
                 onAllowWriteChange={setAllowWrite}
               />
+              </div>
             </motion.div>
           </div>
         ) : (
@@ -922,9 +829,6 @@ export const AgentPage: React.FC<{ variant?: "page" | "panel" }> = ({
                 onStop={stop}
                 isStreaming={isStreaming}
                 inputRef={inputRef}
-                model={model}
-                models={models}
-                onModelChange={setModel}
                 onVoiceResult={(t) =>
                   setInput((prev) => (prev ? `${prev}${t}` : t))
                 }

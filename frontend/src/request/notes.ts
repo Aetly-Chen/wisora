@@ -77,6 +77,19 @@ export function uploadAttachment(file: File, noteId?: string) {
   );
 }
 
+/**
+ * 列出附件。
+ *
+ * 不传 noteId 时返回**当前用户的全部附件** —— 工作台的「文件」视图靠它
+ * 当工作区文件列表用（和 VS Code 的资源管理器同一个心智）。
+ */
+export function listAttachments(noteId?: string) {
+  return request.get<AttachmentMeta[]>(
+    `/attachments${noteId ? `?noteId=${encodeURIComponent(noteId)}` : ''}`,
+    { loading: false },
+  );
+}
+
 export function deleteAttachment(id: string) {
   return request.delete(`/attachments/${id}`, { loading: false });
 }

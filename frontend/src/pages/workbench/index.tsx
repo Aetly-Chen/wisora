@@ -2,8 +2,13 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom';
 import {
   BookOpen,
+  FileCode,
+  FileQuestion,
+  FileText,
   FolderOpen,
+  Image as ImageIcon,
   MessageSquare,
+  PanelLeft,
   PanelRightClose,
   PanelRightOpen,
   Plus,
@@ -12,6 +17,8 @@ import {
 } from 'lucide-react';
 import { ContextMenu, type ContextMenuItem } from '@/components/ContextMenu';
 import { useNotesStore } from '@/stores/useNotesStore';
+import { listAttachments } from '@/request/notes';
+import { FileViewer } from './components/FileViewer';
 import { useAgentStore } from '@/stores/useAgentStore';
 import { NoteSidebar } from '@/pages/notes/components/NoteSidebar';
 import { NoteEditor } from '@/pages/notes/components/NoteEditor';
@@ -37,6 +44,28 @@ import { replaceRange, type SelectionPayload } from '@/pages/notes/lib/selection
 
 type LeftTab = 'chat' | 'notes' | 'files';
 
+/** 按 MIME 给文件一个小图标：图片 / pdf / 文本 / 其它。纯装饰，不参与逻辑。 */
+const FileGlyph: React.FC<{ mimeType: string }> = ({ mimeType }) => {
+  if (mimeType.startsWith('image/')) {
+    return <ImageIcon className="h-3.5 w-3.5 shrink-0 text-slate-400" />;
+  }
+  if (mimeType === 'application/pdf') {
+    return <FileText className="h-3.5 w-3.5 shrink-0 text-slate-400" />;
+  }
+  if (mimeType.startsWith('text/')) {
+    return <FileCode className="h-3.5 w-3.5 shrink-0 text-slate-400" />;
+  }
+  return <FileQuestion className="h-3.5 w-3.5 shrink-0 text-slate-400" />;
+};
+
+/** 人类可读体积。列表里是等宽小字，所以保持短（KB / MB 两位有效数字）。 */
+const formatSize = (bytes: number) => {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+};
+
 /** 改写的定位信息：from/to 是选区时的文档位置，expected 用来在应用前校验原文没变 */
 interface RewriteAnchor {
   noteId: string;
@@ -59,6 +88,7 @@ const TABS: Array<{ id: LeftTab; label: string; icon: typeof MessageSquare }> = 
 const WorkbenchPage: React.FC = () => {
   const [params, setParams] = useSearchParams();
   const {
+    notes,
     active,
     activeId,
     saveState,
@@ -76,6 +106,7 @@ const WorkbenchPage: React.FC = () => {
     conversationId,
     isStreaming,
     messages,
+    model,
     loadConversations,
     openConversation,
     removeConversation,
@@ -102,6 +133,22 @@ const WorkbenchPage: React.FC = () => {
   const [rewrite, setRewrite] = useState<(RewriteAnchor & { text: string }) | null>(null);
   const [applyMsg, setApplyMsg] = useState<string | null>(null);
   const wasStreaming = useRef(false);
+
+  /**
+   * 工作区文件（全部附件）与当前打开的文件。
+   *
+   * 和「笔记」视图的分工：笔记是 Markdown 正文，走编辑器；文件是附件
+   * （pdf / 图片 / md / txt），点开在中栏只读预览。这就是 VS Code 里
+   * 资源管理器点文件的行为，只是这里文件挂在笔记上。
+   */
+  const [files, setFiles] = useState<AttachmentMeta[]>([]);
+  const [activeFile, setActiveFile] = useState<AttachmentMeta | null>(null);
+
+  useEffect(() => {
+    void listAttachments()
+      .then((rows) => setFiles(Array.isArray(rows) ? rows : []))
+      .catch(() => setFiles([]));
+  }, []);
 
   const shellRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ startX: number; startW: number } | null>(null);
@@ -141,6 +188,25 @@ const WorkbenchPage: React.FC = () => {
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 1180px)');
     const apply = () => setRightOpen(!mq.matches);
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, []);
+
+  /*
+   * 手机宽度（<768）：左栏与右栏都改成抽屉。
+   *
+   * 实测 504px 视口下三栏硬排，编辑器只剩 **135px** —— 完全不能用。
+   * 抽屉化之后网格只有中栏一列，侧栏用 fixed 覆盖 + 遮罩，切换成本低。
+   */
+  const [isNarrow, setIsNarrow] = useState(() => window.matchMedia('(max-width: 767px)').matches);
+  const [leftOpen, setLeftOpen] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    const apply = () => {
+      setIsNarrow(mq.matches);
+      if (!mq.matches) setLeftOpen(false);
+    };
     apply();
     mq.addEventListener('change', apply);
     return () => mq.removeEventListener('change', apply);
@@ -294,12 +360,33 @@ const WorkbenchPage: React.FC = () => {
           askAgent('把这段内容改写得更清晰简洁。只输出改写后的正文本身，不要任何解释或前后缀');
         },
       },
+      {
+        id: 'quote',
+        label: '复制引用',
+        group: 'edit',
+        hint: 'Markdown + [[标题]]',
+        onSelect: () => {
+          if (!menu) return;
+          /*
+           * 复用项目已有的双链语法：正文里写 `[[标题]]`，反链按标题现算。
+           * 所以复制出去的引用块粘到别的笔记里，反链能自动认出来。
+           */
+          const quoted = menu.text
+            .split('\n')
+            .map((line) => `> ${line}`)
+            .join('\n');
+          const snippet = `${quoted}\n>\n> —— [[${active?.title ?? '未命名'}]]`;
+          void navigator.clipboard
+            ?.writeText(snippet)
+            .then(() => setApplyMsg('已复制引用（Markdown 引用块 + 双链）'))
+            .catch(() => setApplyMsg('复制失败：浏览器不允许访问剪贴板'));
+          setMenu(null);
+        },
+      },
     ];
-  }, [askAgent, isStreaming, menu]);
+  }, [askAgent, isStreaming, menu, active?.title]);
 
   /* ------------------------------ 渲染 ------------------------------ */
-
-  const attachments: AttachmentMeta[] = active?.attachments ?? [];
 
   return (
     <div
@@ -308,38 +395,51 @@ const WorkbenchPage: React.FC = () => {
       style={{
         // 拖拽时这里会被直接改写（见 handleDragMove）
         ['--right' as string]: `${rightW}px`,
-        gridTemplateColumns: rightOpen
-          ? '280px minmax(0, 1fr) var(--right)'
-          : '280px minmax(0, 1fr)',
+        gridTemplateRows: 'minmax(0, 1fr) auto',
+        gridTemplateColumns: isNarrow
+          ? 'minmax(0, 1fr)'
+          : rightOpen
+            ? '280px minmax(0, 1fr) var(--right)'
+            : '280px minmax(0, 1fr)',
       }}
     >
       {/* ------------------------------ 左：资源管理器 ------------------------------ */}
-      <aside className="flex min-h-0 flex-col border-r border-slate-200 bg-[#f6f5f2]">
-        <div className="flex shrink-0 items-center gap-1 border-b border-slate-200 px-2 py-1.5">
-          {TABS.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setTab(id)}
-              aria-pressed={tab === id}
-              className={`flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[12.5px] transition-colors ${
-                tab === id
-                  ? 'bg-white text-slate-900 shadow-sm'
-                  : 'text-slate-500 hover:bg-slate-900/5 hover:text-slate-800'
-              }`}
-            >
-              <Icon className="h-3.5 w-3.5" />
-              {label}
-            </button>
-          ))}
+      <aside
+        className={
+          isNarrow
+            ? `fixed inset-y-0 left-0 z-40 flex w-[280px] flex-col border-r border-slate-200 bg-[#f6f5f2] shadow-xl transition-transform duration-200 ${
+                leftOpen ? 'translate-x-0' : '-translate-x-full'
+              }`
+            : 'flex min-h-0 flex-col border-r border-slate-200 bg-[#f6f5f2]'
+        }
+      >
+        <div className="shrink-0 border-b border-slate-200/70 p-1.5">
+          <div className="flex items-center gap-0.5 rounded-md bg-slate-900/[0.045] p-0.5">
+            {TABS.map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setTab(id)}
+                aria-pressed={tab === id}
+                className={`flex h-7 flex-1 items-center justify-center gap-1.5 rounded-[5px] text-[11.5px] transition-colors ${
+                  tab === id
+                    ? 'bg-white text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,0.08)]'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="min-h-0 flex-1 overflow-hidden">
           {tab === 'chat' && (
             <div className="flex h-full flex-col">
               <div className="flex items-center justify-between px-3 py-2">
-                <span className="text-[11.5px] font-medium uppercase tracking-wide text-slate-400">
-                  会话
+                <span className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-slate-400">
+                  conversations
                 </span>
                 <button
                   type="button"
@@ -366,7 +466,7 @@ const WorkbenchPage: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => void openConversation(c.id)}
-                      className="min-w-0 flex-1 truncate px-2 py-1.5 text-left text-[12.5px] text-slate-700"
+                      className="min-w-0 flex-1 truncate px-2 py-[5px] text-left text-[12px] text-slate-700"
                       title={c.title ?? '未命名会话'}
                     >
                       {c.title ?? '未命名会话'}
@@ -397,31 +497,64 @@ const WorkbenchPage: React.FC = () => {
           )}
 
           {tab === 'files' && (
-            <div className="h-full overflow-y-auto px-3 py-2">
-              <p className="mb-2 text-[11.5px] font-medium uppercase tracking-wide text-slate-400">
-                当前笔记的附件
-              </p>
-              {attachments.length === 0 ? (
-                <p className="py-6 text-center text-[12.5px] text-slate-400">
-                  {active ? '这篇笔记还没有附件' : '先选一篇笔记'}
-                </p>
-              ) : (
-                <ul className="space-y-1">
-                  {attachments.map((a) => (
-                    <li
-                      key={a.id}
-                      className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] text-slate-600 hover:bg-slate-900/5"
-                    >
-                      <FolderOpen className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                      <span className="min-w-0 flex-1 truncate">{a.filename}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
+            <div className="flex h-full flex-col">
+              <div className="flex items-center justify-between px-3 pb-1 pt-2">
+                <span className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-slate-400">
+                  workspace
+                </span>
+                <span className="font-mono text-[10.5px] text-slate-400">{files.length}</span>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto pb-2">
+                {files.length === 0 ? (
+                  <p className="px-3 py-6 text-center text-[12px] text-slate-400">
+                    工作区还没有文件
+                    <br />
+                    <span className="text-[11.5px]">在笔记里「上传」或拖入文件即可</span>
+                  </p>
+                ) : (
+                  files.map((f) => {
+                    const noteTitle = f.noteId
+                      ? notes.find((n) => n.id === f.noteId)?.title
+                      : undefined;
+                    const selected = activeFile?.id === f.id;
+                    return (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => setActiveFile(f)}
+                        title={`${f.filename}${noteTitle ? ` · ${noteTitle}` : ''}`}
+                        className={`flex w-full items-center gap-2 px-3 py-[5px] text-left transition-colors ${
+                          selected
+                            ? 'bg-slate-900/[0.06] text-slate-900'
+                            : 'text-slate-600 hover:bg-slate-900/[0.03]'
+                        }`}
+                      >
+                        <FileGlyph mimeType={f.mimeType} />
+                        <span className="min-w-0 flex-1 truncate text-[12px]">
+                          {f.filename}
+                        </span>
+                        <span className="shrink-0 font-mono text-[10.5px] text-slate-400">
+                          {formatSize(f.size)}
+                        </span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
             </div>
           )}
         </div>
       </aside>
+
+      {/* 窄屏抽屉的遮罩：点空白处收起 */}
+      {isNarrow && leftOpen && (
+        <button
+          type="button"
+          aria-label="关闭侧栏"
+          onClick={() => setLeftOpen(false)}
+          className="fixed inset-0 z-30 bg-slate-900/20"
+        />
+      )}
 
       {/* ------------------------------ 中：编辑区 ------------------------------ */}
       <main className="flex min-h-0 flex-col">
@@ -469,7 +602,19 @@ const WorkbenchPage: React.FC = () => {
           </div>
         )}
 
-        <div className="flex shrink-0 items-center justify-end gap-2 border-b border-slate-200 px-3 py-1.5">
+        {(isNarrow || !rightOpen) && (
+        <div className="flex h-9 shrink-0 items-center justify-end gap-2 border-b border-slate-200/70 bg-[#fbfbfa] px-3">
+          {isNarrow && (
+            <button
+              type="button"
+              onClick={() => setLeftOpen(true)}
+              aria-label="打开侧栏"
+              className="mr-auto flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[12.5px] text-slate-500 hover:bg-slate-900/5 hover:text-slate-800"
+            >
+              <PanelLeft className="h-3.5 w-3.5" />
+              笔记
+            </button>
+          )}
           {!rightOpen && (
             <button
               type="button"
@@ -481,9 +626,40 @@ const WorkbenchPage: React.FC = () => {
             </button>
           )}
         </div>
+        )}
 
         <div className="min-h-0 flex-1 overflow-hidden">
-          {active ? (
+          {activeFile ? (
+            /* 文件视图：只读预览 + 关闭回到笔记（VS Code 里点关闭标签页） */
+            <div className="flex h-full flex-col">
+              <div className="flex h-9 shrink-0 items-center gap-2 border-b border-slate-200/70 bg-[#fbfbfa] px-3">
+                <FileGlyph mimeType={activeFile.mimeType} />
+                <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-slate-700">
+                  {activeFile.filename}
+                </span>
+                <span className="shrink-0 font-mono text-[10.5px] uppercase tracking-[0.12em] text-slate-400">
+                  readonly
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setActiveFile(null)}
+                  className="shrink-0 rounded px-1.5 py-0.5 text-[11.5px] text-slate-500 hover:bg-slate-900/5 hover:text-slate-800"
+                >
+                  关闭
+                </button>
+              </div>
+              <div className="min-h-0 flex-1 overflow-hidden">
+                <FileViewer
+                  file={activeFile}
+                  noteTitle={
+                    activeFile.noteId
+                      ? notes.find((n) => n.id === activeFile.noteId)?.title
+                      : undefined
+                  }
+                />
+              </div>
+            </div>
+          ) : active ? (
             <NoteEditor
               note={active}
               mode={mode}
@@ -538,7 +714,13 @@ const WorkbenchPage: React.FC = () => {
 
       {/* ------------------------------ 右：Agent ------------------------------ */}
       {rightOpen && (
-        <section className="relative min-h-0 border-l border-slate-200">
+        <section
+          className={
+            isNarrow
+              ? 'fixed inset-y-0 right-0 z-40 w-[92vw] max-w-[420px] border-l border-slate-200 bg-white shadow-xl'
+              : 'relative min-h-0 border-l border-slate-200'
+          }
+        >
           <button
             type="button"
             onClick={() => setRightOpen(false)}
@@ -551,6 +733,35 @@ const WorkbenchPage: React.FC = () => {
           <AgentPage variant="panel" />
         </section>
       )}
+
+      {/*
+        底部状态栏（VS Code 的心智）：当前文档 · 保存状态 · 工作区文件数 ·
+        模型名 · Agent 是否在生成。
+        模型**只读展示** —— 切换 UI 已经去掉，但「我这一轮用的是哪个模型」
+        这个信息仍然有用，放在这里比占一个下拉框划算。
+      */}
+      <div
+        className="flex h-7 shrink-0 items-center gap-3 border-t border-slate-200/70 bg-[#fbfbfa] px-3 font-mono text-[10.5px] text-slate-500"
+        style={{ gridColumn: '1 / -1' }}
+      >
+        <span className="min-w-0 max-w-[38%] truncate text-slate-600">
+          {activeFile ? activeFile.filename : (active?.title ?? '未打开文档')}
+        </span>
+        <span className="text-slate-400">
+          {activeFile
+            ? 'readonly'
+            : saveState === 'saving'
+              ? 'saving…'
+              : saveState === 'dirty'
+                ? 'unsaved'
+                : 'saved'}
+        </span>
+        <span className="ml-auto text-slate-400">{files.length} files</span>
+        <span className="text-slate-400">{model || 'default'}</span>
+        <span className={isStreaming ? 'text-emerald-600' : 'text-slate-400'}>
+          {isStreaming ? 'generating' : 'idle'}
+        </span>
+      </div>
 
       {/* 选中文本的右键菜单 */}
       <ContextMenu
