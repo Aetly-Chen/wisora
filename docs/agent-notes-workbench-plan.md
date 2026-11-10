@@ -408,3 +408,47 @@ GET  /ai/chat/stream?ticket&ctxId&q=...&conversationId&model
 - 文件视图只读（列附件），没做上传/预览
 - 窄屏左栏还不能滑出（现在右栏会收，左栏固定 280 占屏）
 - 「应用到选区」只支持单块；跨块改写目前是置灰的（要支持得先决定结构怎么合并）
+
+---
+
+## 11. 第二轮：文件工作区 / 去掉模型切换 / 视觉收敛（2026-11-11）
+
+### 改了什么
+
+| 项 | 现在 | 说明 |
+|---|---|---|
+| 左栏「文件」 | **工作区视图**：我全部附件，点一条 → 中栏只读预览 | 之前只是「当前笔记的附件」，跟 VS Code 的资源管理器差得远 |
+| 中栏 | 文件预览优先于笔记 | 图片 `<img>` / pdf `<iframe>` / md,txt 等宽源码 / 其它下载；顶部有文件名条 + `readonly` + 关闭 |
+| 模型切换 | **已移除** | 组件、InputBar props、`loadModels` effect 全删；模型名改到状态栏只读展示 |
+| 底部状态栏 | 新增 | `文档名 · saved/unsaved · N files · 模型 · generating/idle` |
+| 左栏 tab | 等宽分段控件 | 比胶囊按钮更像编辑器 |
+| 右栏空态 | `panel` 变体压缩 | 一行提示 + 输入框吸底；整页大标题在 420px 栏里会挤掉上下文 |
+
+顺带把 `/workbench` 加进 `Layout` 的整屏路由（见坑 2）。
+
+### 又两个坑
+
+6. **签名直链是相对路径，别直接 fetch**
+   `POST /attachments/sign` 返回 `/attachments/:id/raw?exp&sig`（无域名）。
+   第一版 FileViewer 直接 `fetch('/attachments/...')`，请求打到前端 dev server，
+   被 SPA fallback 接走返回 `index.html` —— 预览区渲染出**一整页 HTML 源码**。
+   必须走 `lib/attachment-url` 的 `ensureSigned()` / `getAttachmentUrl()`
+   （它拼 `VITE_BASE_API` 并带 1h 缓存）。
+
+7. **`h-[100dvh]` 与全局 Header 叠加会溢出**
+   工作台挂上全局顶栏时，三栏 + 状态栏总高超出视口，**底部状态栏被顶出屏幕**。
+   解法是把 `/workbench` 加进 `Layout` 的 `hideHeader` 列表（`/notes` `/agent` 同样处理）。
+   这不是「加个 calc 减 64px」的问题：工作台有自己的 chrome，不该再来一层导航。
+
+### 手机宽度（<768）的抽屉化
+
+实测 504px 视口下三栏硬排时**编辑器只剩 135px**，完全不可用。现在：
+- 网格只留中栏一列；左栏 `<768px` 变 `fixed` 抽屉（280px）+ 遮罩，中栏顶栏出「笔记」按钮
+- 右栏在 `<768px` 也是右侧抽屉（`92vw` max 420）
+- 实测 504px：单列 504、编辑器 **430px**、抽屉开合与遮罩都正常
+
+### 还没做
+
+「复制引用」已加（右键菜单第四项，Markdown 引用块 + `[[标题]]`），
+剩下：跨块改写（仍置灰）、文件视图的写操作（现在纯只读）、窄屏下 `NoteSidebar`
+自带的「返回笔记」头与左栏 tab 有点重复（P3 收敛）。
