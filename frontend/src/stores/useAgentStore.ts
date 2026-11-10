@@ -192,7 +192,11 @@ interface AgentState {
   allowWrite: boolean;
   setAllowWrite: (allow: boolean) => void; // 切换写权限；随 ticket 一起签给后端，只作用于下一轮
 
-  send: (question: string) => Promise<void>; // 发一条消息并消费 SSE 流
+  /**
+   * 发一条消息并消费 SSE 流。
+   * @param opts.context 引用上下文（笔记里选中的那段）：只喂模型，不落库
+   */
+  send: (question: string, opts?: { context?: string }) => Promise<void>;
   stop: () => void; // 中断当前流（abort）；已收到的内容保留
   reset: () => void;
   clearError: () => void; // 关掉错误提示
@@ -217,7 +221,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   models: [],
   allowWrite: false,
 
-  send: async (question: string) => {
+  send: async (question, opts) => {
     const text = question.trim();
     if (!text || get().isStreaming) return;
 
@@ -300,6 +304,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     try {
       await streamChat({
         question: text,
+        context: opts?.context,
         conversationId: get().conversationId,
         // 带上当前选中的模型；空串表示交给后端用默认模型
         model: get().model || undefined,

@@ -53,6 +53,7 @@ import {
   remarkMath,
 } from '../lib/math';
 import { mermaidPlugin } from '../lib/mermaid';
+import { selectionMenuPlugin } from '../lib/selection-menu';
 import {
   createSlashPlugin,
   filterSlashItems,
@@ -843,6 +844,8 @@ const Inner: React.FC<{
         .use(mathBlockInputRule)
         // 图表：```mermaid 代码块下方的预览（装饰实现，源码照常可编辑）
         .use(mermaidPlugin)
+        // 选中 → 右键 → 交给宿主（工作台）弹菜单；没注册回调时它什么都不做
+        .use(selectionMenuPlugin)
         .use(prism)
         .use(history)
         .use(listener),

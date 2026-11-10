@@ -33,6 +33,13 @@ export interface StreamChatParams {
    * 所以它天然只作用于"这一轮"，不会长期生效。
    */
   allowWrite?: boolean;
+  /**
+   * 引用上下文（笔记里选中的那段）。
+   *
+   * **只喂模型、不落库、不当会话标题** —— 后端存 Redis 后转成 ctxId，
+   * 所以再长也不受 URL 长度限制。与 `question` 分开：`question` 仍是干净的短句。
+   */
+  context?: string;
   signal?: AbortSignal; // 用于中断流式请求（切会话 / 点停止）
   handlers: {
     onStart?: (payload: { conversationId: string; messageId: string }) => void; // 流开始：拿到本轮会话与消息 id
@@ -54,17 +61,24 @@ export interface StreamChatParams {
 }
 
 /**
- * 1) 用 JWT 换取 30 秒有效的一次性 ticket。
+ * 1) 换票 + 暂存「引用上下文」。
  *
- * axios 层的响应拦截器已把 {code,msg,data} 解包成 data，
- * 所以这里直接拿到 { ticket }。
+ * 为什么上下文不拼进 query：SSE 是 GET，`q` 在 URL 里，中文经
+ * encodeURIComponent 是 9 字节/字，撞 Node 16KB 请求头上限
+ * （实测 1800 汉字能进、1850 直接 431）。而且 q 还会被当成会话标题与入库内容。
+ *
+ * 后端把上下文存 Redis（30s、绑 userId、取用即删），只回一个 ctxId。
+ * 这里把「换票」和「暂存上下文」合并成一次请求，不增加往返。
+ *
+ * axios 层的响应拦截器已把 {code,msg,data} 解包成 data。
  */
-export async function createChatTicket(
+export async function prepareChat(
   allowWrite = false,
-): Promise<{ ticket: string; allowWrite: boolean }> {
-  return request.post<{ ticket: string; allowWrite: boolean }>(
-    "/ai/chat/ticket",
-    { allowWrite },
+  context?: string,
+): Promise<{ ticket: string; allowWrite: boolean; ctxId?: string }> {
+  return request.post<{ ticket: string; allowWrite: boolean; ctxId?: string }>(
+    "/ai/chat/prepare",
+    context ? { allowWrite, context } : { allowWrite },
     { loading: false, cancelRepeat: false },
   );
 }
@@ -114,17 +128,20 @@ export async function streamChat(params: StreamChatParams): Promise<void> {
     conversationId,
     model,
     allowWrite = false,
+    context,
     signal,
     handlers,
   } = params;
 
   let res: Response;
   try {
-    const { ticket } = await createChatTicket(allowWrite);
+    const { ticket, ctxId } = await prepareChat(allowWrite, context);
 
     const qs = new URLSearchParams({ ticket, q: question });
     if (conversationId) qs.set("conversationId", conversationId);
     if (model) qs.set("model", model);
+    // 引用上下文只带一个 id，正文留在服务端
+    if (ctxId) qs.set("ctxId", ctxId);
 
     res = await fetch(`${BASE}/ai/chat/stream?${qs.toString()}`, {
       method: "GET",

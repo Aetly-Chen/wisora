@@ -461,7 +461,10 @@ const ConversationRow: React.FC<{
   </div>
 );
 
-export const AgentPage: React.FC = () => {
+/** 工作台右栏用的紧凑变体：去掉自带会话侧栏与整屏高度（会话列表移到左栏） */
+export const AgentPage: React.FC<{ variant?: "page" | "panel" }> = ({
+  variant = "page",
+}) => {
   const { username, email, userId, setUser } = useUserStore();
   // 对话状态统一交给 store：流式 token 只更新最后一条助手消息
   const {
@@ -593,10 +596,16 @@ export const AgentPage: React.FC = () => {
   };
 
   return (
-    <div className="h-[100dvh] w-full bg-[#fafafa] flex overflow-hidden text-slate-900">
-      {/* Sidebar */}
+    <div
+      className={`${
+        variant === "panel" ? "h-full" : "h-[100dvh]"
+      } w-full bg-[#fafafa] flex overflow-hidden text-slate-900`}
+    >
+      {/* Sidebar：panel 变体里会话列表归工作台左栏，这里只隐藏不卸载 */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-[260px] bg-[#f9f9f9] border-r border-slate-200/80 flex flex-col transition-transform duration-300 ease-out md:relative md:inset-auto md:translate-x-0 ${
+        className={`${
+          variant === "panel" ? "hidden" : "fixed inset-y-0 left-0 z-50 w-[260px] md:relative md:inset-auto md:translate-x-0"
+        } bg-[#f9f9f9] border-r border-slate-200/80 flex flex-col transition-transform duration-300 ease-out ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >

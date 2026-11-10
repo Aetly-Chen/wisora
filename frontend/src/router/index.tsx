@@ -9,6 +9,7 @@ const Home = lazy(() => import('../pages/Home'));
 const About = lazy(() => import('../pages/About'));
 const Agent = lazy(() => import('../pages/agent'));
 const Notes = lazy(() => import('../pages/notes'));
+const Workbench = lazy(() => import('../pages/workbench'));
 const Chat = lazy(() => import('../pages/chat'));
 const Profile = lazy(() => import('../pages/profile'));
 const NotFound = lazy(() => import('../pages/NotFound'));
@@ -53,6 +54,10 @@ export const router = createBrowserRouter([
       {
         path: 'notes',
         element: lazyLoad(Notes),
+      },
+      {
+        path: 'workbench',
+        element: lazyLoad(Workbench),
       },
       {
         path: 'chat',

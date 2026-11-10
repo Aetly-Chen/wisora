@@ -27,6 +27,10 @@ import { exportNoteAsMarkdown } from '@/lib/export-note';
 import { useNotesStore } from '@/stores/useNotesStore';
 import { getBacklinks } from '@/request/notes';
 import type { AttachmentMeta, NoteBacklink, NoteDetail, SaveState } from '@/types/note';
+import {
+  setSelectionMenuHandler,
+  type SelectionPayload,
+} from '../lib/selection-menu';
 import { PREVIEW_MAX_CHARS, SAVE_LABEL, type ViewMode } from '../constants';
 import { extractHeadings } from '../lib/headings';
 import { ModeButton } from './ModeButton';
@@ -76,6 +80,11 @@ export const NoteEditor: React.FC<{
   onPreviewAttachment: (a: AttachmentMeta) => void;
   onRemoveAttachment: (id: string) => void;
   onOpenNote: (id: string) => void;
+  /**
+   * 选中文本右键时交给宿主。工作台用它弹「问 Agent」菜单；
+   * `/notes` 不传 → 右键菜单完全不接管（保持原生）。
+   */
+  onAskAgent?: (payload: SelectionPayload) => void;
 }> = ({
   note,
   mode,
@@ -92,7 +101,19 @@ export const NoteEditor: React.FC<{
   onPreviewAttachment,
   onRemoveAttachment,
   onOpenNote,
+  onAskAgent,
 }) => {
+  /*
+   * 选区的桥：只注册一次，回调走 ref。
+   * 直接把 onAskAgent 放进 deps 会让每次渲染都重挂一次（宿主常传内联函数）。
+   */
+  const askAgentRef = useRef(onAskAgent);
+  askAgentRef.current = onAskAgent;
+  useEffect(() => {
+    setSelectionMenuHandler((payload) => askAgentRef.current?.(payload));
+    return () => setSelectionMenuHandler(null);
+  }, []);
+
   const fileRef = useRef<HTMLInputElement>(null);
   const sourceRef = useRef<HTMLTextAreaElement>(null);
   /** 包住「编辑器 / 源码 / 预览」三个面板，大纲跳转在它里面找标题元素 */
