@@ -371,6 +371,7 @@ GET  /ai/chat/stream?ticket&ctxId&q=...&conversationId&model
 | 右栏 | `AgentPage variant="panel"` | 只隐藏它自带的会话侧栏与整屏高度，11 行改动 |
 | 选中即问 | `pages/notes/lib/selection-menu.ts` + `NoteEditor.onAskAgent` | 三条命令；跨块时「改写」置灰 |
 | 拖拽持久化 | `localStorage: workbench:rightWidth` | 拖动只改 CSS 变量，松手才落 state |
+| 改写回写 | `selection-menu.ts` `replaceRange()` + 工作台绿条 | 应用前校验锚点；走 `tr.insertText` 所以可撤销 |
 
 ### 方案里写错/没想到的三处
 
@@ -388,11 +389,22 @@ GET  /ai/chat/stream?ticket&ctxId&q=...&conversationId&model
    模型照旧调 `read_my_note`（实测多一轮工具）。移到分隔线之后：
    **token 6473 → 3650**，工具调用消失，回答质量不变。
 
+4. **`$prose` 工厂里拿到的 view 是临时的**
+   第一版在 `$prose((ctx) => ...)` 里 `ctx.get(editorViewCtx)` 存下 view，
+   点「应用到选区」直接抛
+   `Cannot destructure property 'doc' of 'view.state' as it is undefined` ——
+   那个 view 在实例建好后被替换/销毁了。改成**用户每次 `mousedown` / 右键时记一份**
+   （那时拿到的必然是活的），并在 `replaceRange` 里守卫 `!view.state`。
+
+5. **写回必须校验锚点，且失败要给人一条出路**
+   流式要十几秒，这期间用户可能继续编辑。`replaceRange` 比对
+   「空白归一化后的 `textBetween(from,to)`」与原选区，不一致就不写，
+   并把改写结果**复制到剪贴板** + 提示「原文已被修改，无法定位」。
+   宁可不改，也不要插到错的位置 —— 那是最难被用户发现的一类破坏。
+
 ### 还没做（下一步）
 
-- **「改写」结果的回写**：现在只把改写文本送到右栏，用户手动复制。
-  要做「应用到选区」：`tr.insertText(newText, from, to)` + 应用前校验
-  `textBetween(from,to)` 仍等于原选区（流式期间文档可能已变），进 undo 栈。
 - 选区右键里的「复制引用」（生成 `[[标题]]` + 选区）
 - 文件视图只读（列附件），没做上传/预览
 - 窄屏左栏还不能滑出（现在右栏会收，左栏固定 280 占屏）
+- 「应用到选区」只支持单块；跨块改写目前是置灰的（要支持得先决定结构怎么合并）
