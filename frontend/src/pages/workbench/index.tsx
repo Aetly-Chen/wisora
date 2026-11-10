@@ -17,7 +17,8 @@ import {
 } from 'lucide-react';
 import { ContextMenu, type ContextMenuItem } from '@/components/ContextMenu';
 import { useNotesStore } from '@/stores/useNotesStore';
-import { listAttachments } from '@/request/notes';
+import { deleteAttachment, listAttachments } from '@/request/notes';
+import { ensureSigned, getAttachmentUrl } from '@/lib/attachment-url';
 import { FileViewer } from './components/FileViewer';
 import { useAgentStore } from '@/stores/useAgentStore';
 import { NoteSidebar } from '@/pages/notes/components/NoteSidebar';
@@ -144,11 +145,37 @@ const WorkbenchPage: React.FC = () => {
   const [files, setFiles] = useState<AttachmentMeta[]>([]);
   const [activeFile, setActiveFile] = useState<AttachmentMeta | null>(null);
 
-  useEffect(() => {
-    void listAttachments()
-      .then((rows) => setFiles(Array.isArray(rows) ? rows : []))
-      .catch(() => setFiles([]));
+  /** 文件右键菜单（下载 / 删除） */
+  const [fileMenu, setFileMenu] = useState<{ file: AttachmentMeta; x: number; y: number } | null>(
+    null,
+  );
+
+  const reloadFiles = useCallback(async () => {
+    try {
+      const rows = await listAttachments();
+      setFiles(Array.isArray(rows) ? rows : []);
+    } catch {
+      setFiles([]);
+    }
   }, []);
+
+  useEffect(() => {
+    void reloadFiles();
+  }, [reloadFiles]);
+
+  /*
+   * 两个刷新时机（都会让工作区列表过期）：
+   * - 切到「文件」视图时（可能在别处上传过）
+   * - 当前笔记的附件数变化时（编辑器里刚上传/删除过）
+   */
+  useEffect(() => {
+    if (tab === 'files') void reloadFiles();
+  }, [tab, reloadFiles]);
+
+  const activeAttachmentCount = active?.attachments?.length ?? 0;
+  useEffect(() => {
+    void reloadFiles();
+  }, [activeAttachmentCount, reloadFiles]);
 
   const shellRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ startX: number; startW: number } | null>(null);
@@ -386,6 +413,80 @@ const WorkbenchPage: React.FC = () => {
     ];
   }, [askAgent, isStreaming, menu, active?.title]);
 
+  /*
+   * 文件右键菜单：打开 / 下载 / 删除。
+   *
+   * 下载要走签名：附件的 `/attachments/:id/content` 挂了 guard，
+   * `<a download>` 带不了 Authorization，只能换成短时直链。
+   */
+  const fileMenuItems = useMemo<ContextMenuItem[]>(() => {
+    const f = fileMenu?.file;
+    return [
+      {
+        id: 'open',
+        label: '在中栏打开',
+        disabled: !f,
+        onSelect: () => {
+          if (f) setActiveFile(f);
+          setFileMenu(null);
+        },
+      },
+      {
+        id: 'download',
+        label: '下载',
+        disabled: !f,
+        onSelect: () => {
+          setFileMenu(null);
+          if (!f) return;
+          void (async () => {
+            await ensureSigned([f.id]);
+            const url = getAttachmentUrl(f.id);
+            if (!url) {
+              setApplyMsg('拿不到下载链接，请重试');
+              return;
+            }
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = f.filename;
+            a.click();
+          })();
+        },
+      },
+      {
+        id: 'delete',
+        label: '删除文件',
+        danger: true,
+        disabled: !f,
+        onSelect: () => {
+          setFileMenu(null);
+          if (!f) return;
+          void (async () => {
+            try {
+              await deleteAttachment(f.id);
+              // 正在预览的就是它：先退出去，否则会看到「读取失败」
+              if (activeFile?.id === f.id) setActiveFile(null);
+              await reloadFiles();
+              /*
+               * 删的如果是当前笔记的附件，内存里那份 active 还带着它 ——
+               * 编辑器下方的附件区会继续显示已删除的文件（实测过）。
+               * `reloadActive()` 不够：它按 updatedAt 判断变化，而删附件不改笔记时间，
+               * 所以这里用 openNote 的 force 强制重取。
+               */
+              if (f.noteId && f.noteId === activeId) {
+                await openNote(activeId, { force: true, keepSelection: true });
+              }
+              setApplyMsg(`已删除 ${f.filename}`);
+            } catch (err) {
+              setApplyMsg(
+                `删除失败：${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
+          })();
+        },
+      },
+    ];
+  }, [fileMenu, activeFile?.id, reloadFiles, activeId, openNote]);
+
   /* ------------------------------ 渲染 ------------------------------ */
 
   return (
@@ -489,6 +590,7 @@ const WorkbenchPage: React.FC = () => {
             /* 现有笔记树整体搬进来：它自己读 store，只要求 open / onClose */
             <NoteSidebar
               open
+              embedded
               onClose={() => setTab('chat')}
               onShare={(_payload: SharedNotePayload) => {
                 /* 分享到聊天属于 `/notes` 的能力，工作台先不做 */
@@ -522,6 +624,10 @@ const WorkbenchPage: React.FC = () => {
                         key={f.id}
                         type="button"
                         onClick={() => setActiveFile(f)}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setFileMenu({ file: f, x: e.clientX, y: e.clientY });
+                        }}
                         title={`${f.filename}${noteTitle ? ` · ${noteTitle}` : ''}`}
                         className={`flex w-full items-center gap-2 px-3 py-[5px] text-left transition-colors ${
                           selected
@@ -770,6 +876,15 @@ const WorkbenchPage: React.FC = () => {
         y={menu?.y ?? 0}
         items={menuItems}
         onClose={() => setMenu(null)}
+      />
+
+      {/* 文件右键菜单 */}
+      <ContextMenu
+        open={fileMenu !== null}
+        x={fileMenu?.x ?? 0}
+        y={fileMenu?.y ?? 0}
+        items={fileMenuItems}
+        onClose={() => setFileMenu(null)}
       />
     </div>
   );

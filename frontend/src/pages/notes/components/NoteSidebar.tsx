@@ -22,7 +22,15 @@ export const NoteSidebar: React.FC<{
   open: boolean;
   onClose: () => void;
   onShare: (payload: SharedNotePayload) => void;
-}> = ({ open, onClose, onShare }) => {
+  /**
+   * 嵌进别的容器时用（工作台左栏）。
+   *
+   * 它自己那套页面级 chrome（返回首页、大标题、fixed/translate 抽屉）在
+   * 工作台里是多余的：左栏已经有一个 tab 条写着「笔记」，再来一个「← 笔记」
+   * 就是两层头。embedded 时只留「计数 + 新建 + 搜索」。
+   */
+  embedded?: boolean;
+}> = ({ open, onClose, onShare, embedded = false }) => {
   const {
     notes,
     keyword,
@@ -160,21 +168,33 @@ export const NoteSidebar: React.FC<{
   return (
     <>
       <aside
-        className={`fixed inset-y-0 left-0 z-30 flex w-[276px] flex-col border-r border-slate-200/80 bg-[#f6f5f2] transition-transform md:static md:translate-x-0 ${
-          open ? 'translate-x-0' : '-translate-x-full'
-        }`}
+        className={
+          embedded
+            ? 'flex h-full w-full flex-col bg-transparent'
+            : `fixed inset-y-0 left-0 z-30 flex w-[276px] flex-col border-r border-slate-200/80 bg-[#f6f5f2] transition-transform md:static md:translate-x-0 ${
+                open ? 'translate-x-0' : '-translate-x-full'
+              }`
+        }
       >
-        <div className="flex items-center gap-2 px-4 pb-3 pt-4">
-          <Link
-            to="/"
-            aria-label="返回首页"
-            title="返回首页"
-            className="rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-900/5 hover:text-slate-700"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-          <h1 className="text-[15px] font-semibold tracking-tight text-slate-900">笔记</h1>
-          <span className="text-[11.5px] text-slate-400">{notes.length}</span>
+        <div className={`flex items-center gap-2 px-3 ${embedded ? 'pb-1 pt-1' : 'pb-3 pt-4'}`}>
+          {embedded ? (
+            <span className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-slate-400">
+              notes
+            </span>
+          ) : (
+            <Link
+              to="/"
+              aria-label="返回首页"
+              title="返回首页"
+              className="rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-900/5 hover:text-slate-700"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </Link>
+          )}
+          {!embedded && (
+            <h1 className="text-[15px] font-semibold tracking-tight text-slate-900">笔记</h1>
+          )}
+          <span className="font-mono text-[10.5px] text-slate-400">{notes.length}</span>
           <div className="flex-1" />
           <button
             type="button"
@@ -187,7 +207,7 @@ export const NoteSidebar: React.FC<{
           <Button
             size="sm"
             variant="brand"
-            className="h-8 rounded-lg px-3 text-[12.5px]"
+            className={`rounded-lg pl-2 pr-2.5 ${embedded ? 'h-6 text-[11.5px]' : 'h-8 text-[12.5px]'}`}
             title={selectedId ? '作为选中目录的子页面' : '新建一级目录'}
             onClick={() => {
               void createNote();
@@ -199,14 +219,16 @@ export const NoteSidebar: React.FC<{
           </Button>
         </div>
 
-        <div className="px-4 pb-2">
+        <div className={`px-3 ${embedded ? 'pb-1.5 pt-1' : 'pb-2'}`}>
           <div className="relative">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
             <Input
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
               placeholder="搜索标题或正文"
-              className="h-9 rounded-lg border-slate-200 bg-white pl-8 text-[13px] placeholder:text-slate-400"
+              className={`rounded-lg border-slate-200 bg-white pl-8 placeholder:text-slate-400 ${
+                embedded ? 'h-7 text-[12px]' : 'h-9 text-[13px]'
+              }`}
             />
           </div>
         </div>
