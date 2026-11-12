@@ -65,10 +65,34 @@
   /* ============================================================ 骨架 */
   .app {
     display: grid;
-    grid-template-columns: var(--left) minmax(0, 1fr) var(--right);
+    grid-template-columns: 44px var(--left) minmax(0, 1fr) var(--right);
     grid-template-rows: minmax(0, 1fr) 26px;
     height: 100%;
   }
+
+  /* ============================================================ 活动栏 */
+  .rail {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 2px; padding: 10px 0 8px;
+    background: var(--panel-2);
+    border-right: 1px solid var(--line);
+  }
+  .rail-btn {
+    width: 34px; height: 34px; border-radius: 9px;
+    display: grid; place-items: center;
+    color: var(--ink-3);
+    position: relative;
+  }
+  .rail-btn svg { width: 18px; height: 18px; }
+  .rail-btn:hover { color: var(--ink); background: rgba(0,0,0,.05); }
+  html[data-theme="midnight"] .rail-btn:hover { background: rgba(255,255,255,.06); }
+  .rail-btn[aria-current="page"] { color: var(--ink); background: rgba(0,0,0,.06); }
+  html[data-theme="midnight"] .rail-btn[aria-current="page"] { background: rgba(255,255,255,.08); }
+  .rail-btn[aria-current="page"]::before {
+    content: ''; position: absolute; left: -6px; top: 8px; bottom: 8px;
+    width: 2px; border-radius: 2px; background: var(--accent);
+  }
+  .rail .spacer { flex: 1; }
 
   /* ============================================================ 左栏 */
   .left {
@@ -495,6 +519,82 @@
   }
   .send:hover { opacity: .9; }
 
+  /* ============================================================ 聊天模块（独立整页） */
+  .chatmod {
+    position: fixed; inset: 0; z-index: 60;
+    display: none;
+    grid-template-columns: 264px minmax(0, 1fr);
+    background: var(--bg);
+  }
+  .chatmod.on { display: grid; }
+  .chatmod__list {
+    display: flex; flex-direction: column; min-height: 0;
+    background: var(--panel-2); border-right: 1px solid var(--line);
+  }
+  .chatmod__head {
+    display: flex; align-items: center; gap: 8px;
+    height: 46px; padding: 0 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .chatmod__head .ttl { font-size: 12.5px; font-weight: 600; }
+  .chatmod__head .spacer { flex: 1; }
+  .chatmod__main { display: flex; flex-direction: column; min-height: 0; background: var(--panel); }
+
+  /* 会话列表行（比工作台左栏略高，因为是整页） */
+  .cthread {
+    display: flex; align-items: center; gap: 9px;
+    padding: 8px 12px; width: 100%; text-align: left;
+    transition: background .15s ease;
+  }
+  .cthread:hover { background: rgba(0,0,0,.04); }
+  html[data-theme="midnight"] .cthread:hover { background: rgba(255,255,255,.045); }
+  .cthread[aria-current="true"] { background: rgba(0,0,0,.055); }
+  html[data-theme="midnight"] .cthread[aria-current="true"] { background: rgba(255,255,255,.07); }
+  .cthread .nm { flex: 1; min-width: 0; font-size: 12.6px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cthread .tm { font: 9.5px var(--mono); color: var(--ink-3); }
+  .cthread .un {
+    min-width: 15px; height: 15px; padding: 0 4px; border-radius: 8px;
+    background: var(--accent); color: var(--panel);
+    font: 600 9px/15px var(--mono); text-align: center;
+  }
+
+  /* 聊天模块内部复用：聊天头 / 消息流 / 输入条 */
+  .chathead {
+    display: flex; align-items: center; gap: 8px;
+    height: 46px; padding: 0 18px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+  }
+  .chathead .nm { font-size: 13px; font-weight: 600; }
+  .chathead .st { margin-left: auto; font: 10px var(--mono); color: var(--ink-3); }
+  .chatbody {
+    flex: 1; min-height: 0; overflow-y: auto;
+    padding: 22px 18px 12px;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .crow { display: flex; align-items: flex-end; gap: 7px; max-width: 72%; }
+  .crow.me { margin-left: auto; flex-direction: row-reverse; }
+  .crow .b {
+    padding: 8px 12px; border-radius: 10px;
+    font-size: 12.8px; line-height: 1.75;
+    background: var(--panel-2); border: 1px solid var(--line-2); color: var(--ink);
+  }
+  .crow.me .b { background: var(--accent-soft); border-color: transparent; }
+  .crow .t { font: 9.5px var(--mono); color: var(--ink-3); margin-bottom: 3px; }
+  .chatform {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
+    padding: 12px 18px; border-top: 1px solid var(--line);
+  }
+  .chatform input {
+    flex: 1; height: 34px; padding: 0 12px;
+    border: 1px solid var(--line); border-radius: 8px;
+    background: var(--panel); color: var(--ink);
+    font: 12.8px var(--sans); outline: none;
+  }
+  .chatform input:focus { border-color: var(--accent); }
+  .chatform .send { width: 28px; height: 28px; }
+  .avatar.sm { width: 18px; height: 18px; font-size: 9.5px; }
+
   /* ============================================================ 状态栏 */
   .status {
     grid-column: 1 / -1;
@@ -553,13 +653,26 @@
 
 <div class="app">
 
+  <!-- ============================================================ 活动栏 -->
+  <nav class="rail">
+    <button class="rail-btn" aria-current="page" title="工作台" id="railWork">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="2.5"/><circle cx="5" cy="6" r="1.6"/><circle cx="19" cy="6" r="1.6"/><circle cx="5" cy="18" r="1.6"/><circle cx="19" cy="18" r="1.6"/><path d="M7 7l3 3M17 7l-3 3M7 17l3-3M17 17l-3-3"/></svg>
+    </button>
+    <button class="rail-btn" title="聊天" id="railChat">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H9l-4 4v-4H6a2 2 0 0 1-2-2V6Z"/></svg>
+    </button>
+    <span class="spacer"></span>
+    <button class="rail-btn" title="设置">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.5 5.5l1.4 1.4M17.1 17.1l1.4 1.4M18.5 5.5l-1.4 1.4M6.9 17.1l-1.4 1.4"/></svg>
+    </button>
+  </nav>
+
   <!-- ============================================================ 左栏 -->
   <aside class="left">
     <div class="brand">
       <div class="brand-mark"><i></i></div>
       <div>
         <div class="brand-name">Wisora</div>
-        <div class="brand-sub">knowledge workspace</div>
       </div>
     </div>
 
@@ -580,7 +693,7 @@
 
     <!-- 文件 -->
     <div class="pane" data-pane="files">
-      <div class="pane-head"><span>workspace · 6</span><button>＋</button></div>
+      <div class="pane-head"><span>6</span><button aria-label="添加文件">＋</button></div>
       <button class="row" data-open="file" data-file="rust.md">
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3h8l4 4v14H6z"/></svg>
         <span class="name">rust-lifetimes.md</span><span class="meta">12K</span>
@@ -605,33 +718,20 @@
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3h8l4 4v14H6z"/></svg>
         <span class="name">inbox.md</span><span class="meta">1K</span>
       </button>
-      <button class="new-note">拖入文件到工作区</button>
     </div>
 
     <!-- 对话（AI 会话） -->
     <div class="pane" data-pane="chat" hidden>
-      <div class="pane-head"><span>conversations · 4</span><button>＋ 新对话</button></div>
-      <button class="row" aria-current="true">
-        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H9l-4 4v-4H6a2 2 0 0 1-2-2V6Z"/></svg>
-        <span class="name">解释 Rust 借用</span><span class="meta">刚刚</span>
-      </button>
-      <button class="row">
-        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H9l-4 4v-4H6a2 2 0 0 1-2-2V6Z"/></svg>
-        <span class="name">把周报总结成三点</span><span class="meta">2 小时</span>
-      </button>
-      <button class="row">
-        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H9l-4 4v-4H6a2 2 0 0 1-2-2V6Z"/></svg>
-        <span class="name">知识库里关于检索的笔记</span><span class="meta">昨天</span>
-      </button>
-      <button class="row">
-        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H9l-4 4v-4H6a2 2 0 0 1-2-2V6Z"/></svg>
-        <span class="name">帮我把这篇改得更短</span><span class="meta">3 天</span>
-      </button>
+      <div class="pane-head"><span>4</span><button aria-label="新对话">＋</button></div>
+      <button class="row" aria-current="true"><span class="name">解释选中这段</span><span class="meta">刚刚</span></button>
+      <button class="row"><span class="name">把周报总结成三点</span><span class="meta">2h</span></button>
+      <button class="row"><span class="name">关于检索的笔记</span><span class="meta">昨天</span></button>
+      <button class="row"><span class="name">把这篇改短</span><span class="meta">3d</span></button>
     </div>
 
     <!-- 笔记 -->
     <div class="pane" data-pane="notes" hidden>
-      <div class="pane-head"><span>notes · 10</span><button>＋ 新建</button></div>
+      <div class="pane-head"><span>10</span><button aria-label="新建笔记">＋</button></div>
       <button class="row depth-0"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6a2 2 0 0 1 2-2h3l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7Z"/></svg><span class="name">技术</span><span class="meta">3</span></button>
       <button class="row depth-1" data-open="note" data-note="rust"><span class="name">Rust 借用</span></button>
       <button class="row depth-1" data-open="note" data-note="retrieval"><span class="name">向量检索</span></button>
@@ -651,9 +751,6 @@
       <div class="who">揭泽磊<span>jiezhelei@…</span></div>
       <button class="icon-btn" id="themeBtn" title="切换主题">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19"/></svg>
-      </button>
-      <button class="icon-btn" id="helpBtn" title="设计说明">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.4 2.3c-.6.3-.9.8-.9 1.4v.3"/><circle cx="12" cy="17" r=".6" fill="currentColor"/></svg>
       </button>
     </div>
   </aside>
@@ -679,21 +776,13 @@
       <section class="view" id="treeView">
         <svg id="graph" aria-label="知识树"></svg>
         <div class="tip" id="tip"><div class="t"></div><div class="m"></div></div>
-        <div class="tree-hint">
-          <span><b>悬停</b>中心点 预览一层</span>
-          <span><b>点击</b>中心点 展开目录</span>
-          <span><b>点击</b>目录 展开子级</span>
-          <span><b>点击</b>笔记 打开</span>
-        </div>
       </section>
 
       <!-- 空库：知识海 -->
       <section class="view" id="emptyView" hidden>
         <canvas id="sea"></canvas>
         <div class="empty-copy">
-          <div class="k">empty knowledge base</div>
-          <h2>还没有任何笔记</h2>
-          <p>写下第一句，它会成为这片星海里的一颗。<br>之后每一篇都挂到某颗星上，慢慢长成一张网。</p>
+          <h2>还没有笔记</h2>
           <button class="cta">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
             新建第一篇笔记
@@ -747,7 +836,7 @@
   <aside class="right">
     <div class="agent-head">
       <span class="dot-live"></span>
-      <span class="who">Agent</span>
+      <span class="who">AI</span>
       <span class="spacer"></span>
       <button class="icon-btn" title="新对话">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg>
@@ -757,7 +846,6 @@
     <div class="ctx">
       <span class="chip"><i></i>《Rust 借用》<span class="x">×</span></span>
       <span class="chip"><i></i>选中 1 段<span class="x">×</span></span>
-      <span style="margin-left:auto;opacity:.8">2 项上下文</span>
     </div>
 
     <div class="thread">
@@ -821,40 +909,54 @@
   <!-- ============================================================ 状态栏 -->
   <footer class="status">
     <span id="stPath">知识树</span>
-    <span id="stCount">10 篇笔记 · 4 个目录</span>
     <span class="spacer"></span>
-    <span>paper 主题</span>
-    <span>agent <b>idle</b></span>
+    <span id="stCount">10 · 4</span>
+    <span class="dot-live" id="stAgent" title="agent"></span>
   </footer>
 </div>
 
-<!-- ============================================================ 说明层 -->
-<div class="sheet" id="sheet">
-  <div class="sheet-card">
-    <button class="icon-btn sheet-close" id="sheetClose" title="关闭">✕</button>
-    <h3>这版设计的取舍</h3>
-    <p class="sub">DESIGN NOTES · 2026-11-13</p>
-    <dl>
-      <dt>1. 三栏 + 知识树当首页</dt>
-      <dd>左（文件/对话/笔记）· 中（知识树 / 笔记 / 文件）· 右（Agent）。中间默认是知识树，点任何节点或文件就切成内容视图，返回箭头回树。这样「首页」和「浏览」是同一个地方，不用两套导航。</dd>
+<!-- ============================================================ 聊天模块（独立整页） -->
+<div class="chatmod" id="chatMod">
+  <div class="chatmod__list">
+    <div class="chatmod__head">
+      <span class="ttl">聊天</span>
+      <span class="spacer"></span>
+      <button class="icon-btn" id="chatClose" title="返回工作台">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m4 12 7-7 2 2-6 5 6 5-2 2z"/></svg>
+      </button>
+    </div>
+    <button class="cthread" aria-current="true" data-thread="林川">
+      <span class="avatar sm">林</span><span class="nm">林川</span><span class="tm">03:05</span><span class="un">2</span>
+    </button>
+    <button class="cthread" data-thread="周映">
+      <span class="avatar sm">周</span><span class="nm">周映</span><span class="tm">昨天</span>
+    </button>
+    <button class="cthread" data-thread="Wisora 前端群">
+      <span class="avatar sm">群</span><span class="nm">Wisora 前端群</span><span class="tm">昨天</span><span class="un">5</span>
+    </button>
+  </div>
 
-      <dt>2. 树的展开规则（按你的描述）</dt>
-      <dd>中心圆点＝知识库根。<b>悬停</b>它 → 一级目录以半透明浮现（只预览，不固定）；<b>点击</b>它 → 一级目录实体化，并把「没有父级的散记」作为卫星点一起放出来；<b>点击某个一级目录</b> → 展开它的子级，再点收起。笔记节点显示为实心小点，目录显示为空心圈，一眼能分开。</dd>
-
-      <dt>3. 空库不做「空状态插图」</dt>
-      <dd>做一片缓慢漂移的星海（canvas 粒子 + 近距连线 + 鼠标涟漪），文案只有一句「写下第一句，它会成为这片星海里的一颗」。想更重的话可以换成 3D：<code>vasturiano/3d-force-graph</code>（6.5k★，ThreeJS）做真正的力导向星空。</dd>
-
-      <dt>4. Agent 面板的「上下文」是可见的</dt>
-      <dd>顶部固定一行 chip：当前文档 + 选中的段数，可以逐个移除。这是之前对比里 A 方案（NotebookLM）最值得抄的一点——用户永远知道 AI 看到了什么。</dd>
-
-      <dt>5. 视觉方向</dt>
-      <dd>暖白纸感 + 单一赭色强调 + 等宽小字做元数据，不用卡片阴影堆叠。右上角可切深色（midnight），两套都做完了。</dd>
-    </dl>
-    <div class="warn">
-      <b>三点需要你拍板：</b><br>
-      ① 左栏「对话」指的是 AI 会话列表（现原型），还是保留的社交聊天？<br>
-      ② 「允许修改」开关的粒度：整轮授权（现在这样），还是每次改动都点「应用」？<br>
-      ③ 知识树默认要不要显示笔记的「最近打开」高亮，还是保持纯结构？
+  <div class="chatmod__main">
+    <div class="chathead">
+      <div class="nm" id="chatName">林川</div>
+      <div class="st">在线</div>
+    </div>
+    <div class="chatbody" id="chatBody">
+      <div class="crow">
+        <div><div class="t">林川 · 03:02</div><div class="b">知识树那版我看过了，比文件夹直观。</div></div>
+      </div>
+      <div class="crow me">
+        <div><div class="t">我 · 03:04</div><div class="b">嗯，改完把空库那屏也发你。</div></div>
+      </div>
+      <div class="crow">
+        <div><div class="t">林川 · 03:05</div><div class="b">好，顺便看看侧栏三个入口够不够。</div></div>
+      </div>
+    </div>
+    <div class="chatform">
+      <input placeholder="发消息" />
+      <button class="send" aria-label="发送">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+      </button>
     </div>
   </div>
 </div>
@@ -1114,10 +1216,10 @@ function onEnter(id, g) {
     const rect = g.getBoundingClientRect();
     tip.querySelector('.t').textContent = n.label;
     const meta = n.type === 'root'
-      ? `知识库 · ${childrenOf('root').filter((c) => c.type === 'note').length + childrenOf('root').reduce((s, c) => s + (c.type === 'dir' ? childrenOf(c.id).length : 0), 0)} 篇笔记`
+      ? `${childrenOf('root').filter((c) => c.type === 'note').length + childrenOf('root').reduce((s2, c) => s2 + (c.type === 'dir' ? childrenOf(c.id).length : 0), 0)}`
       : n.type === 'dir'
-        ? `目录 · ${childrenOf(id).length} 篇笔记`
-        : `笔记 · ${n.words} 字 · ${n.ago}`;
+        ? `${childrenOf(id).length}`
+        : `${n.words} · ${n.ago}`;
     tip.querySelector('.m').textContent = meta;
     tip.style.left = rect.left + rect.width / 2 + 'px';
     tip.style.top = rect.top + 'px';
@@ -1236,6 +1338,26 @@ btnEmpty.addEventListener('click', () => {
   show('empty', '<span>知识库</span><span class="sep">/</span><b>空库</b>');
 });
 
+/* 聊天模块：从活动栏进入，整页覆盖 */
+const chatMod = document.getElementById('chatMod');
+const railChat = document.getElementById('railChat');
+const railWork = document.getElementById('railWork');
+function openChat(on) {
+  chatMod.classList.toggle('on', on);
+  railChat.setAttribute('aria-current', on ? 'page' : 'false');
+  if (on) railChat.setAttribute('aria-current', 'page'); else railChat.removeAttribute('aria-current');
+  if (!on) railWork.setAttribute('aria-current', 'page'); else railWork.removeAttribute('aria-current');
+}
+railChat.addEventListener('click', () => openChat(true));
+document.getElementById('chatClose').addEventListener('click', () => openChat(false));
+document.querySelectorAll('.cthread').forEach((b) => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.cthread').forEach((x) => x.removeAttribute('aria-current'));
+    b.setAttribute('aria-current', 'true');
+    document.getElementById('chatName').textContent = b.dataset.thread;
+  });
+});
+
 /* 主题 */
 document.getElementById('themeBtn').addEventListener('click', () => {
   const html = document.documentElement;
@@ -1245,11 +1367,6 @@ document.getElementById('themeBtn').addEventListener('click', () => {
   document.querySelector('.status span:nth-last-child(2)').textContent = next + ' 主题';
 });
 
-/* 说明层 */
-const sheet = document.getElementById('sheet');
-document.getElementById('helpBtn').addEventListener('click', () => sheet.classList.add('on'));
-document.getElementById('sheetClose').addEventListener('click', () => sheet.classList.remove('on'));
-sheet.addEventListener('click', (e) => { if (e.target === sheet) sheet.classList.remove('on'); });
 
 /* ============================================================
    空库：知识海（canvas 星点 + 近距连线 + 鼠标涟漪）
