@@ -1,0 +1,1363 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="paper">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wisora 新工作台 · 设计原型</title>
+<style>
+  /* ============================================================
+     设计令牌：两套主题（paper = 暖白纸感 / midnight = 深色）
+     —— 全部通过 CSS 变量走，切主题只换 data-attribute
+     ============================================================ */
+  :root {
+    --left: 268px;
+    --right: 384px;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  html[data-theme="paper"] {
+    --bg: #f3f0e9;
+    --panel: #fbf9f5;
+    --panel-2: #f7f4ee;
+    --ink: #1a1917;
+    --ink-2: #55504a;
+    --ink-3: #8c857a;
+    --line: #e3ddd1;
+    --line-2: #ede8de;
+    --accent: #8a5a2b;       /* 赭：纸与墨的暖强调 */
+    --accent-soft: #f0e5d6;
+    --root: #2b2622;
+    --danger: #a5372c;
+    --ok: #3f6b4f;
+    --shadow: 0 1px 2px rgba(60, 45, 25, .06), 0 8px 24px -16px rgba(60, 45, 25, .28);
+  }
+  html[data-theme="midnight"] {
+    --bg: #0e0f11;
+    --panel: #15171a;
+    --panel-2: #1a1d21;
+    --ink: #e9e6df;
+    --ink-2: #a9a49b;
+    --ink-3: #6f6b64;
+    --line: #262a2f;
+    --line-2: #1f2327;
+    --accent: #d8a15f;
+    --accent-soft: #2a2115;
+    --root: #f2ece2;
+    --danger: #e06a5c;
+    --ok: #7fb08c;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 12px 32px -20px rgba(0,0,0,.9);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 14px/1.65 var(--sans);
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  ::-webkit-scrollbar { width: 9px; height: 9px; }
+  ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 9px; border: 2px solid transparent; background-clip: padding-box; }
+
+  /* ============================================================ 骨架 */
+  .app {
+    display: grid;
+    grid-template-columns: var(--left) minmax(0, 1fr) var(--right);
+    grid-template-rows: minmax(0, 1fr) 26px;
+    height: 100%;
+  }
+
+  /* ============================================================ 左栏 */
+  .left {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--panel-2);
+    border-right: 1px solid var(--line);
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 14px 14px 10px;
+  }
+  .brand-mark {
+    width: 22px; height: 22px;
+    border-radius: 7px;
+    background: var(--root);
+    display: grid; place-items: center;
+    flex: 0 0 auto;
+  }
+  .brand-mark i {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--panel); display: block;
+  }
+  .brand-name { font-size: 13.5px; font-weight: 600; letter-spacing: -.01em; }
+  .brand-sub { font: 10.5px var(--mono); color: var(--ink-3); letter-spacing: .12em; text-transform: uppercase; }
+
+  .tabs {
+    display: flex;
+    gap: 2px;
+    margin: 6px 10px 8px;
+    padding: 3px;
+    background: rgba(0,0,0,.045);
+    border-radius: 8px;
+  }
+  html[data-theme="midnight"] .tabs { background: rgba(255,255,255,.05); }
+  .tab {
+    flex: 1;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    height: 28px;
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--ink-2);
+    transition: background .18s ease, color .18s ease;
+  }
+  .tab svg { width: 13px; height: 13px; opacity: .8; }
+  .tab:hover { color: var(--ink); }
+  .tab[aria-selected="true"] {
+    background: var(--panel);
+    color: var(--ink);
+    box-shadow: 0 1px 2px rgba(0,0,0,.06);
+  }
+
+  .pane { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 8px; }
+  .pane[hidden] { display: none; }
+  .pane-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 14px 4px;
+    font: 500 10px var(--mono);
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .pane-head button { font: 11px var(--sans); color: var(--ink-3); padding: 2px 6px; border-radius: 5px; }
+  .pane-head button:hover { background: rgba(0,0,0,.05); color: var(--ink); }
+
+  .row {
+    display: flex; align-items: center; gap: 7px;
+    padding: 5px 14px;
+    font-size: 12.5px;
+    color: var(--ink-2);
+    width: 100%;
+    text-align: left;
+    border-radius: 0;
+    transition: background .15s ease, color .15s ease;
+  }
+  .row:hover { background: rgba(0,0,0,.04); color: var(--ink); }
+  html[data-theme="midnight"] .row:hover { background: rgba(255,255,255,.045); }
+  .row[aria-current="true"] { background: var(--accent-soft); color: var(--ink); }
+  .row .ico { width: 13px; height: 13px; flex: 0 0 auto; opacity: .55; }
+  .row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .meta { font: 10px var(--mono); color: var(--ink-3); flex: 0 0 auto; }
+  .row.depth-1 { padding-left: 28px; }
+  .row.depth-2 { padding-left: 42px; }
+
+  .new-note {
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    margin: 4px 12px 0;
+    height: 30px;
+    border: 1px dashed var(--line);
+    border-radius: 7px;
+    font-size: 12px;
+    color: var(--ink-3);
+    transition: border-color .18s, color .18s;
+  }
+  .new-note:hover { border-color: var(--accent); color: var(--accent); }
+
+  .left-foot {
+    flex: 0 0 auto;
+    display: flex; align-items: center; gap: 8px;
+    padding: 9px 12px;
+    border-top: 1px solid var(--line);
+  }
+  .avatar {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--accent-soft); color: var(--accent);
+    display: grid; place-items: center;
+    font: 600 10px var(--mono);
+  }
+  .left-foot .who { flex: 1; min-width: 0; font-size: 12px; }
+  .left-foot .who span { display: block; font: 10px var(--mono); color: var(--ink-3); }
+  .icon-btn {
+    width: 26px; height: 26px; border-radius: 6px;
+    display: grid; place-items: center;
+    color: var(--ink-3);
+  }
+  .icon-btn:hover { background: rgba(0,0,0,.05); color: var(--ink); }
+  html[data-theme="midnight"] .icon-btn:hover { background: rgba(255,255,255,.06); }
+
+  /* ============================================================ 中栏 */
+  .center { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel); }
+
+  .topbar {
+    flex: 0 0 auto;
+    display: flex; align-items: center; gap: 10px;
+    height: 40px;
+    padding: 0 14px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+  }
+  .crumbs { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--ink-3); min-width: 0; }
+  .crumbs b { color: var(--ink); font-weight: 550; }
+  .crumbs .sep { opacity: .45; }
+  .topbar .spacer { flex: 1; }
+
+  .switch {
+    display: flex; gap: 2px; padding: 2px;
+    background: rgba(0,0,0,.045);
+    border-radius: 7px;
+  }
+  html[data-theme="midnight"] .switch { background: rgba(255,255,255,.06); }
+  .switch button {
+    padding: 3px 9px;
+    border-radius: 5px;
+    font-size: 11.5px;
+    color: var(--ink-2);
+  }
+  .switch button[aria-pressed="true"] { background: var(--panel); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.07); }
+
+  .stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+  .view { position: absolute; inset: 0; }
+  .view[hidden] { display: none !important; }   /* id 选择器的 display 会压过它，必须 !important */
+
+  /* ---------- 知识树 ---------- */
+  #treeView { background:
+      radial-gradient(120% 90% at 50% 45%, transparent 40%, rgba(0,0,0,.02) 100%);
+  }
+  #graph { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .link { stroke: var(--line); stroke-width: 1; fill: none; transition: stroke .2s ease, opacity .25s ease; }
+  .link.hot { stroke: var(--accent); stroke-width: 1.6; }
+  .node { cursor: pointer; }
+  .node .dot { transition: r .2s ease, fill .2s ease, opacity .25s ease; }
+  .node .halo { fill: none; stroke: var(--accent); stroke-width: 1; opacity: 0; transition: opacity .25s ease; }
+  .node .label {
+    font: 500 11.5px var(--sans);
+    fill: var(--ink-2);
+    opacity: 0;
+    transition: opacity .28s ease, fill .2s ease;
+    pointer-events: none;
+    paint-order: stroke;
+    stroke: var(--panel);
+    stroke-width: 3.5px;
+    stroke-linejoin: round;
+  }
+  .node .count {
+    font: 9.5px var(--mono);
+    fill: var(--ink-3);
+    opacity: 0;
+    transition: opacity .25s ease;
+    pointer-events: none;
+  }
+  .node.ghost { opacity: .38; }
+  .node.ghost .label { opacity: 1; }
+  .node.open .label, .node.root .label, .node.hovered .label, .node.hovered .count { opacity: 1; }
+  /* 一级/二级节点只要「已经展开显示出来了」，名字就该读得到 */
+  .node.shown .label { opacity: 1; }
+  .node.shown .count { opacity: 1; }
+  .node.hovered .halo { opacity: 1; }
+  .node.hovered .dot { fill: var(--accent); }
+  .node.open .dot { fill: var(--accent); }
+
+  /* 中心的「根」：一圈呼吸的环，暗示「可以点」 */
+  .root-ring {
+    fill: none;
+    stroke: var(--root);
+    stroke-width: 1;
+    opacity: .18;
+    animation: breathe 4.5s ease-in-out infinite;
+    transform-origin: center;
+  }
+  html[data-theme="midnight"] .orbit-ring { opacity: .32; }
+  html[data-theme="midnight"] .link { stroke: #2f343a; }
+  .orbit-ring {
+    stroke: var(--ink-3);
+    stroke-width: .7;
+    stroke-dasharray: 2 6;
+    opacity: .22;
+  }
+  @keyframes breathe {
+    0%, 100% { opacity: .1; }
+    50% { opacity: .26; }
+  }
+
+  .tree-hint {
+    position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%);
+    font: 11px var(--mono);
+    color: var(--ink-3);
+    letter-spacing: .06em;
+    display: flex; gap: 14px;
+    padding: 6px 12px;
+    background: color-mix(in srgb, var(--panel) 82%, transparent);
+    border: 1px solid var(--line-2);
+    border-radius: 999px;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  .tree-hint b { color: var(--ink-2); font-weight: 600; }
+
+  .tip {
+    position: absolute;
+    z-index: 5;
+    min-width: 150px;
+    max-width: 240px;
+    padding: 8px 10px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    box-shadow: var(--shadow);
+    pointer-events: none;
+    opacity: 0;
+    transform: translate(-50%, -130%) scale(.97);
+    transition: opacity .16s ease, transform .16s ease;
+  }
+  .tip.on { opacity: 1; transform: translate(-50%, -122%) scale(1); }
+  .tip .t { font-size: 12.5px; font-weight: 600; margin-bottom: 3px; }
+  .tip .m { font: 10.5px var(--mono); color: var(--ink-3); }
+
+  /* ---------- 空态：知识海 ---------- */
+  #emptyView { display: grid; place-items: center; overflow: hidden; }
+  #sea { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .empty-copy {
+    position: relative;
+    z-index: 2;
+    text-align: center;
+    max-width: 400px;
+    padding: 0 20px;
+  }
+  .empty-copy .k {
+    font: 500 10px var(--mono);
+    letter-spacing: .22em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin-bottom: 14px;
+  }
+  .empty-copy h2 {
+    margin: 0 0 10px;
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: -.02em;
+  }
+  .empty-copy p { margin: 0 0 22px; font-size: 13.5px; color: var(--ink-2); line-height: 1.8; }
+  .cta {
+    display: inline-flex; align-items: center; gap: 8px;
+    height: 36px; padding: 0 16px;
+    background: var(--root);
+    color: var(--panel);
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 550;
+    transition: transform .18s ease, opacity .18s ease;
+  }
+  .cta:hover { transform: translateY(-1px); opacity: .92; }
+
+  /* ---------- 文档视图 ---------- */
+  .doc { height: 100%; overflow-y: auto; padding: 42px 56px 96px; }
+  .doc-inner { max-width: 680px; margin: 0 auto; }
+  .doc h1 { font-size: 27px; letter-spacing: -.02em; margin: 0 0 6px; font-weight: 620; }
+  .doc .docmeta { font: 10.5px var(--mono); color: var(--ink-3); margin-bottom: 28px; letter-spacing: .04em; }
+  .doc p { margin: 0 0 16px; color: var(--ink-2); }
+  .doc mark {
+    background: var(--accent-soft);
+    color: var(--ink);
+    padding: 1px 2px;
+    border-radius: 3px;
+    box-shadow: inset 0 -1px 0 var(--accent);
+  }
+  .doc h3 { font-size: 15px; margin: 28px 0 10px; font-weight: 600; }
+  .doc ul { margin: 0 0 16px; padding-left: 20px; color: var(--ink-2); }
+  .doc li { margin-bottom: 6px; }
+  .doc code { font: 12px var(--mono); background: var(--panel-2); padding: 1.5px 5px; border-radius: 4px; border: 1px solid var(--line-2); }
+
+  /* ---------- 文件视图 ---------- */
+  .fileview { height: 100%; display: flex; flex-direction: column; }
+  .filebar {
+    display: flex; align-items: center; gap: 9px;
+    height: 34px; padding: 0 14px;
+    border-bottom: 1px solid var(--line-2);
+    font: 11px var(--mono);
+    color: var(--ink-3);
+    background: var(--panel-2);
+  }
+  .filebar .ro { margin-left: auto; letter-spacing: .12em; text-transform: uppercase; font-size: 9.5px; }
+  .filebody { flex: 1; overflow: auto; padding: 26px 40px; background: var(--panel); }
+  .filebody pre {
+    margin: 0;
+    font: 12px/1.9 var(--mono);
+    color: var(--ink-2);
+    white-space: pre-wrap;
+  }
+
+  /* ============================================================ 右栏：Agent */
+  .right { display: flex; flex-direction: column; min-height: 0; background: var(--panel-2); border-left: 1px solid var(--line); }
+  .agent-head {
+    flex: 0 0 auto;
+    display: flex; align-items: center; gap: 8px;
+    padding: 11px 13px 9px;
+    border-bottom: 1px solid var(--line);
+  }
+  .agent-head .who { font-size: 12.5px; font-weight: 600; }
+  .agent-head .spacer { flex: 1; }
+  .dot-live { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 18%, transparent); }
+
+  .ctx {
+    flex: 0 0 auto;
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    padding: 8px 13px;
+    border-bottom: 1px solid var(--line-2);
+    font: 10.5px var(--mono);
+    color: var(--ink-3);
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    height: 21px; padding: 0 8px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    border-radius: 999px;
+    font-size: 10.5px;
+  }
+  .chip i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+  .chip .x { opacity: .55; font-size: 12px; line-height: 1; }
+  .chip .x:hover { opacity: 1; }
+
+  .thread { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 13px 20px; display: flex; flex-direction: column; gap: 14px; }
+  .msg { display: flex; flex-direction: column; gap: 6px; max-width: 100%; }
+  .msg.user { align-items: flex-end; }
+  .bubble {
+    max-width: 92%;
+    padding: 9px 12px;
+    border-radius: 11px;
+    font-size: 12.8px;
+    line-height: 1.75;
+  }
+  .msg.user .bubble { background: var(--root); color: var(--panel); border-bottom-right-radius: 4px; }
+  html[data-theme="midnight"] .send,
+  html[data-theme="midnight"] .cta { background: var(--accent); color: #17130d; }
+  html[data-theme="midnight"] .msg.user .bubble { background: var(--accent-soft); color: var(--ink); border: 1px solid var(--line); }
+  .msg.ai .bubble { background: var(--panel); border: 1px solid var(--line); border-bottom-left-radius: 4px; color: var(--ink); }
+  .msg.ai .bubble p { margin: 0 0 8px; }
+  .msg.ai .bubble p:last-child { margin-bottom: 0; }
+  .msg.ai .bubble code { font: 11.5px var(--mono); background: var(--panel-2); padding: 1px 4px; border-radius: 3px; }
+  .msg .stamp { font: 9.5px var(--mono); color: var(--ink-3); }
+
+  .tool {
+    display: flex; align-items: center; gap: 7px;
+    padding: 7px 9px;
+    border: 1px dashed var(--line);
+    border-radius: 8px;
+    font: 10.5px var(--mono);
+    color: var(--ink-3);
+    background: var(--panel);
+  }
+  .tool .ok { color: var(--ok); }
+  .tool b { color: var(--ink-2); font-weight: 600; }
+
+  .composer { flex: 0 0 auto; border-top: 1px solid var(--line); padding: 9px 11px 10px; background: var(--panel); }
+  .composer-box {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--panel);
+    transition: border-color .18s ease, box-shadow .18s ease;
+  }
+  .composer-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent); }
+  .composer textarea {
+    width: 100%;
+    border: 0;
+    outline: none;
+    background: transparent;
+    resize: none;
+    padding: 9px 11px 4px;
+    font: 12.8px/1.7 var(--sans);
+    color: var(--ink);
+    min-height: 54px;
+    max-height: 140px;
+  }
+  .composer textarea::placeholder { color: var(--ink-3); }
+  .composer-bar { display: flex; align-items: center; gap: 6px; padding: 0 7px 7px; }
+  .composer-bar .spacer { flex: 1; }
+  .mini {
+    display: inline-flex; align-items: center; gap: 5px;
+    height: 24px; padding: 0 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    color: var(--ink-3);
+    border: 1px solid transparent;
+  }
+  .mini:hover { background: rgba(0,0,0,.04); color: var(--ink-2); }
+  .mini[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 25%, transparent); }
+  .send {
+    width: 26px; height: 26px; border-radius: 7px;
+    background: var(--root); color: var(--panel);
+    display: grid; place-items: center;
+  }
+  .send:hover { opacity: .9; }
+
+  /* ============================================================ 状态栏 */
+  .status {
+    grid-column: 1 / -1;
+    display: flex; align-items: center; gap: 14px;
+    padding: 0 13px;
+    border-top: 1px solid var(--line);
+    background: var(--panel-2);
+    font: 10px var(--mono);
+    color: var(--ink-3);
+    letter-spacing: .04em;
+  }
+  .status .spacer { flex: 1; }
+  .status b { color: var(--ink-2); font-weight: 500; }
+
+  /* ============================================================ 说明层 */
+  .sheet {
+    position: fixed; inset: 0;
+    background: rgba(20, 16, 10, .35);
+    backdrop-filter: blur(3px);
+    z-index: 50;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .2s ease;
+  }
+  html[data-theme="midnight"] .sheet { background: rgba(0,0,0,.55); }
+  .sheet.on { opacity: 1; pointer-events: auto; }
+  .sheet-card {
+    width: min(680px, 100%);
+    max-height: 86vh;
+    overflow-y: auto;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    padding: 26px 28px;
+  }
+  .sheet-card h3 { margin: 0 0 4px; font-size: 17px; }
+  .sheet-card .sub { color: var(--ink-3); font-size: 12px; margin: 0 0 20px; font: 11px var(--mono); letter-spacing: .08em; }
+  .sheet-card dl { margin: 0; }
+  .sheet-card dt { font-size: 13px; font-weight: 600; margin-top: 16px; }
+  .sheet-card dd { margin: 4px 0 0; font-size: 12.8px; color: var(--ink-2); line-height: 1.8; }
+  .sheet-card .warn {
+    margin-top: 18px; padding: 11px 13px;
+    background: var(--accent-soft);
+    border-radius: 8px;
+    font-size: 12.5px;
+    color: var(--ink);
+  }
+  .sheet-close { float: right; }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ============================================================ 左栏 -->
+  <aside class="left">
+    <div class="brand">
+      <div class="brand-mark"><i></i></div>
+      <div>
+        <div class="brand-name">Wisora</div>
+        <div class="brand-sub">knowledge workspace</div>
+      </div>
+    </div>
+
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" aria-selected="true" data-tab="files">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7a2 2 0 0 1 2-2h3l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7Z"/></svg>
+        文件
+      </button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="chat">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H9l-4 4v-4H6a2 2 0 0 1-2-2V6Z"/></svg>
+        对话
+      </button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="notes">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 4h11l3 3v13H5z"/><path d="M9 9h6M9 13h6M9 17h4"/></svg>
+        笔记
+      </button>
+    </div>
+
+    <!-- 文件 -->
+    <div class="pane" data-pane="files">
+      <div class="pane-head"><span>workspace · 6</span><button>＋</button></div>
+      <button class="row" data-open="file" data-file="rust.md">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3h8l4 4v14H6z"/></svg>
+        <span class="name">rust-lifetimes.md</span><span class="meta">12K</span>
+      </button>
+      <button class="row" data-open="file" data-file="arch.md">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3h8l4 4v14H6z"/></svg>
+        <span class="name">系统架构.md</span><span class="meta">8K</span>
+      </button>
+      <button class="row" data-open="file" data-file="week45.md">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3h8l4 4v14H6z"/></svg>
+        <span class="name">周报 W45.md</span><span class="meta">3K</span>
+      </button>
+      <button class="row" data-open="file" data-file="paper.pdf">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3h8l4 4v14H6z"/><path d="M9 13h6M9 16h4"/></svg>
+        <span class="name">Attention Is All You Need.pdf</span><span class="meta">2.1M</span>
+      </button>
+      <button class="row" data-open="file" data-file="graph.png">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="5" width="16" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="m5 17 5-5 4 4 3-3 3 3"/></svg>
+        <span class="name">graph-notes.png</span><span class="meta">640K</span>
+      </button>
+      <button class="row" data-open="file" data-file="inbox.md">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3h8l4 4v14H6z"/></svg>
+        <span class="name">inbox.md</span><span class="meta">1K</span>
+      </button>
+      <button class="new-note">拖入文件到工作区</button>
+    </div>
+
+    <!-- 对话（AI 会话） -->
+    <div class="pane" data-pane="chat" hidden>
+      <div class="pane-head"><span>conversations · 4</span><button>＋ 新对话</button></div>
+      <button class="row" aria-current="true">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H9l-4 4v-4H6a2 2 0 0 1-2-2V6Z"/></svg>
+        <span class="name">解释 Rust 借用</span><span class="meta">刚刚</span>
+      </button>
+      <button class="row">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H9l-4 4v-4H6a2 2 0 0 1-2-2V6Z"/></svg>
+        <span class="name">把周报总结成三点</span><span class="meta">2 小时</span>
+      </button>
+      <button class="row">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H9l-4 4v-4H6a2 2 0 0 1-2-2V6Z"/></svg>
+        <span class="name">知识库里关于检索的笔记</span><span class="meta">昨天</span>
+      </button>
+      <button class="row">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H9l-4 4v-4H6a2 2 0 0 1-2-2V6Z"/></svg>
+        <span class="name">帮我把这篇改得更短</span><span class="meta">3 天</span>
+      </button>
+    </div>
+
+    <!-- 笔记 -->
+    <div class="pane" data-pane="notes" hidden>
+      <div class="pane-head"><span>notes · 10</span><button>＋ 新建</button></div>
+      <button class="row depth-0"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6a2 2 0 0 1 2-2h3l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7Z"/></svg><span class="name">技术</span><span class="meta">3</span></button>
+      <button class="row depth-1" data-open="note" data-note="rust"><span class="name">Rust 借用</span></button>
+      <button class="row depth-1" data-open="note" data-note="retrieval"><span class="name">向量检索</span></button>
+      <button class="row depth-1" data-open="note" data-note="editor"><span class="name">编辑器选型</span></button>
+      <button class="row depth-0"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6a2 2 0 0 1 2-2h3l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7Z"/></svg><span class="name">项目</span><span class="meta">2</span></button>
+      <button class="row depth-1" data-open="note" data-note="workbench"><span class="name">工作台改版</span></button>
+      <button class="row depth-1" data-open="note" data-note="agent"><span class="name">Agent 工具设计</span></button>
+      <button class="row depth-0"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6a2 2 0 0 1 2-2h3l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7Z"/></svg><span class="name">阅读</span><span class="meta">2</span></button>
+      <button class="row depth-1" data-open="note" data-note="paper"><span class="name">Attention 笔记</span></button>
+      <button class="row depth-1" data-open="note" data-note="book"><span class="name">《重构》第三章</span></button>
+      <button class="row depth-0" data-open="note" data-note="inbox2"><span class="name">今天想到的</span><span class="meta">散记</span></button>
+      <button class="row depth-0" data-open="note" data-note="idea"><span class="name">关于知识的形状</span><span class="meta">散记</span></button>
+    </div>
+
+    <div class="left-foot">
+      <div class="avatar">揭</div>
+      <div class="who">揭泽磊<span>jiezhelei@…</span></div>
+      <button class="icon-btn" id="themeBtn" title="切换主题">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19"/></svg>
+      </button>
+      <button class="icon-btn" id="helpBtn" title="设计说明">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.4 2.3c-.6.3-.9.8-.9 1.4v.3"/><circle cx="12" cy="17" r=".6" fill="currentColor"/></svg>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ============================================================ 中栏 -->
+  <main class="center">
+    <div class="topbar">
+      <div class="crumbs" id="crumbs">
+        <span>知识库</span><span class="sep">/</span><b>知识树</b>
+      </div>
+      <div class="spacer"></div>
+      <div class="switch" role="group" aria-label="演示状态">
+        <button id="btnHas" aria-pressed="true">有笔记</button>
+        <button id="btnEmpty" aria-pressed="false">空库</button>
+      </div>
+      <button class="icon-btn" id="backToTree" title="回到知识树" hidden>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m4 12 7-7 2 2-6 5 6 5-2 2z"/></svg>
+      </button>
+    </div>
+
+    <div class="stage">
+      <!-- 知识树 -->
+      <section class="view" id="treeView">
+        <svg id="graph" aria-label="知识树"></svg>
+        <div class="tip" id="tip"><div class="t"></div><div class="m"></div></div>
+        <div class="tree-hint">
+          <span><b>悬停</b>中心点 预览一层</span>
+          <span><b>点击</b>中心点 展开目录</span>
+          <span><b>点击</b>目录 展开子级</span>
+          <span><b>点击</b>笔记 打开</span>
+        </div>
+      </section>
+
+      <!-- 空库：知识海 -->
+      <section class="view" id="emptyView" hidden>
+        <canvas id="sea"></canvas>
+        <div class="empty-copy">
+          <div class="k">empty knowledge base</div>
+          <h2>还没有任何笔记</h2>
+          <p>写下第一句，它会成为这片星海里的一颗。<br>之后每一篇都挂到某颗星上，慢慢长成一张网。</p>
+          <button class="cta">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+            新建第一篇笔记
+          </button>
+        </div>
+      </section>
+
+      <!-- 笔记文档 -->
+      <section class="view" id="docView" hidden>
+        <div class="doc"><div class="doc-inner">
+          <h1>Rust 借用</h1>
+          <div class="docmeta">技术 / Rust 借用 · 418 字 · 3 天前更新</div>
+          <p>借用检查器在<mark>编译期</mark>判断引用是否悬垂，代价是学习曲线陡。它用前期的摩擦换后期几乎不需要排查内存类 bug。</p>
+          <h3>两条规则</h3>
+          <ul>
+            <li>同一时刻，要么有任意多个不可变借用，要么有唯一一个可变借用。</li>
+            <li>引用的存活时间不能超过它指向的值。</li>
+          </ul>
+          <p>典型会被拦下的例子：</p>
+          <p><code>fn bad() -&gt; &amp;String { let s = String::from("hi"); &amp;s }</code></p>
+          <h3>和生命周期标注的关系</h3>
+          <p>生命周期标注不是让引用活得更久，而是告诉编译器「这个引用和那个值一样长」，它只参与检查，不改变运行期行为。</p>
+        </div></div>
+      </section>
+
+      <!-- 文件预览 -->
+      <section class="view" id="fileView" hidden>
+        <div class="fileview">
+          <div class="filebar">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3h8l4 4v14H6z"/></svg>
+            <span id="fileName">rust-lifetimes.md</span>
+            <span class="ro">readonly</span>
+          </div>
+          <div class="filebody"><pre id="fileBody"># Rust 生命周期速查
+
+- 标注语法：fn f&lt;'a&gt;(x: &amp;'a str) -&gt; &amp;'a str
+- 省略规则：单入参时，输出引用沿用入参的生命周期
+- 结构体持有引用必须标注：struct S&lt;'a&gt; { s: &amp;'a str }
+
+## 什么时候需要手写
+1. 多个入参引用，返回值是引用
+2. 结构体/枚举里存引用
+3. 需要表达「返回值的生命周期与某个入参绑定」
+</pre></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- ============================================================ 右栏：Agent -->
+  <aside class="right">
+    <div class="agent-head">
+      <span class="dot-live"></span>
+      <span class="who">Agent</span>
+      <span class="spacer"></span>
+      <button class="icon-btn" title="新对话">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+    </div>
+
+    <div class="ctx">
+      <span class="chip"><i></i>《Rust 借用》<span class="x">×</span></span>
+      <span class="chip"><i></i>选中 1 段<span class="x">×</span></span>
+      <span style="margin-left:auto;opacity:.8">2 项上下文</span>
+    </div>
+
+    <div class="thread">
+      <div class="msg user">
+        <div class="bubble">解释我选中的这段，然后说说它和生命周期标注的关系。</div>
+        <div class="stamp">03:12</div>
+      </div>
+
+      <div class="msg ai">
+        <div class="tool">
+          <span class="ok">✓</span> 读取 <b>《Rust 借用》</b> · 3 段
+        </div>
+        <div class="bubble">
+          <p>这句话讲的是：借用检查器用<strong>编译期静态分析</strong>把「悬垂引用」这类错误拦在运行时之前，代价是你得先过编译器的关。</p>
+          <p>它和生命周期标注不是一回事：标注本身不延长任何东西，只是给编译器提供「这两个引用的存活范围一致」这条信息，参与检查而已。</p>
+        </div>
+        <div class="stamp">03:12 · 1.4s</div>
+      </div>
+
+      <div class="msg user">
+        <div class="bubble">把「两条规则」那节写得更短一点，保留例子。</div>
+        <div class="stamp">03:14</div>
+      </div>
+
+      <div class="msg ai">
+        <div class="tool">
+          <span class="ok">✓</span> 改写 <b>2 段</b> · 待应用
+        </div>
+        <div class="bubble">
+          <p>已生成更短的版本，点右侧「应用」写回原文；也可以先看差异。</p>
+          <p style="display:flex;gap:6px;margin-top:8px">
+            <button class="mini" style="border:1px solid var(--line)">查看差异</button>
+            <button class="mini" style="background:var(--root);color:var(--panel)">应用到原文</button>
+          </p>
+        </div>
+        <div class="stamp">03:14</div>
+      </div>
+    </div>
+
+    <div class="composer">
+      <div class="composer-box">
+        <textarea rows="2" placeholder="问点什么，或者选中文字后右键…"></textarea>
+        <div class="composer-bar">
+          <button class="mini" aria-pressed="true" title="允许 Agent 修改笔记">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3Z"/></svg>
+            允许修改
+          </button>
+          <button class="mini" title="引用当前选中">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M4 12h10M4 17h7"/></svg>
+            引用
+          </button>
+          <span class="spacer"></span>
+          <button class="send" title="发送">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ============================================================ 状态栏 -->
+  <footer class="status">
+    <span id="stPath">知识树</span>
+    <span id="stCount">10 篇笔记 · 4 个目录</span>
+    <span class="spacer"></span>
+    <span>paper 主题</span>
+    <span>agent <b>idle</b></span>
+  </footer>
+</div>
+
+<!-- ============================================================ 说明层 -->
+<div class="sheet" id="sheet">
+  <div class="sheet-card">
+    <button class="icon-btn sheet-close" id="sheetClose" title="关闭">✕</button>
+    <h3>这版设计的取舍</h3>
+    <p class="sub">DESIGN NOTES · 2026-11-13</p>
+    <dl>
+      <dt>1. 三栏 + 知识树当首页</dt>
+      <dd>左（文件/对话/笔记）· 中（知识树 / 笔记 / 文件）· 右（Agent）。中间默认是知识树，点任何节点或文件就切成内容视图，返回箭头回树。这样「首页」和「浏览」是同一个地方，不用两套导航。</dd>
+
+      <dt>2. 树的展开规则（按你的描述）</dt>
+      <dd>中心圆点＝知识库根。<b>悬停</b>它 → 一级目录以半透明浮现（只预览，不固定）；<b>点击</b>它 → 一级目录实体化，并把「没有父级的散记」作为卫星点一起放出来；<b>点击某个一级目录</b> → 展开它的子级，再点收起。笔记节点显示为实心小点，目录显示为空心圈，一眼能分开。</dd>
+
+      <dt>3. 空库不做「空状态插图」</dt>
+      <dd>做一片缓慢漂移的星海（canvas 粒子 + 近距连线 + 鼠标涟漪），文案只有一句「写下第一句，它会成为这片星海里的一颗」。想更重的话可以换成 3D：<code>vasturiano/3d-force-graph</code>（6.5k★，ThreeJS）做真正的力导向星空。</dd>
+
+      <dt>4. Agent 面板的「上下文」是可见的</dt>
+      <dd>顶部固定一行 chip：当前文档 + 选中的段数，可以逐个移除。这是之前对比里 A 方案（NotebookLM）最值得抄的一点——用户永远知道 AI 看到了什么。</dd>
+
+      <dt>5. 视觉方向</dt>
+      <dd>暖白纸感 + 单一赭色强调 + 等宽小字做元数据，不用卡片阴影堆叠。右上角可切深色（midnight），两套都做完了。</dd>
+    </dl>
+    <div class="warn">
+      <b>三点需要你拍板：</b><br>
+      ① 左栏「对话」指的是 AI 会话列表（现原型），还是保留的社交聊天？<br>
+      ② 「允许修改」开关的粒度：整轮授权（现在这样），还是每次改动都点「应用」？<br>
+      ③ 知识树默认要不要显示笔记的「最近打开」高亮，还是保持纯结构？
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   数据：一份 mock 知识库（目录 + 笔记 + 两篇散记）
+   ============================================================ */
+const NODES = [
+  { id: 'root', type: 'root', label: '知识库' },
+
+  { id: 'd-tech', parent: 'root', type: 'dir', label: '技术' },
+  { id: 'n-rust', parent: 'd-tech', type: 'note', label: 'Rust 借用', words: 418, ago: '3 天前' },
+  { id: 'n-retrieval', parent: 'd-tech', type: 'note', label: '向量检索', words: 1260, ago: '5 天前' },
+  { id: 'n-editor', parent: 'd-tech', type: 'note', label: '编辑器选型', words: 890, ago: '1 周前' },
+
+  { id: 'd-proj', parent: 'root', type: 'dir', label: '项目' },
+  { id: 'n-workbench', parent: 'd-proj', type: 'note', label: '工作台改版', words: 2100, ago: '昨天' },
+  { id: 'n-agent', parent: 'd-proj', type: 'note', label: 'Agent 工具设计', words: 1540, ago: '2 天前' },
+
+  { id: 'd-read', parent: 'root', type: 'dir', label: '阅读' },
+  { id: 'n-paper', parent: 'd-read', type: 'note', label: 'Attention 笔记', words: 730, ago: '1 周前' },
+  { id: 'n-book', parent: 'd-read', type: 'note', label: '《重构》第三章', words: 520, ago: '2 周前' },
+
+  { id: 'd-arch', parent: 'root', type: 'dir', label: '归档' },
+  { id: 'n-week', parent: 'd-arch', type: 'note', label: '周报 W45', words: 340, ago: '1 周前' },
+
+  // 无父级目录的散记：点根节点时一起放出来
+  { id: 'n-inbox', parent: 'root', type: 'note', label: '今天想到的', words: 120, ago: '刚刚', loose: true },
+  { id: 'n-idea', parent: 'root', type: 'note', label: '关于知识的形状', words: 260, ago: '4 天前', loose: true },
+];
+
+const byId = new Map(NODES.map((n) => [n.id, n]));
+const childrenOf = (id) => NODES.filter((n) => n.parent === id);
+
+/* 展开状态：root 收起时什么都不显示，只留中心点 */
+const open = new Set();
+
+/* ============================================================
+   SVG 知识树的极坐标布局 + rAF 插值
+   —— 不用 d3：层级固定为 3，算角度就够；插值自己写十几行
+   ============================================================ */
+const svg = document.getElementById('graph');
+const tip = document.getElementById('tip');
+const NS = 'http://www.w3.org/2000/svg';
+
+const pos = new Map();   // id -> {x, y} 当前（插值中）
+const target = new Map();// id -> {x, y} 目标
+let hoverId = null;      // 鼠标悬停的节点
+let previewRoot = false; // 悬停根节点 → 预览一级
+
+const el = { node: new Map(), link: new Map(), ring: null };
+
+function svgEl(name, attrs) {
+  const n = document.createElementNS(NS, name);
+  for (const k in attrs) n.setAttribute(k, attrs[k]);
+  return n;
+}
+
+/** 哪些节点现在是可见的（根 + 已展开目录的子节点） */
+function visibleIds() {
+  const out = ['root'];
+  const level1 = childrenOf('root');
+  if (open.has('root') || previewRoot) {
+    for (const c of level1) out.push(c.id);
+  }
+  if (!open.has('root')) return out;
+  for (const d of level1) {
+    if (d.type !== 'dir' || !open.has(d.id)) continue;
+    for (const c of childrenOf(d.id)) out.push(c.id);
+  }
+  return out;
+}
+
+/** 极坐标布局：一级均分整圈，子级在父节点角度附近 ±0.34rad 扇开 */
+function computeTargets() {
+  const w = svg.clientWidth, h = svg.clientHeight;
+  const cx = w / 2, cy = h / 2;
+  target.clear();
+  target.set('root', { x: cx, y: cy });
+
+  const level1 = childrenOf('root');
+  const dirs = level1.filter((n) => n.type === 'dir');
+  const loose = level1.filter((n) => n.type === 'note');
+
+  /* 一级：目录占主角度，散记放在目录之间的空档 */
+  /* 半径按「可用空间」算：留 62px 给标签，不然展开的二级节点会被右边裁掉 */
+  const rMax = Math.min(w, h) / 2 - 62;
+  const r1 = rMax * 0.62;
+  dirs.forEach((d, i) => {
+    const a = -Math.PI / 2 + (i / dirs.length) * Math.PI * 2;
+    target.set(d.id, { x: cx + Math.cos(a) * r1, y: cy + Math.sin(a) * r1, a });
+  });
+  loose.forEach((n, i) => {
+    const a = -Math.PI / 2 + ((i + 0.5) / Math.max(loose.length, 1)) * Math.PI * 0.9;
+    target.set(n.id, { x: cx + Math.cos(a) * r1 * 1.16, y: cy + Math.sin(a) * r1 * 1.16, a });
+  });
+
+  /* 二级：围绕父角度扇开 */
+  for (const d of dirs) {
+    if (!open.has(d.id)) continue;
+    const kids = childrenOf(d.id);
+    const pa = target.get(d.id)?.a ?? 0;
+    const r2 = rMax * 0.96;
+    const spread = Math.min(0.9, 0.34 * kids.length);
+    kids.forEach((k, i) => {
+      const a = kids.length === 1 ? pa : pa - spread / 2 + (i / (kids.length - 1)) * spread;
+      target.set(k.id, { x: cx + Math.cos(a) * r2, y: cy + Math.sin(a) * r2, a });
+    });
+  }
+}
+
+/** 建/更/删 DOM。节点数很少，直接全量重建最省心 */
+function renderTree() {
+  computeTargets();
+  const visible = new Set(visibleIds());
+
+  /* 删除不可见的 */
+  for (const [id, g] of el.node) {
+    if (!visible.has(id)) { g.remove(); el.node.delete(id); }
+  }
+  for (const [id, l] of el.link) {
+    if (!visible.has(id)) { l.remove(); el.link.delete(id); }
+  }
+
+  /* 根的光环 + 一级轨道（轨道只是极淡的一圈，给层级一点空间感） */
+  if (!el.ring) {
+    el.ring = svgEl('circle', { class: 'root-ring', r: 46 });
+    el.ring.setAttribute('fill', 'none');
+    svg.appendChild(el.ring);
+
+    el.orbit = svgEl('circle', { class: 'orbit-ring', r: 10 });
+    el.orbit.setAttribute('fill', 'none');
+    svg.appendChild(el.orbit);
+  }
+  if (el.orbit) {
+    const c = target.get('root');
+    const l1 = target.get('d-tech');
+    if (c && l1) {
+      el.orbit.setAttribute('cx', c.x);
+      el.orbit.setAttribute('cy', c.y);
+      el.orbit.setAttribute('r', Math.hypot(l1.x - c.x, l1.y - c.y).toFixed(1));
+    }
+  }
+
+  /* 连接线：每个可见节点到父 */
+  for (const id of visible) {
+    const n = byId.get(id);
+    if (!n || !n.parent || !visible.has(n.parent)) continue;
+    if (!el.link.has(id)) {
+      const line = svgEl('line', { class: 'link' });
+      svg.appendChild(line);
+      el.link.set(id, line);
+    }
+  }
+
+  /* 节点 */
+  for (const id of visible) {
+    if (el.node.has(id)) continue;
+    const n = byId.get(id);
+    const g = svgEl('g', { class: 'node' + (id === 'root' ? ' root' : '') });
+    g.dataset.id = id;
+
+    const halo = svgEl('circle', { class: 'halo', r: id === 'root' ? 17 : 11 });
+    const dot = svgEl('circle', { class: 'dot', r: id === 'root' ? 7 : n.type === 'dir' ? 4.5 : 3.2 });
+    dot.setAttribute('fill', id === 'root' ? 'var(--root)' : n.type === 'dir' ? 'var(--panel)' : 'var(--ink-3)');
+    if (n.type === 'dir') { dot.setAttribute('stroke', 'var(--ink-2)'); dot.setAttribute('stroke-width', '1.4'); }
+
+    const label = svgEl('text', { class: 'label', x: id === 'root' ? 0 : 10, y: 4 });
+    label.textContent = n.label;
+    if (id === 'root') { label.setAttribute('text-anchor', 'middle'); label.setAttribute('y', 30); }
+
+    const count = svgEl('text', { class: 'count', x: 10, y: 17 });
+    if (n.type === 'dir') count.textContent = String(childrenOf(id).length);
+
+    g.append(halo, dot, label, count);
+    svg.appendChild(g);
+    el.node.set(id, g);
+
+    g.addEventListener('mouseenter', () => onEnter(id, g));
+    g.addEventListener('mouseleave', () => onLeave(id));
+    g.addEventListener('click', (e) => { e.stopPropagation(); onClick(id); });
+  }
+
+  /* 立即把新节点放到起点（从父节点长出来），避免从 (0,0) 飞入 */
+  for (const id of visible) {
+    if (pos.has(id)) continue;
+    const n = byId.get(id);
+    const p = target.get(n.parent || 'root');
+    pos.set(id, p ? { x: p.x, y: p.y } : { ...(target.get(id) || { x: 0, y: 0 }) });
+  }
+
+  startAnim();
+}
+
+/* 状态标签跟着展开状态走 */
+function syncClasses() {
+  for (const [id, g] of el.node) {
+    const isOpen = open.has(id);
+    const ghost = previewRoot && id !== 'root' && !open.has('root') && byId.get(id)?.type !== 'note';
+    g.classList.toggle('open', isOpen);
+    g.classList.toggle('shown', id !== 'root' && open.has('root'));
+    g.classList.toggle('ghost', !!ghost);
+    g.classList.toggle('hovered', hoverId === id);
+  }
+  /* 高亮链路 */
+  let cur = hoverId;
+  const hot = new Set();
+  while (cur && cur !== 'root') {
+    hot.add(cur);
+    cur = byId.get(cur)?.parent;
+  }
+  hot.add('root');
+  for (const [id, line] of el.link) line.classList.toggle('hot', hoverId ? hot.has(id) : false);
+}
+
+/* ============================================================
+   rAF 插值：节点和线一起动
+   ============================================================ */
+let raf = null;
+function startAnim() { if (!raf) raf = requestAnimationFrame(step); }
+
+function step() {
+  let moving = false;
+  for (const [id, g] of el.node) {
+    const t = target.get(id); const p = pos.get(id);
+    if (!t || !p) continue;
+    const dx = t.x - p.x, dy = t.y - p.y;
+    if (Math.abs(dx) > 0.4 || Math.abs(dy) > 0.4) {
+      p.x += dx * 0.22; p.y += dy * 0.22; moving = true;
+    } else { p.x = t.x; p.y = t.y; }
+    g.setAttribute('transform', `translate(${p.x.toFixed(1)},${p.y.toFixed(1)})`);
+  }
+  for (const [id, line] of el.link) {
+    const n = byId.get(id);
+    const a = pos.get(n.parent), b = pos.get(id);
+    if (!a || !b) continue;
+    line.setAttribute('x1', a.x); line.setAttribute('y1', a.y);
+    line.setAttribute('x2', b.x); line.setAttribute('y2', b.y);
+  }
+  if (el.ring) {
+    const r = pos.get('root');
+    if (r) { el.ring.setAttribute('cx', r.x); el.ring.setAttribute('cy', r.y); }
+  }
+  syncClasses();
+  raf = moving ? requestAnimationFrame(step) : null;
+}
+
+/* ============================================================
+   交互：悬停预览 / 点击展开 / 点笔记打开
+   ============================================================ */
+function onEnter(id, g) {
+  hoverId = id;
+  const n = byId.get(id);
+  if (id === 'root' && !open.has('root')) { previewRoot = true; renderTree(); }
+  if (n) {
+    const rect = g.getBoundingClientRect();
+    tip.querySelector('.t').textContent = n.label;
+    const meta = n.type === 'root'
+      ? `知识库 · ${childrenOf('root').filter((c) => c.type === 'note').length + childrenOf('root').reduce((s, c) => s + (c.type === 'dir' ? childrenOf(c.id).length : 0), 0)} 篇笔记`
+      : n.type === 'dir'
+        ? `目录 · ${childrenOf(id).length} 篇笔记`
+        : `笔记 · ${n.words} 字 · ${n.ago}`;
+    tip.querySelector('.m').textContent = meta;
+    tip.style.left = rect.left + rect.width / 2 + 'px';
+    tip.style.top = rect.top + 'px';
+    tip.classList.add('on');
+  }
+  startAnim();
+}
+
+function onLeave(id) {
+  if (hoverId === id) hoverId = null;
+  if (id === 'root') { previewRoot = false; renderTree(); }
+  tip.classList.remove('on');
+  startAnim();
+}
+
+function onClick(id) {
+  const n = byId.get(id);
+  if (!n) return;
+  tip.classList.remove('on');   // 换目标时别留着上一条提示
+
+  if (id === 'root') {
+    previewRoot = false;
+    if (open.has('root')) {
+      open.clear();                    // 再点一次收回
+    } else {
+      open.add('root');
+    }
+    renderTree();
+    return;
+  }
+
+  if (n.type === 'dir') {
+    if (open.has(id)) open.delete(id); else open.add(id);
+    if (!open.has('root')) open.add('root');
+    renderTree();
+    return;
+  }
+
+  /* 笔记：中间打开 */
+  showDoc(n.label);
+}
+
+/* ============================================================
+   视图切换
+   ============================================================ */
+const views = {
+  tree: document.getElementById('treeView'),
+  empty: document.getElementById('emptyView'),
+  doc: document.getElementById('docView'),
+  file: document.getElementById('fileView'),
+};
+const crumbs = document.getElementById('crumbs');
+const stPath = document.getElementById('stPath');
+const backBtn = document.getElementById('backToTree');
+
+function show(name, crumbHtml) {
+  for (const k in views) views[k].hidden = k !== name;
+  backBtn.hidden = name === 'tree' || name === 'empty';
+  if (crumbHtml) crumbs.innerHTML = crumbHtml;
+  stPath.textContent = name === 'tree' ? '知识树' : name === 'empty' ? '空库' : name === 'doc' ? '笔记' : '文件';
+  const stCount = document.getElementById('stCount');
+  stCount.textContent = name === 'empty' ? '0 篇笔记' : '10 篇笔记 · 4 个目录';
+  if (name === 'empty') startSea();
+}
+
+function showDoc(title) {
+  views.doc.querySelector('h1').textContent = title;
+  show('doc', `<span>知识库</span><span class="sep">/</span><span>技术</span><span class="sep">/</span><b>${title}</b>`);
+}
+
+function showFile(name) {
+  document.getElementById('fileName').textContent = name;
+  document.getElementById('fileBody').textContent =
+    name.endsWith('.pdf')
+      ? 'PDF 预览：原型里用 <embed> 内嵌，真实实现走签名直链。'
+      : name.endsWith('.png')
+      ? '图片预览：原型里用 <img> 显示，真实实现走 /attachments/:id/raw?sig。'
+      : document.getElementById('fileBody').textContent;
+  show('file', `<span>工作区</span><span class="sep">/</span><b>${name}</b>`);
+}
+
+/* 左栏点击 */
+document.querySelectorAll('[data-tab]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('[data-tab]').forEach((b) => b.setAttribute('aria-selected', String(b === btn)));
+    document.querySelectorAll('[data-pane]').forEach((p) => { p.hidden = p.dataset.pane !== btn.dataset.tab; });
+  });
+});
+
+document.querySelectorAll('[data-open]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.row').forEach((r) => r.removeAttribute('aria-current'));
+    btn.setAttribute('aria-current', 'true');
+    if (btn.dataset.open === 'file') showFile(btn.dataset.file);
+    else showDoc(btn.querySelector('.name').textContent);
+  });
+});
+
+backBtn.addEventListener('click', () => {
+  crumbs.innerHTML = '<span>知识库</span><span class="sep">/</span><b>知识树</b>';
+  show('tree');
+});
+
+/* 有笔记 / 空库 切换 */
+const btnHas = document.getElementById('btnHas');
+const btnEmpty = document.getElementById('btnEmpty');
+btnHas.addEventListener('click', () => {
+  tip.classList.remove('on');
+  btnHas.setAttribute('aria-pressed', 'true'); btnEmpty.setAttribute('aria-pressed', 'false');
+  show('tree', '<span>知识库</span><span class="sep">/</span><b>知识树</b>');
+  requestAnimationFrame(() => { renderTree(); });
+});
+btnEmpty.addEventListener('click', () => {
+  tip.classList.remove('on');
+  btnEmpty.setAttribute('aria-pressed', 'true'); btnHas.setAttribute('aria-pressed', 'false');
+  show('empty', '<span>知识库</span><span class="sep">/</span><b>空库</b>');
+});
+
+/* 主题 */
+document.getElementById('themeBtn').addEventListener('click', () => {
+  const html = document.documentElement;
+  const next = html.dataset.theme === 'paper' ? 'midnight' : 'paper';
+  html.dataset.theme = next;
+  tip.classList.remove('on');
+  document.querySelector('.status span:nth-last-child(2)').textContent = next + ' 主题';
+});
+
+/* 说明层 */
+const sheet = document.getElementById('sheet');
+document.getElementById('helpBtn').addEventListener('click', () => sheet.classList.add('on'));
+document.getElementById('sheetClose').addEventListener('click', () => sheet.classList.remove('on'));
+sheet.addEventListener('click', (e) => { if (e.target === sheet) sheet.classList.remove('on'); });
+
+/* ============================================================
+   空库：知识海（canvas 星点 + 近距连线 + 鼠标涟漪）
+   ============================================================ */
+const sea = document.getElementById('sea');
+const ctx = sea.getContext('2d');
+let seaRunning = false, stars = [], ripples = [], mouse = { x: -999, y: -999 };
+
+function sizeSea() {
+  const r = sea.getBoundingClientRect();
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  sea.width = r.width * dpr; sea.height = r.height * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (stars.length === 0) seedStars(r.width, r.height);
+}
+
+function seedStars(w, h) {
+  stars = Array.from({ length: 180 }, () => ({
+    x: Math.random() * w,
+    y: Math.random() * h,
+    vx: (Math.random() - 0.5) * 0.14,
+    vy: (Math.random() - 0.5) * 0.14,
+    r: Math.random() * 1.5 + 0.5,
+  }));
+}
+
+function startSea() {
+  sizeSea();
+  if (seaRunning) return;
+  seaRunning = true;
+  const ink = getComputedStyle(document.documentElement).getPropertyValue('--ink-3').trim() || '#8c857a';
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#8a5a2b';
+
+  const loop = () => {
+    if (!seaRunning) return;
+    const w = sea.clientWidth, h = sea.clientHeight;
+    ctx.clearRect(0, 0, w, h);
+
+    /* 星点 */
+    for (const s of stars) {
+      s.x += s.vx; s.y += s.vy;
+      if (s.x < 0 || s.x > w) s.vx *= -1;
+      if (s.y < 0 || s.y > h) s.vy *= -1;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      ctx.fillStyle = ink;
+      ctx.globalAlpha = 0.72;
+      ctx.fill();
+    }
+
+    /* 近距连线：这张网就是「知识会连起来」的隐喻 */
+    ctx.globalAlpha = 1;
+    for (let i = 0; i < stars.length; i++) {
+      for (let j = i + 1; j < stars.length; j++) {
+        const a = stars[i], b = stars[j];
+        const d = Math.hypot(a.x - b.x, a.y - b.y);
+        if (d < 108) {
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+          ctx.strokeStyle = ink;
+          ctx.globalAlpha = (1 - d / 108) * 0.18;
+          ctx.lineWidth = 0.6;
+          ctx.stroke();
+        }
+      }
+    }
+
+    /* 鼠标涟漪 */
+    ripples = ripples.filter((r) => r.life > 0);
+    for (const r of ripples) {
+      r.life -= 0.012;
+      r.r += 2.6;
+      ctx.beginPath();
+      ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2);
+      ctx.strokeStyle = accent;
+      ctx.globalAlpha = Math.max(0, r.life) * 0.5;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    requestAnimationFrame(loop);
+  };
+  requestAnimationFrame(loop);
+
+  sea.onmousemove = (e) => {
+    const r = sea.getBoundingClientRect();
+    mouse = { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
+  sea.onclick = (e) => {
+    const r = sea.getBoundingClientRect();
+    ripples.push({ x: e.clientX - r.left, y: e.clientY - r.top, r: 4, life: 1 });
+  };
+}
+
+/* ============================================================
+   启动
+   ============================================================ */
+function boot() {
+  renderTree();
+  /* 首屏给一点「长出来」的动画：延迟把根展开一级 */
+  setTimeout(() => { open.add('root'); renderTree(); }, 260);
+}
+boot();
+
+addEventListener('resize', () => {
+  renderTree();
+  if (!views.empty.hidden) { stars = []; sizeSea(); }
+});
+</script>
+</body>
+</html>
