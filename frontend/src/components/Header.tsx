@@ -21,7 +21,6 @@ import { useCurrentUserId } from '@/lib/use-current-user';
 const NAV_ITEMS = [
   { to: '/', label: '工作台' },
   { to: '/chat', label: '聊天' },
-  { to: '/about', label: '关于' },
 ] as const;
 
 interface HeaderProps {
