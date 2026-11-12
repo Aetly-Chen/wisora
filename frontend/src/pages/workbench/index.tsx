@@ -576,7 +576,7 @@ const WorkbenchPage: React.FC = () => {
                       type="button"
                       aria-label="删除会话"
                       onClick={() => void removeConversation(c.id)}
-                      className="shrink-0 rounded p-1 text-slate-300 opacity-0 transition-opacity hover:bg-red-50 hover:text-red-500 group-hover:opacity-100"
+                      className="shrink-0 rounded p-1 text-slate-400 opacity-0 transition-colors hover:bg-slate-900/[0.06] hover:text-red-600 focus-visible:opacity-100 group-hover:opacity-100"
                     >
                       <Trash2 className="h-3 w-3" />
                     </button>

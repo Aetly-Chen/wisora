@@ -345,7 +345,7 @@ const ConversationRow: React.FC<{
       onClick={onDelete}
       aria-label="删除会话"
       title="删除会话"
-      className="mr-1 shrink-0 rounded-md p-1.5 text-slate-400 opacity-0 transition hover:bg-red-50 hover:text-red-600 group-hover:opacity-100"
+      className="mr-1 shrink-0 rounded-md p-1.5 text-slate-400 opacity-0 transition hover:bg-slate-900/[0.06] hover:text-red-600 group-hover:opacity-100"
     >
       <Trash2 className="h-3.5 w-3.5" />
     </button>
@@ -803,18 +803,24 @@ export const AgentPage: React.FC<{ variant?: "page" | "panel" }> = ({
 
               {isStreaming && (
                 <div className="max-w-3xl mx-auto flex">
-                  <div className="mr-auto rounded-2xl px-4 py-3 bg-white border border-slate-200/80 shadow-sm flex items-center gap-1.5">
+                  {/*
+                    「正在生成」指示器：用透明度呼吸，不用弹跳动画。
+                    弹跳类动画在无障碍上会被 prefer-reduced-motion 直接关掉，
+                    而这个提示本身就是给等待用的，被关掉就什么都不剩了。
+                  */}
+                  <div
+                    className="mr-auto flex items-center gap-1.5 rounded-2xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm"
+                    role="status"
+                    aria-label="正在生成回复"
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-pulse" />
                     <span
-                      className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce"
-                      style={{ animationDelay: "0ms" }}
+                      className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-pulse"
+                      style={{ animationDelay: "180ms" }}
                     />
                     <span
-                      className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce"
-                      style={{ animationDelay: "120ms" }}
-                    />
-                    <span
-                      className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce"
-                      style={{ animationDelay: "240ms" }}
+                      className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-pulse"
+                      style={{ animationDelay: "360ms" }}
                     />
                   </div>
                 </div>
