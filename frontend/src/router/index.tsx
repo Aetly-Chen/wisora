@@ -5,11 +5,8 @@ import { Layout } from '../components/Layout';
 import { ProtectedRoute } from '../components/ProtectedRoute';
 
 // 1. 使用 lazy 动态导入页面组件
-const Home = lazy(() => import('../pages/Home'));
 const About = lazy(() => import('../pages/About'));
-const Agent = lazy(() => import('../pages/agent'));
-const Notes = lazy(() => import('../pages/notes'));
-const Workbench = lazy(() => import('../pages/workbench'));
+const Studio = lazy(() => import('../pages/studio'));
 const Chat = lazy(() => import('../pages/chat'));
 const Profile = lazy(() => import('../pages/profile'));
 const NotFound = lazy(() => import('../pages/NotFound'));
@@ -41,23 +38,15 @@ export const router = createBrowserRouter([
     children: [
       {
         index: true,
-        element: lazyLoad(Home),
+        element: lazyLoad(Studio),
       },
       {
         path: 'about',
         element: lazyLoad(About),
       },
       {
-        path: 'agent',
-        element: lazyLoad(Agent),
-      },
-      {
-        path: 'notes',
-        element: lazyLoad(Notes),
-      },
-      {
-        path: 'workbench',
-        element: lazyLoad(Workbench),
+        path: 'studio',
+        element: lazyLoad(Studio),
       },
       {
         path: 'chat',

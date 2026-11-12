@@ -25,7 +25,6 @@ import { FriendsService } from './friends.service';
 import { ConversationsService } from './conversations.service';
 import { MessagesService } from './messages.service';
 import { ChatAttachmentsService } from './chat-attachments.service';
-import { ShareService } from './share.service';
 import { ChatGateway } from './chat.gateway';
 import { AddFriendDto } from './dto/friend.dto';
 import {
@@ -33,7 +32,6 @@ import {
   UpdateConversationDto,
 } from './dto/conversation.dto';
 import { SendMessageDto } from './dto/message.dto';
-import { ShareNoteDto } from './dto/share.dto';
 
 /** 发消息与上传附件各自的限流参数 */
 const SEND_SCOPE = 'chat-send';
@@ -58,7 +56,6 @@ export class ChatController {
     private readonly conversations: ConversationsService,
     private readonly messages: MessagesService,
     private readonly attachments: ChatAttachmentsService,
-    private readonly share: ShareService,
     private readonly rateLimit: RateLimitService,
     private readonly gateway: ChatGateway,
   ) {}
@@ -175,17 +172,6 @@ export class ChatController {
     this.gateway.pushToMembers(memberIds, null, { type: 'message', message });
 
     return message;
-  }
-
-  /**
-   * 分享笔记给好友。
-   *
-   * 请求体只有 noteId / toFriendIds / comment —— 标题由后端自己按
-   * noteId 查，见 ShareNoteDto 的注释。
-   */
-  @Post('notes/share')
-  shareNote(@CurrentUser() userId: string, @Body() dto: ShareNoteDto) {
-    return this.share.share(userId, dto);
   }
 
   /* ------------------------------ 附件 ------------------------------ */

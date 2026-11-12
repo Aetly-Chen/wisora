@@ -6,9 +6,7 @@ import { FriendsService } from './friends.service';
 import { ConversationsService } from './conversations.service';
 import { MessagesService } from './messages.service';
 import { ChatAttachmentsService } from './chat-attachments.service';
-import { ShareService } from './share.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { NotesModule } from '../notes/notes.module';
 
 /** 孤儿附件清理间隔：1 小时 */
 const CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
@@ -21,15 +19,13 @@ const ORPHAN_AGE_HOURS = 24;
  * PrismaModule / RedisModule / StorageModule / RateLimitModule 都是 @Global()，
  * 不需要在这里 imports。
  *
- * 需要 NotesModule 的原因只有一个：分享笔记时要调 NotesService.get()
- * 做归属校验并取标题快照。这是刻意的 —— 直接查 Note 表会让
- * 「笔记不存在或已删除」这类规则出现第二份实现。
+ * 笔记模块已移除，因此分享笔记到聊天的能力一并去掉：
+ * 如果以后要恢复，需要重新提供一个「按 id 取标题快照」的服务。
  */
 @Module({
   imports: [
     // JwtAuthGuard 与 ChatGateway 都要验签（非全局 Guard，逐控制器挂载）
     JwtModule.register({}),
-    NotesModule,
   ],
   controllers: [ChatController],
   providers: [
@@ -37,7 +33,6 @@ const ORPHAN_AGE_HOURS = 24;
     ConversationsService,
     MessagesService,
     ChatAttachmentsService,
-    ShareService,
     JwtAuthGuard,
     ChatGateway,
   ],

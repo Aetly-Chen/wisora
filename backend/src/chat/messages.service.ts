@@ -6,7 +6,6 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { ConversationsService } from './conversations.service';
 import { MESSAGE_SHAPE, toMessage } from './chat.mapper';
-import { NotesService } from '../notes/notes.service';
 import type { MessageDto } from './types/chat-events';
 import type { SendMessageDto } from './dto/message.dto';
 
@@ -22,7 +21,6 @@ export class MessagesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly conversations: ConversationsService,
-    private readonly notes: NotesService,
   ) {}
 
   /**
@@ -69,17 +67,14 @@ export class MessagesService {
     await this.conversations.assertMember(userId, conversationId);
 
     const text = dto.text?.trim() || null;
-    if (!text && !dto.attachmentId && !dto.noteId) {
+    if (!text && !dto.attachmentId) {
       throw new BadRequestException('消息内容不能为空');
     }
     if (text && text.length > TEXT_MAX_LENGTH) {
       throw new BadRequestException(`单条消息最多 ${TEXT_MAX_LENGTH} 字`);
     }
 
-    // 附件与笔记各有一条独立的建消息路径，因为 kind 与快照字段来源不同
-    if (dto.noteId) {
-      return this.writeNoteMessage(userId, conversationId, dto.noteId, text);
-    }
+    // 附件有一条独立的建消息路径，因为 kind 与快照字段来源不同
     if (dto.attachmentId) {
       return this.writeAttachmentMessage(
         userId,
@@ -96,22 +91,6 @@ export class MessagesService {
       text,
     });
     return toMessage(created);
-  }
-
-  /**
-   * 写入一条笔记卡片消息。**公开**：分享接口要复用它。
-   *
-   * 一条 note 消息的写入规则只应有一处，两条路径各写一遍迟早不一致。
-   * 自己先做成员校验，所以外部直接调用也是安全的。
-   */
-  async createNoteMessage(
-    userId: string,
-    conversationId: string,
-    noteId: string,
-    comment: string | null,
-  ): Promise<MessageDto> {
-    await this.conversations.assertMember(userId, conversationId);
-    return this.writeNoteMessage(userId, conversationId, noteId, comment);
   }
 
   /* ------------------------------ 三种消息写入 ------------------------------ */
@@ -211,36 +190,7 @@ export class MessagesService {
     return toMessage(created);
   }
 
-  /**
-   * 笔记卡片消息。
-   *
-   * 标题等快照信息由服务端按 noteId 查（顺带完成归属校验），
-   * **不接受前端传入** —— 否则可以伪造标题把别人的笔记发出去。
-   */
-  private async writeNoteMessage(
-    userId: string,
-    conversationId: string,
-    noteId: string,
-    comment: string | null,
-  ): Promise<MessageDto> {
-    // 归属校验 + 取快照。get() 内部就是 assertOwned，不归属会抛 404
-    const note = await this.notes.get(userId, noteId);
 
-    const created = await this.insertMessage({
-      conversationId,
-      senderId: userId,
-      kind: 'NOTE',
-      text: comment,
-      noteSnapshot: {
-        noteId: note.id,
-        title: note.title || '无标题',
-        // 有子页面就当作目录分享，卡片上显示「含 N 个子页面」
-        kind: note.children.length > 0 ? 'folder' : 'note',
-        childCount: note.children.length,
-      },
-    });
-    return toMessage(created);
-  }
 }
 
 function clampPageSize(limit?: number): number {

@@ -13,7 +13,6 @@ import {
 } from '@/components/ui/dialog';
 import { getUserProfile } from '@/request/api';
 import { listFriends } from '@/request/chat';
-import { listNotes } from '@/request/notes';
 import { displayName, useUserStore } from '@/stores/useAppStore';
 import { logout } from '@/lib/logout';
 
@@ -61,7 +60,7 @@ const ProfilePage: React.FC = () => {
     null,
   );
   const [loadError, setLoadError] = useState<string | undefined>();
-  const [counts, setCounts] = useState<{ friends?: number; notes?: number }>({});
+  const [counts, setCounts] = useState<{ friends?: number }>({});
   const [confirming, setConfirming] = useState(false);
 
   useEffect(() => {
@@ -83,11 +82,10 @@ const ProfilePage: React.FC = () => {
      * 数量是锦上添花，两个各自失败都不该影响主信息：
      * 用 allSettled 各自兜底，失败的那个保留 undefined，对应行不渲染。
      */
-    void Promise.allSettled([listFriends(), listNotes()]).then(([friends, notes]) => {
+    void Promise.allSettled([listFriends()]).then(([friends]) => {
       if (cancelled) return;
       setCounts({
         friends: friends.status === 'fulfilled' ? friends.value.length : undefined,
-        notes: notes.status === 'fulfilled' ? notes.value.length : undefined,
       });
     });
 
@@ -184,9 +182,6 @@ const ProfilePage: React.FC = () => {
               <InfoRow label="注册时间" value={formatJoinDate(profile.createdAt)} />
               {counts.friends !== undefined ? (
                 <InfoRow label="好友" value={`${counts.friends} 位`} />
-              ) : null}
-              {counts.notes !== undefined ? (
-                <InfoRow label="笔记" value={`${counts.notes} 篇`} />
               ) : null}
             </div>
 

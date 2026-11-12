@@ -19,10 +19,7 @@ import { useCurrentUserId } from '@/lib/use-current-user';
  * 中编辑 · 右对话），`/notes` `/agent` 保留为单模块视图。
  */
 const NAV_ITEMS = [
-  { to: '/', label: '首页' },
-  { to: '/workbench', label: '工作台' },
-  { to: '/agent', label: 'AI 助手' },
-  { to: '/notes', label: '笔记' },
+  { to: '/', label: '工作台' },
   { to: '/chat', label: '聊天' },
   { to: '/about', label: '关于' },
 ] as const;

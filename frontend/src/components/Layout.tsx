@@ -10,10 +10,9 @@ export const Layout: React.FC = () => {
    * 工作台有自己的三栏 chrome，不需要再来一层导航。
    */
   const hideHeader =
-    location.pathname === "/agent" ||
-    location.pathname.startsWith("/notes") ||
+    location.pathname === "/" ||
     location.pathname.startsWith("/chat") ||
-    location.pathname.startsWith("/workbench");
+    location.pathname.startsWith("/studio");
   // 首页用透明导航栏，叠在视差背景上；其它页用默认暖白底。
   const headerTransparent = location.pathname === "/";
 
