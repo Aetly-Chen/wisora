@@ -1,14 +1,16 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ChevronRight,
   FileText,
   Folder,
   Image as ImageIcon,
+  Menu,
   MessageSquare,
   Network,
   Plus,
   Settings,
+  X,
 } from 'lucide-react';
 import { KnowledgeTree, type TreeNode } from './components/KnowledgeTree';
 import { StarSea } from './components/StarSea';
@@ -103,6 +105,28 @@ const COLORS = {
 };
 
 export const StudioPage: React.FC = () => {
+  /*
+   * 移动端适配：窄屏把左右两栏变成抽屉。
+   *
+   * 固定四列（44 + 268 + 中栏 + 384）在 390px 上必然溢出，中栏会被压成负数宽度。
+   * 窄屏只留「活动栏 + 中栏」，左右两栏改成 fixed 覆盖 + 遮罩。
+   * 这里只有 UI 状态（是否窄屏、抽屉开没开），不涉及业务逻辑。
+   */
+  const [isNarrow, setIsNarrow] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches,
+  );
+  const [drawer, setDrawer] = useState<'left' | 'right' | null>(null);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    const apply = () => {
+      setIsNarrow(mq.matches);
+      if (!mq.matches) setDrawer(null);
+    };
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, []);
+
   const [tab, setTab] = useState<Tab>('notes');
   const [view, setView] = useState<View>('tree');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -257,7 +281,9 @@ export const StudioPage: React.FC = () => {
       style={{
         background: COLORS.bg,
         color: COLORS.ink,
-        gridTemplateColumns: '44px 268px minmax(0,1fr) 384px',
+        gridTemplateColumns: isNarrow
+          ? '44px minmax(0,1fr)'
+          : '44px 268px minmax(0,1fr) 384px',
         gridTemplateRows: 'minmax(0,1fr) 26px',
       }}
     >
@@ -297,7 +323,13 @@ export const StudioPage: React.FC = () => {
 
       {/* 左栏 */}
       <aside
-        className="flex min-h-0 flex-col"
+        className={
+          isNarrow
+            ? `fixed inset-y-0 left-0 z-40 flex w-[280px] flex-col overflow-y-auto shadow-xl transition-transform duration-200 ${
+                drawer === 'left' ? 'translate-x-0' : '-translate-x-full'
+              }`
+            : 'flex min-h-0 flex-col'
+        }
         style={{ background: COLORS.panel2, borderRight: `1px solid ${COLORS.line}` }}
       >
         <div className="flex items-center gap-1.5 px-3 pb-2 pt-3">
@@ -305,6 +337,16 @@ export const StudioPage: React.FC = () => {
             <span className="h-[6px] w-[6px] rounded-full" style={{ background: COLORS.panel }} />
           </span>
           <span className="text-[13px] font-semibold tracking-tight">Wisora</span>
+          {isNarrow && (
+            <button
+              type="button"
+              aria-label="关闭列表"
+              onClick={() => setDrawer(null)}
+              className="ml-auto grid h-7 w-7 place-items-center rounded-md text-slate-500 hover:bg-black/[0.06]"
+            >
+              <X size={15} />
+            </button>
+          )}
         </div>
 
         <div className="mx-2.5 mb-2 flex gap-0.5 rounded-lg p-[3px]" style={{ background: 'rgba(0,0,0,.045)' }}>
@@ -353,6 +395,17 @@ export const StudioPage: React.FC = () => {
           className="flex h-10 shrink-0 items-center gap-2 px-3.5"
           style={{ borderBottom: `1px solid ${COLORS.line}` }}
         >
+          {isNarrow && (
+            <button
+              type="button"
+              aria-label="打开列表"
+              onClick={() => setDrawer('left')}
+              className="grid h-7 w-7 shrink-0 place-items-center rounded-md hover:bg-black/[0.05]"
+              style={{ color: COLORS.ink2 }}
+            >
+              <Menu size={16} />
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setView('tree')}
@@ -362,13 +415,24 @@ export const StudioPage: React.FC = () => {
             知识库
           </button>
           <span style={{ color: COLORS.ink3, opacity: 0.45 }}>/</span>
-          <span className="truncate text-[12.5px] font-medium">
+          <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium">
             {view === 'tree'
               ? '知识树'
               : view === 'file'
                 ? (activeFile?.name ?? '')
                 : (MOCK_NOTES.find((n) => n.id === activeNoteId)?.title ?? MOCK_DOC.title)}
           </span>
+          {isNarrow && (
+            <button
+              type="button"
+              aria-label="打开 AI 面板"
+              onClick={() => setDrawer('right')}
+              className="grid h-7 w-7 shrink-0 place-items-center rounded-md hover:bg-black/[0.05]"
+              style={{ color: COLORS.ink2 }}
+            >
+              <MessageSquare size={15} />
+            </button>
+          )}
         </div>
 
         <div className="relative min-h-0 flex-1 overflow-hidden">
@@ -392,12 +456,18 @@ export const StudioPage: React.FC = () => {
                 </div>
               </div>
             ) : (
-              <KnowledgeTree notes={MOCK_NOTES} onOpen={openNote} />
+              /* 窄屏时 SVG 等比缩小会把标签压到 ~6px，整体放大一档再居中 */
+              <div
+                className="h-full w-full"
+                style={isNarrow ? { transform: 'scale(1.55)', transformOrigin: '50% 50%' } : undefined}
+              >
+                <KnowledgeTree notes={MOCK_NOTES} onOpen={openNote} />
+              </div>
             ))}
 
           {/* 笔记正文：TODO 换成编辑器 / Markdown 渲染 */}
           {view === 'note' && (
-            <div className="h-full overflow-y-auto px-14 py-12">
+            <div className="h-full overflow-y-auto px-5 py-8 sm:px-14 sm:py-12">
               <div className="mx-auto max-w-[680px]">
                 <h1 className="mb-1.5 text-[27px] font-semibold tracking-tight">{MOCK_DOC.title}</h1>
                 <div className="mb-7 font-mono text-[10.5px]" style={{ color: COLORS.ink3 }}>
@@ -450,7 +520,13 @@ export const StudioPage: React.FC = () => {
 
       {/* 右栏：Agent（静态壳，TODO 接流式对话与上下文） */}
       <section
-        className="flex min-h-0 flex-col"
+        className={
+          isNarrow
+            ? `fixed inset-y-0 right-0 z-40 flex w-[92vw] max-w-[420px] flex-col shadow-xl transition-transform duration-200 ${
+                drawer === 'right' ? 'translate-x-0' : 'translate-x-full'
+              }`
+            : 'flex min-h-0 flex-col'
+        }
         style={{ borderLeft: `1px solid ${COLORS.line}`, background: COLORS.panel }}
       >
         <div
@@ -459,6 +535,16 @@ export const StudioPage: React.FC = () => {
         >
           <span className="text-[12.5px] font-medium">AI</span>
           <span className="h-1.5 w-1.5 rounded-full" style={{ background: '#c9c3b8' }} />
+          {isNarrow && (
+            <button
+              type="button"
+              aria-label="关闭 AI 面板"
+              onClick={() => setDrawer(null)}
+              className="ml-auto grid h-7 w-7 place-items-center rounded-md text-slate-500 hover:bg-black/[0.06]"
+            >
+              <X size={15} />
+            </button>
+          )}
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-3.5 py-4">
@@ -517,6 +603,16 @@ export const StudioPage: React.FC = () => {
           </div>
         </div>
       </section>
+
+      {/* 窄屏抽屉遮罩 */}
+      {isNarrow && drawer !== null && (
+        <button
+          type="button"
+          aria-label="关闭面板"
+          onClick={() => setDrawer(null)}
+          className="fixed inset-0 z-30 bg-slate-900/25"
+        />
+      )}
 
       {/* 状态栏 */}
       <footer

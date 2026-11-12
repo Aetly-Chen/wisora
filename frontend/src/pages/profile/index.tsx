@@ -61,10 +61,6 @@ const ProfilePage: React.FC = () => {
   );
   const [loadError, setLoadError] = useState<string | undefined>();
   const [counts, setCounts] = useState<{ friends?: number }>({});
-  /** 好友表：只为了在「他人主页」里查人，不额外发请求 */
-  const [friendList, setFriendList] = useState<
-    Awaited<ReturnType<typeof listFriends>>
-  >([]);
   const [confirming, setConfirming] = useState(false);
 
   useEffect(() => {
@@ -88,7 +84,6 @@ const ProfilePage: React.FC = () => {
      */
     void Promise.allSettled([listFriends()]).then(([friends]) => {
       if (cancelled) return;
-      if (friends.status === 'fulfilled') setFriendList(friends.value);
       setCounts({
         friends: friends.status === 'fulfilled' ? friends.value.length : undefined,
       });
@@ -114,42 +109,57 @@ const ProfilePage: React.FC = () => {
   };
 
   /*
-   * 他人主页（`/profile?u=<id>`）。
+   * 他人主页（`/profile?u=<id>`）—— **纯 UI 骨架**。
    *
-   * 聊天里点头像跳过来。数据直接用上面已经拉过的好友表，**不新增接口**：
-   * 现在后端只有 `/user/profile`（自己），没有「按 id 查他人」的公开端点。
-   * 等有了再加请求，这里只展示好友关系里已经拿到的字段。
+   * 这里只负责「长什么样」：返回、头像、称呼、一行简介。
+   * 数据与请求都由你补：
+   *   TODO: const { data } = useQuery(...)   建议接口 GET /user/:id
+   *   TODO: 加载态 / 404（非好友）/ 空简介 的分支
+   * 下面的占位常量只是让页面不空，接上数据后整体替换即可。
    */
   const targetId = new URLSearchParams(location.search).get('u');
   if (targetId) {
-    const target = friendList.find((f) => f.id === targetId);
+    /* TODO: 用 targetId 取资料，替换成真实数据 */
+    const placeholder = {
+      id: targetId,
+      name: '昵称',
+      bio: '这个人还没有写简介',
+      joinedAt: '——',
+    };
+
     return (
       <div className="min-h-[100dvh] bg-[#fafbfd] text-slate-900">
-        <div className="mx-auto max-w-2xl px-6 py-10">
+        <div className="mx-auto w-full max-w-2xl px-5 py-8">
           <button
             type="button"
-            onClick={() => navigate('/chat')}
-            className="mb-8 inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[13px] text-slate-500 transition-colors hover:bg-black/[0.05] hover:text-slate-900"
+            onClick={() => navigate(-1)}
+            className="mb-10 inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[13px] text-slate-500 transition-colors hover:bg-black/[0.05] hover:text-slate-900"
           >
             <ArrowLeft className="h-4 w-4" />
-            返回聊天
+            返回
           </button>
 
-          {target ? (
-            <div className="flex items-center gap-4">
-              <Avatar id={target.id} name={target.name || '好友'} size="lg" />
-              <div className="min-w-0">
-                <h1 className="truncate text-xl font-semibold">{target.name || '好友'}</h1>
-                <p className="mt-1 truncate text-[13px] text-slate-500">{target.email || '未公开邮箱'}</p>
-              </div>
+          <div className="flex items-start gap-5">
+            <Avatar id={placeholder.id} name={placeholder.name} size="lg" />
+            <div className="min-w-0 flex-1">
+              <h1 className="truncate text-[22px] font-semibold tracking-tight">
+                {placeholder.name}
+              </h1>
+              <p className="mt-1.5 text-[13px] leading-relaxed text-slate-500">
+                {placeholder.bio}
+              </p>
+              <p className="mt-3 font-mono text-[11px] text-slate-400">
+                加入于 {placeholder.joinedAt}
+              </p>
             </div>
-          ) : (
-            <p className="text-[13px] text-slate-500">找不到这个用户，可能已不是好友。</p>
-          )}
+          </div>
+
+          {/* TODO: 好友动态、共同会话、发消息入口等，视产品需要再加 */}
         </div>
       </div>
     );
   }
+
 
   return (
     <div className="min-h-[100dvh] bg-[#fafbfd]" data-testid="profile-page">
