@@ -317,7 +317,7 @@ const ChatPage: React.FC = () => {
               选择一个会话开始
             </h2>
             <p className="mt-1.5 max-w-xs text-[13px] leading-relaxed tg-wallpaper-text">
-              从左侧的会话列表里挑一个开始。也可以在笔记里右键一篇，直接分享给好友。
+              从左侧的会话列表里挑一个开始。
             </p>
             <div className="mt-5 flex items-center gap-2">
               <button
