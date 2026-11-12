@@ -67,6 +67,13 @@ const ChatPage: React.FC = () => {
   const email = useUserStore((s) => s.email);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  /** 点头像后的菜单（只有「查看主页」一项） */
+  const [profileMenu, setProfileMenu] = useState<{
+    userId: string;
+    name: string;
+    x: number;
+    y: number;
+  } | null>(null);
   const [showNewChat, setShowNewChat] = useState(false);
   const [showAddFriend, setShowAddFriend] = useState(false);
   const [menu, setMenu] = useState<{
@@ -282,6 +289,7 @@ const ChatPage: React.FC = () => {
               onBack={() => setSidebarOpen(true)}
               onTogglePin={() => void togglePin(activeConversation.id)}
               onToggleMute={() => void toggleMute(activeConversation.id)}
+              onOpenProfile={(userId, name, at) => setProfileMenu({ userId, name, x: at.x, y: at.y })}
             />
 
             <MessageList
@@ -292,7 +300,29 @@ const ChatPage: React.FC = () => {
               loading={messagesLoading}
               typingUserIds={typing[activeConversation.id] ?? []}
               onRetry={(id) => void retryMessage(id)}
-              onOpenNote={(noteId) => navigate(`/notes?note=${noteId}`)}
+              onOpenProfile={(userId, name, at) => setProfileMenu({ userId, name, x: at.x, y: at.y })}
+            />
+
+            {/* 点头像弹出的菜单：只有「个人主页」一项，点了跳 /profile?u= */}
+            <ContextMenu
+              open={profileMenu !== null}
+              x={profileMenu?.x ?? 0}
+              y={profileMenu?.y ?? 0}
+              onClose={() => setProfileMenu(null)}
+              items={
+                profileMenu
+                  ? [
+                      {
+                        id: 'profile',
+                        label: `查看 ${profileMenu.name} 的主页`,
+                        onSelect: () => {
+                          navigate(`/profile?u=${encodeURIComponent(profileMenu.userId)}`);
+                          setProfileMenu(null);
+                        },
+                      },
+                    ]
+                  : []
+              }
             />
 
             <Composer

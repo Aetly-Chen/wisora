@@ -64,7 +64,10 @@ interface MessageListProps {
   /** 正在输入的人（会话里除我之外的成员） */
   typingUserIds: string[];
   onRetry: (messageId: string) => void; // 点「重发」时回调，传入发送失败的消息 id
-  onOpenNote: (noteId: string) => void; // 点笔记卡片时跳回笔记页
+  /** 点笔记卡片；笔记模块已移除，不传时卡片不可点 */
+  onOpenNote?: (noteId: string) => void;
+  /** 点头像：把「要展示谁的主页」交给页面处理 */
+  onOpenProfile?: (userId: string, name: string, at: { x: number; y: number }) => void;
 }
 
 interface RenderItem {
@@ -181,7 +184,7 @@ const FileCard: React.FC<{ message: Message; mine: boolean }> = ({ message, mine
 const NoteCard: React.FC<{
   message: Message;
   mine: boolean;
-  onOpenNote: (noteId: string) => void;
+  onOpenNote?: (noteId: string) => void;
 }> = ({ message, mine, onOpenNote }) => {
   const note = message.note;
   if (!note) return null;
@@ -191,7 +194,7 @@ const NoteCard: React.FC<{
   return (
     <button
       type="button"
-      onClick={() => onOpenNote(note.noteId)}
+      onClick={() => onOpenNote?.(note.noteId)}
       className={`w-full rounded-lg px-2.5 py-2 text-left transition-colors ${
         mine
           ? 'bg-white/60 hover:bg-white/85'
@@ -231,6 +234,7 @@ export const MessageList: React.FC<MessageListProps> = ({
   typingUserIds,
   onRetry,
   onOpenNote,
+  onOpenProfile,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
@@ -412,18 +416,31 @@ export const MessageList: React.FC<MessageListProps> = ({
                     {/* 对方消息左侧留头像位；非组尾用等宽占位，保证气泡对齐 */}
                     {!mine &&
                       (endOfGroup ? (
-                        <Avatar
-                          id={message.senderId}
-                          name={sender?.name ?? '?'}
-                          size="lg"
-                          className="mb-0.5"
-                          fill={peerAvatarClassIn(conversation, message.senderId)}
-                        />
+                        /* 头像本身是按钮：点开弹「个人主页」，见 pages/chat/index.tsx */
+                        <button
+                          type="button"
+                          aria-label={`查看 ${sender?.name ?? '对方'} 的主页`}
+                          className="mb-0.5 rounded-full transition-opacity hover:opacity-85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tg-brand/50"
+                          onClick={(e) => {
+                            const r = e.currentTarget.getBoundingClientRect();
+                            onOpenProfile?.(message.senderId, sender?.name ?? '对方', {
+                              x: r.left + r.width / 2,
+                              y: r.top + r.height,
+                            });
+                          }}
+                        >
+                          <Avatar
+                            id={message.senderId}
+                            name={sender?.name ?? '?'}
+                            size="lg"
+                            fill={peerAvatarClassIn(conversation, message.senderId)}
+                          />
+                        </button>
                       ) : (
                         <span className="h-12 w-12 shrink-0" aria-hidden />
                       ))}
 
-                    <div className="flex max-w-[min(560px,78%)] flex-col">
+                    <div className="flex max-w-[min(620px,80%)] flex-col">
                       {/* 群聊里只在每组的首条显示发送者名，颜色按人固定 */}
                       {isGroup && !mine && startOfGroup && (
                         <span

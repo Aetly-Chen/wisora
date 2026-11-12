@@ -55,7 +55,7 @@ export const StarSea: React.FC = () => {
         if (s.y < 0 || s.y > h) s.vy *= -1;
         ctx.beginPath();
         ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
-        ctx.fillStyle = '#8c857a';
+        ctx.fillStyle = '#9aa6b6';
         ctx.globalAlpha = 0.7;
         ctx.fill();
       }
@@ -71,7 +71,7 @@ export const StarSea: React.FC = () => {
             ctx.beginPath();
             ctx.moveTo(a.x, a.y);
             ctx.lineTo(b.x, b.y);
-            ctx.strokeStyle = '#8c857a';
+            ctx.strokeStyle = '#9aa6b6';
             ctx.globalAlpha = (1 - d / 108) * 0.16;
             ctx.lineWidth = 0.6;
             ctx.stroke();
@@ -89,7 +89,7 @@ export const StarSea: React.FC = () => {
         }
         ctx.beginPath();
         ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2);
-        ctx.strokeStyle = '#8a5a2b';
+        ctx.strokeStyle = '#3d6ea8';
         ctx.globalAlpha = r.life * 0.5;
         ctx.lineWidth = 1;
         ctx.stroke();

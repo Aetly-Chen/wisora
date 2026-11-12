@@ -32,6 +32,8 @@ interface ChatHeaderProps {
   onBack?: () => void; // 移动端返回按钮；不传则不渲染
   onTogglePin: () => void; // 菜单里的「置顶 / 取消置顶」
   onToggleMute: () => void; // 菜单里的「免打扰 / 取消免打扰」
+  /** 点头像看主页；群聊没有单一主页，不传 */
+  onOpenProfile?: (userId: string, name: string, at: { x: number; y: number }) => void;
 }
 
 export const ChatHeader: React.FC<ChatHeaderProps> = ({
@@ -42,6 +44,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
   onBack,
   onTogglePin,
   onToggleMute,
+  onOpenProfile,
 }) => {
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
@@ -88,14 +91,34 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
           </button>
         )}
 
-        <Avatar
-          id={peer?.id ?? conversation.id}
-          name={title}
-          size="lg"
-          presence={peer?.presence}
-          group={isGroup}
-          fill={peerAvatarClass(peer?.id ?? conversation.id)}
-        />
+        {onOpenProfile && !isGroup && peer ? (
+          <button
+            type="button"
+            aria-label={`查看 ${title} 的主页`}
+            className="shrink-0 rounded-full transition-opacity hover:opacity-85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tg-brand/50"
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              onOpenProfile(peer.id, title, { x: r.left + r.width / 2, y: r.top + r.height });
+            }}
+          >
+            <Avatar
+              id={peer.id}
+              name={title}
+              size="lg"
+              presence={peer.presence}
+              fill={peerAvatarClass(peer.id)}
+            />
+          </button>
+        ) : (
+          <Avatar
+            id={peer?.id ?? conversation.id}
+            name={title}
+            size="lg"
+            presence={peer?.presence}
+            group={isGroup}
+            fill={peerAvatarClass(peer?.id ?? conversation.id)}
+          />
+        )}
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">

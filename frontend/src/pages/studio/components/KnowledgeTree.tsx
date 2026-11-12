@@ -127,7 +127,7 @@ export const KnowledgeTree: React.FC<Props> = ({ notes, onOpen }) => {
           cy={CY}
           r={R_MAX * 0.66}
           fill="none"
-          stroke="#8c857a"
+          stroke="#8b96a4"
           strokeWidth={0.8}
           strokeDasharray="2 7"
           opacity={0.22}
@@ -147,7 +147,7 @@ export const KnowledgeTree: React.FC<Props> = ({ notes, onOpen }) => {
             y1={parent.y}
             x2={p.x}
             y2={p.y}
-            stroke={hot ? '#8a5a2b' : '#e3ddd1'}
+            stroke={hot ? '#3d6ea8' : '#e7ecf2'}
             strokeWidth={hot ? 1.6 : 1}
             style={{ transition: 'stroke .2s ease' }}
           />
@@ -165,8 +165,8 @@ export const KnowledgeTree: React.FC<Props> = ({ notes, onOpen }) => {
           setOpenRoot((v) => !v);
         }}
       >
-        <circle r={50} fill="none" stroke="#2b2622" strokeWidth={1} opacity={0.12} />
-        <circle r={7} fill="#2b2622" />
+        <circle r={50} fill="none" stroke="#232a33" strokeWidth={1} opacity={0.12} />
+        <circle r={7} fill="#232a33" />
         <text y={30} textAnchor="middle" fontSize={13} fill="#55504a">
           知识库
         </text>
@@ -195,18 +195,18 @@ export const KnowledgeTree: React.FC<Props> = ({ notes, onOpen }) => {
               handleClick(v);
             }}
           >
-            {isHover && <circle r={13} fill="none" stroke="#8a5a2b" strokeWidth={1} />}
+            {isHover && <circle r={13} fill="none" stroke="#3d6ea8" strokeWidth={1} />}
             <circle
               r={isDir ? 5 : 3.4}
-              fill={isDir ? '#fbf9f5' : isHover ? '#8a5a2b' : '#8c857a'}
-              stroke={isDir ? (isOpen || isHover ? '#8a5a2b' : '#55504a') : 'none'}
+              fill={isDir ? '#ffffff' : isHover ? '#3d6ea8' : '#8b96a4'}
+              stroke={isDir ? (isOpen || isHover ? '#3d6ea8' : '#4a5462') : 'none'}
               strokeWidth={isDir ? 1.5 : 0}
             />
-            <text x={11} y={4} fontSize={12.5} fill={isHover ? '#1a1917' : '#55504a'}>
+            <text x={11} y={4} fontSize={12.5} fill={isHover ? '#1a1f26' : '#4a5462'}>
               {v.note.title || '无标题'}
             </text>
             {isDir && (
-              <text x={11} y={18} fontSize={10} fill="#8c857a" fontFamily="ui-monospace, monospace">
+              <text x={11} y={18} fontSize={10} fill="#8b96a4" fontFamily="ui-monospace, monospace">
                 {count}
               </text>
             )}
@@ -217,7 +217,7 @@ export const KnowledgeTree: React.FC<Props> = ({ notes, onOpen }) => {
       {/* 悬停提示：只在有数据时出现，文案压到最短 */}
       {hovered && (
         <g pointerEvents="none" transform={`translate(${CX},${VB_H - 34})`}>
-          <text textAnchor="middle" fontSize={11} fill="#8c857a" fontFamily="ui-monospace, monospace">
+          <text textAnchor="middle" fontSize={11} fill="#8b96a4" fontFamily="ui-monospace, monospace">
             {hovered.note.title || '无标题'}
             {hovered.children.length > 0
               ? ` · ${hovered.children.length}`

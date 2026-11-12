@@ -61,6 +61,10 @@ const ProfilePage: React.FC = () => {
   );
   const [loadError, setLoadError] = useState<string | undefined>();
   const [counts, setCounts] = useState<{ friends?: number }>({});
+  /** 好友表：只为了在「他人主页」里查人，不额外发请求 */
+  const [friendList, setFriendList] = useState<
+    Awaited<ReturnType<typeof listFriends>>
+  >([]);
   const [confirming, setConfirming] = useState(false);
 
   useEffect(() => {
@@ -84,6 +88,7 @@ const ProfilePage: React.FC = () => {
      */
     void Promise.allSettled([listFriends()]).then(([friends]) => {
       if (cancelled) return;
+      if (friends.status === 'fulfilled') setFriendList(friends.value);
       setCounts({
         friends: friends.status === 'fulfilled' ? friends.value.length : undefined,
       });
@@ -108,8 +113,46 @@ const ProfilePage: React.FC = () => {
     navigate('/auth', { replace: true });
   };
 
+  /*
+   * 他人主页（`/profile?u=<id>`）。
+   *
+   * 聊天里点头像跳过来。数据直接用上面已经拉过的好友表，**不新增接口**：
+   * 现在后端只有 `/user/profile`（自己），没有「按 id 查他人」的公开端点。
+   * 等有了再加请求，这里只展示好友关系里已经拿到的字段。
+   */
+  const targetId = new URLSearchParams(location.search).get('u');
+  if (targetId) {
+    const target = friendList.find((f) => f.id === targetId);
+    return (
+      <div className="min-h-[100dvh] bg-[#fafbfd] text-slate-900">
+        <div className="mx-auto max-w-2xl px-6 py-10">
+          <button
+            type="button"
+            onClick={() => navigate('/chat')}
+            className="mb-8 inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[13px] text-slate-500 transition-colors hover:bg-black/[0.05] hover:text-slate-900"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            返回聊天
+          </button>
+
+          {target ? (
+            <div className="flex items-center gap-4">
+              <Avatar id={target.id} name={target.name || '好友'} size="lg" />
+              <div className="min-w-0">
+                <h1 className="truncate text-xl font-semibold">{target.name || '好友'}</h1>
+                <p className="mt-1 truncate text-[13px] text-slate-500">{target.email || '未公开邮箱'}</p>
+              </div>
+            </div>
+          ) : (
+            <p className="text-[13px] text-slate-500">找不到这个用户，可能已不是好友。</p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-[100dvh] bg-[#f6f5f0]" data-testid="profile-page">
+    <div className="min-h-[100dvh] bg-[#fafbfd]" data-testid="profile-page">
       <div className="mx-auto w-full max-w-xl px-5 pb-20 pt-2">
         {/* 返回 + 页标题 */}
         <div className="flex items-center gap-1.5">

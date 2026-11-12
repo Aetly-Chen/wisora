@@ -21,7 +21,12 @@ import type { ChatAttachment, Conversation } from '@/types/chat';
  * 只要两边留白对称，`max-w-3xl mx-auto` 的居中结果就等于 `(容器宽 - 列宽) / 2`，
  * 与留白具体是多少无关 —— 所以三处可以对得很准。
  */
-export const CHAT_COLUMN = 'mx-auto w-full max-w-3xl';
+/*
+ * 消息列、会话头、输入区共用这一条列约束 —— 三者的左基准线必须对齐。
+ * 原来 768px（max-w-3xl）在 1440 屏上两侧各空 200px，看着很散；
+ * 放宽到 1024（max-w-5xl），正文仍然好读，但不再像「中间一条窄条」。
+ */
+export const CHAT_COLUMN = 'mx-auto w-full max-w-5xl';
 
 /* ------------------------------ 时间 ------------------------------ */
 

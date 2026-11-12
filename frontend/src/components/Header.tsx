@@ -91,7 +91,7 @@ export const Header: React.FC<HeaderProps> = ({ variant = 'default' }) => {
           ? // 透明 + fixed 顶部定位：bg 完全透出场景图，
             // 顶部自带渐变暗角，保证浅色场景（如远山）下白色文字仍可读
             'fixed inset-x-0 top-0 z-50 bg-gradient-to-b from-slate-950/65 via-slate-950/25 to-transparent [text-shadow:0_1px_4px_rgba(15,23,42,0.65)]'
-          : 'w-full bg-[#f6f5f0]'
+          : 'w-full bg-[#fafbfd] border-b border-[#eef1f6]'
       }
     >
       <header

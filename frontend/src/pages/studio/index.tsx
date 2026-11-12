@@ -75,17 +75,31 @@ const MOCK_DOC = {
 type Tab = 'files' | 'chat' | 'notes';
 type View = 'tree' | 'note' | 'file';
 
+/*
+ * 配色：冷白系。
+ *
+ * 之前用的是暖米（#f3f0e9）+ 土赭（#8a5a2b），在显示器上整体发闷偏脏。
+ * 现在换成近白底 + 冷灰描边 + 钢蓝强调：亮度上去了，文字对比度反而更高，
+ * 也不会像紫蓝渐变那样有「AI 生成」的味道。
+ */
+/*
+ * 配色：冷白系。
+ *
+ * 之前是暖米（#f3f0e9）+ 土赭（#8a5a2b），整体发闷偏脏。现在换成近白底 +
+ * 冷灰描边 + 钢蓝强调：亮度上去了，文字对比度反而更高，也没有紫蓝渐变那种
+ * 「AI 生成」的味道。
+ */
 const COLORS = {
-  bg: '#f3f0e9',
-  panel: '#fbf9f5',
-  panel2: '#f7f4ee',
-  ink: '#1a1917',
-  ink2: '#55504a',
-  ink3: '#8c857a',
-  line: '#e3ddd1',
-  line2: '#ede8de',
-  accent: '#8a5a2b',
-  accentSoft: '#f0e5d6',
+  bg: '#fbfcfe',
+  panel: '#ffffff',
+  panel2: '#f5f8fb',
+  ink: '#1a1f26',
+  ink2: '#4a5462',
+  ink3: '#8892a0',
+  line: '#e7ecf2',
+  line2: '#f0f4f8',
+  accent: '#3d6ea8',
+  accentSoft: '#e9f1fb',
 };
 
 export const StudioPage: React.FC = () => {
