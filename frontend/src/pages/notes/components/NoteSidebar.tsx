@@ -1,6 +1,17 @@
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, FolderInput, Pin, PinOff, Plus, Search, Share2, Trash2, X } from 'lucide-react';
+import {
+  ArrowLeft,
+  FolderInput,
+  LayoutGrid,
+  Pin,
+  PinOff,
+  Plus,
+  Search,
+  Share2,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { VirtualList } from '@/components/VirtualList';
@@ -196,6 +207,17 @@ export const NoteSidebar: React.FC<{
           )}
           <span className="font-mono text-[10.5px] text-slate-400">{notes.length}</span>
           <div className="flex-1" />
+          {!embedded && (
+            /* 去工作台：笔记与 Agent 合并后的主界面（三栏） */
+            <Link
+              to="/workbench"
+              aria-label="在工作台打开"
+              title="在工作台打开（笔记 + AI 对话）"
+              className="rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-900/5 hover:text-slate-700"
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </Link>
+          )}
           <button
             type="button"
             aria-label="关闭列表"

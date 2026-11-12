@@ -12,9 +12,15 @@ import {
 import { useUserStore } from '@/stores/useAppStore';
 import { useCurrentUserId } from '@/lib/use-current-user';
 
-/** 主导航项。AI 助手、笔记、聊天都是工作区，关于页放在最后。 */
+/**
+ * 主导航项。
+ *
+ * 「工作台」放最前：它是笔记与 Agent 合并后的主界面（左会话/笔记/文件 ·
+ * 中编辑 · 右对话），`/notes` `/agent` 保留为单模块视图。
+ */
 const NAV_ITEMS = [
   { to: '/', label: '首页' },
+  { to: '/workbench', label: '工作台' },
   { to: '/agent', label: 'AI 助手' },
   { to: '/notes', label: '笔记' },
   { to: '/chat', label: '聊天' },

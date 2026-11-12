@@ -17,6 +17,7 @@ import {
   Sparkles,
   PanelLeft,
   ArrowLeft,
+  LayoutGrid,
   Trash2,
   Loader2,
   NotebookPen,
@@ -510,6 +511,17 @@ export const AgentPage: React.FC<{ variant?: "page" | "panel" }> = ({
           >
             <ArrowLeft className="w-4 h-4 shrink-0" />
             <span>返回首页</span>
+          </Button>
+
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => navigate("/workbench")}
+            title="在工作台打开（笔记 + AI 对话）"
+            className="h-9 rounded-lg text-slate-600 hover:bg-slate-200 hover:text-slate-900 text-xs font-medium gap-1.5 px-2.5"
+          >
+            <LayoutGrid className="w-4 h-4 shrink-0" />
+            <span>工作台</span>
           </Button>
 
           <Button

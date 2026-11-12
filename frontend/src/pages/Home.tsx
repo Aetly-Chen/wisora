@@ -8,7 +8,7 @@ import { ImmersiveScenes } from '@/components/ImmersiveScenes';
  *
  * - 导航栏透明且 fixed（见 Header transparent 变体）
  * - 滚动条隐藏（见 index.css 的 .no-scrollbar-page 规则）
- * - 「进入 AI 助手」fixed 悬浮在视口底部；离开场景序列后淡出，
+ * - 「进入工作台」fixed 悬浮在视口底部（工作台 = 笔记 + AI 合并界面）；离开场景序列后淡出，
  *   避免遮挡下方卡片区（那里已有「开始对话」按钮）
  */
 const Home: React.FC = () => {
@@ -26,11 +26,11 @@ const Home: React.FC = () => {
         }`}
       >
         <Link
-          to="/agent"
+          to="/workbench"
           className="group inline-flex items-center gap-2 rounded-full border border-slate-900/10 bg-white/85 px-5 py-3 text-sm font-medium text-slate-900 shadow-[0_18px_40px_-12px_rgba(15,23,42,0.45)] backdrop-blur-xl transition-all hover:bg-white hover:shadow-[0_22px_50px_-12px_rgba(15,23,42,0.55)]"
         >
           <Sparkles className="h-4 w-4 text-indigo-600 transition-transform group-hover:scale-110" />
-          进入 AI 助手
+          进入工作台
           <ArrowRight className="h-4 w-4 text-slate-500 transition-transform group-hover:translate-x-0.5" />
         </Link>
       </div>
