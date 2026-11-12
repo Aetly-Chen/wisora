@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ChevronRight,
@@ -8,6 +8,8 @@ import {
   Menu,
   MessageSquare,
   Network,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   Settings,
   X,
@@ -112,6 +114,138 @@ export const StudioPage: React.FC = () => {
    * 窄屏只留「活动栏 + 中栏」，左右两栏改成 fixed 覆盖 + 遮罩。
    * 这里只有 UI 状态（是否窄屏、抽屉开没开），不涉及业务逻辑。
    */
+  /*
+   * 可拖拽分栏（VS Code 那种）。
+   *
+   * 三个刻意的做法：
+   * 1. **拖动过程中不 setState**，只改 CSS 变量 `--left` / `--right`。
+   *    每帧 setState 会让整棵子树（含 SVG 树）重渲染，拖动会明显掉帧。
+   *    松手才落 state 并写 localStorage，视觉上一样是实时的。
+   * 2. 宽度上下限按「中间至少留 360px」动态收紧，避免拖到把内容挤没。
+   * 3. 收起用 grid 列宽 0 + `overflow-hidden`，配 180ms 过渡；拖动时关掉过渡，
+   *    否则手感会像拖橡皮筋。
+   */
+  const LEFT_MIN = 200;
+  const LEFT_MAX = 480;
+  const RIGHT_MIN = 320;
+  const RIGHT_MAX = 620;
+  const CENTER_MIN = 360;
+  const RAIL_W = 44;
+  const LEFT_DEFAULT = 268;
+  const RIGHT_DEFAULT = 384;
+
+  const readWidth = (key: string, fallback: number, min: number, max: number) => {
+    if (typeof window === 'undefined') return fallback;
+    const raw = Number(window.localStorage.getItem(key));
+    return Number.isFinite(raw) && raw >= min && raw <= max ? raw : fallback;
+  };
+
+  const shellRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ side: 'left' | 'right'; startX: number; startW: number } | null>(null);
+
+  const [leftW, setLeftW] = useState(() => readWidth('studio:left', LEFT_DEFAULT, LEFT_MIN, LEFT_MAX));
+  const [rightW, setRightW] = useState(() =>
+    readWidth('studio:right', RIGHT_DEFAULT, RIGHT_MIN, RIGHT_MAX),
+  );
+  const [leftCollapsed, setLeftCollapsed] = useState(
+    () => typeof window !== 'undefined' && window.localStorage.getItem('studio:leftCollapsed') === '1',
+  );
+  const [dragging, setDragging] = useState<'left' | 'right' | null>(null);
+
+  /** 拖动时允许的最大值：保证中间栏不小于 CENTER_MIN */
+  const maxFor = (side: 'left' | 'right', otherW: number) => {
+    const budget = window.innerWidth - RAIL_W - otherW - CENTER_MIN;
+    return Math.max(side === 'left' ? LEFT_MIN : RIGHT_MIN, Math.min(side === 'left' ? LEFT_MAX : RIGHT_MAX, budget));
+  };
+
+  const onDragStart = (side: 'left' | 'right') => (e: React.PointerEvent) => {
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    dragRef.current = { side, startX: e.clientX, startW: side === 'left' ? leftW : rightW };
+    setDragging(side);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
+
+  const onDragMove = (e: React.PointerEvent) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const delta = e.clientX - d.startX;
+    const raw = d.side === 'left' ? d.startW + delta : d.startW - delta;
+    const min = d.side === 'left' ? LEFT_MIN : RIGHT_MIN;
+    const max = maxFor(d.side, d.side === 'left' ? rightW : leftW);
+    const next = Math.round(Math.min(max, Math.max(min, raw)));
+    shellRef.current?.style.setProperty(d.side === 'left' ? '--left' : '--right', `${next}px`);
+  };
+
+  const onDragEnd = () => {
+    const d = dragRef.current;
+    dragRef.current = null;
+    setDragging(null);
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    if (!d) return;
+    const key = d.side === 'left' ? '--left' : '--right';
+    const raw = Number(shellRef.current?.style.getPropertyValue(key).replace('px', ''));
+    if (!Number.isFinite(raw) || raw <= 0) return;
+    if (d.side === 'left') {
+      setLeftW(raw);
+      window.localStorage.setItem('studio:left', String(raw));
+    } else {
+      setRightW(raw);
+      window.localStorage.setItem('studio:right', String(raw));
+    }
+  };
+
+  /** 双击分隔线：恢复默认宽度（VS Code 也有这个） */
+  const resetWidth = (side: 'left' | 'right') => {
+    const next = side === 'left' ? LEFT_DEFAULT : RIGHT_DEFAULT;
+    shellRef.current?.style.setProperty(side === 'left' ? '--left' : '--right', `${next}px`);
+    if (side === 'left') {
+      setLeftW(next);
+      window.localStorage.removeItem('studio:left');
+    } else {
+      setRightW(next);
+      window.localStorage.removeItem('studio:right');
+    }
+  };
+
+  /* 窗口缩小后可能撑破中间栏：把两侧宽度收敛回允许范围（VS Code 也这么做） */
+  useEffect(() => {
+    const onResize = () => {
+      if (window.matchMedia('(max-width: 767px)').matches) return;
+      const lMax = maxFor('left', rightW);
+      const rMax = maxFor('right', leftW);
+      setLeftW((w) => (w > lMax ? lMax : w));
+      setRightW((w) => (w > rMax ? rMax : w));
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leftW, rightW]);
+
+  /* 窗口缩小后可能撑破中间栏：把两侧宽度收敛回允许范围（VS Code 也这么做） */
+  useEffect(() => {
+    const onResize = () => {
+      if (window.matchMedia('(max-width: 767px)').matches) return;
+      const lMax = maxFor('left', rightW);
+      const rMax = maxFor('right', leftW);
+      setLeftW((w) => (w > lMax ? lMax : w));
+      setRightW((w) => (w > rMax ? rMax : w));
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leftW, rightW]);
+
+  const toggleLeft = () => {
+    setLeftCollapsed((prev) => {
+      const next = !prev;
+      window.localStorage.setItem('studio:leftCollapsed', next ? '1' : '0');
+      return next;
+    });
+  };
+
   const [isNarrow, setIsNarrow] = useState(
     () => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches,
   );
@@ -277,13 +411,19 @@ export const StudioPage: React.FC = () => {
 
   return (
     <div
-      className="grid h-[100dvh] w-full overflow-hidden"
+      ref={shellRef}
+      className="relative grid h-[100dvh] w-full overflow-hidden"
       style={{
         background: COLORS.bg,
         color: COLORS.ink,
+        /* 宽屏：rail | 左（可 0） | 中 | 右；两侧宽度走 CSS 变量，拖动时只改变量 */
+        ['--left' as string]: `${leftW}px`,
+        ['--right' as string]: `${rightW}px`,
         gridTemplateColumns: isNarrow
-          ? '44px minmax(0,1fr)'
-          : '44px 268px minmax(0,1fr) 384px',
+          ? `${RAIL_W}px minmax(0,1fr)`
+          : `${RAIL_W}px ${leftCollapsed ? '0px' : 'var(--left)'} minmax(${CENTER_MIN}px,1fr) var(--right)`,
+        /* 收起/展开的平滑过渡；拖动中关掉，否则像橡皮筋 */
+        transition: dragging ? 'none' : 'grid-template-columns 180ms cubic-bezier(.2,.7,.3,1)',
         gridTemplateRows: 'minmax(0,1fr) 26px',
       }}
     >
@@ -328,7 +468,7 @@ export const StudioPage: React.FC = () => {
             ? `fixed inset-y-0 left-0 z-40 flex w-[280px] flex-col overflow-y-auto shadow-xl transition-transform duration-200 ${
                 drawer === 'left' ? 'translate-x-0' : '-translate-x-full'
               }`
-            : 'flex min-h-0 flex-col'
+            : `flex min-h-0 flex-col overflow-hidden ${leftCollapsed ? 'border-r-0' : ''}`
         }
         style={{ background: COLORS.panel2, borderRight: `1px solid ${COLORS.line}` }}
       >
@@ -337,6 +477,18 @@ export const StudioPage: React.FC = () => {
             <span className="h-[6px] w-[6px] rounded-full" style={{ background: COLORS.panel }} />
           </span>
           <span className="text-[13px] font-semibold tracking-tight">Wisora</span>
+          {/* 宽屏：收起侧栏（收起后由中栏顶栏的按钮再展开） */}
+          {!isNarrow && (
+            <button
+              type="button"
+              aria-label="收起侧栏"
+              title="收起侧栏"
+              onClick={toggleLeft}
+              className="ml-auto grid h-6 w-6 place-items-center rounded-md text-slate-400 transition-colors hover:bg-black/[0.06] hover:text-slate-700"
+            >
+              <PanelLeftClose size={14} />
+            </button>
+          )}
           {isNarrow && (
             <button
               type="button"
@@ -395,6 +547,18 @@ export const StudioPage: React.FC = () => {
           className="flex h-10 shrink-0 items-center gap-2 px-3.5"
           style={{ borderBottom: `1px solid ${COLORS.line}` }}
         >
+          {!isNarrow && leftCollapsed && (
+            <button
+              type="button"
+              aria-label="展开侧栏"
+              title="展开侧栏"
+              onClick={toggleLeft}
+              className="grid h-7 w-7 shrink-0 place-items-center rounded-md hover:bg-black/[0.05]"
+              style={{ color: COLORS.ink2 }}
+            >
+              <PanelLeftOpen size={16} />
+            </button>
+          )}
           {isNarrow && (
             <button
               type="button"
@@ -603,6 +767,51 @@ export const StudioPage: React.FC = () => {
           </div>
         </div>
       </section>
+
+      {/*
+        两条拖拽分隔线：绝对定位在面板边界上，4px 热区（VS Code 也是 1px 线 + 宽热区）。
+        左边界 = rail + 左栏宽；右边界 = 视口 - 右栏宽。
+
+        颜色刻意不用 VS Code 那种高亮蓝：这套界面是冷白 + 石墨灰，
+        突然一条饱和蓝会很跳。改成 `#4a5462`（与正文同族的石墨灰），
+        拖起来是「线变实」而不是「线变色」，对比度约 7.8:1，足够看清又不抢内容。
+      */}
+      {!isNarrow && !leftCollapsed && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="调整左侧面板宽度"
+          onPointerDown={onDragStart('left')}
+          onPointerMove={onDragMove}
+          onPointerUp={onDragEnd}
+          onPointerCancel={onDragEnd}
+          onDoubleClick={() => resetWidth('left')}
+          className={`absolute inset-y-0 z-20 w-1 cursor-col-resize transition-colors ${
+            dragging === 'left' ? 'bg-[#4a5462]' : 'bg-transparent hover:bg-[#cfd7e0]'
+          }`}
+          style={{ left: `calc(${RAIL_W}px + var(--left) - 2px)` }}
+        />
+      )}
+
+      {!isNarrow && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="调整右侧面板宽度"
+          onPointerDown={onDragStart('right')}
+          onPointerMove={onDragMove}
+          onPointerUp={onDragEnd}
+          onPointerCancel={onDragEnd}
+          onDoubleClick={() => resetWidth('right')}
+          className={`absolute inset-y-0 z-20 w-1 cursor-col-resize transition-colors ${
+            dragging === 'right' ? 'bg-[#4a5462]' : 'bg-transparent hover:bg-[#cfd7e0]'
+          }`}
+          style={{ right: 'calc(var(--right) - 2px)' }}
+        />
+      )}
+
+      {/* 拖拽时铺一层透明遮罩：防止指针经过 iframe / canvas 时丢事件 */}
+      {dragging !== null && <div className="absolute inset-0 z-10 cursor-col-resize" />}
 
       {/* 窄屏抽屉遮罩 */}
       {isNarrow && drawer !== null && (
