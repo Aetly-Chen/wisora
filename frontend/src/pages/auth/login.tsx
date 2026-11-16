@@ -1,13 +1,11 @@
 import React, { useState } from 'react';
 import { AuthCard } from '../../components/AuthCard';
 import { ForgotPasswordModal } from '../../components/ForgotPasswordModal';
-import { WorkspaceDashboard } from '../../components/WorkspaceDashboard';
-import type { UserProfile, ViewDevice } from '../../types/auth';
+import type { ViewDevice } from '../../types/auth';
 import { AnimatePresence, motion } from 'framer-motion';
 import { CheckCircle2 } from 'lucide-react';
 
-const Auth: React.FC = () => { // 修正点 1：将 ( 改为 {
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+const Auth: React.FC = () => {
   const viewDevice: ViewDevice = 'auto';
   const [isForgotModalOpen, setIsForgotModalOpen] = useState(false);
 
@@ -40,32 +38,13 @@ const Auth: React.FC = () => { // 修正点 1：将 ( 改为 {
 
       {/* Main Container */}
       <div className="w-full flex-1 flex flex-col">
-        {/* Top Header Navigation */}
-        {/* <Header
-          viewDevice={viewDevice}
-          onDeviceChange={setViewDevice}
-          lang={lang}
-          onLangToggle={handleLangToggle}
-        /> */}
-
         {/* Main Content Area */}
         <main className="flex-1 w-full max-w-7xl mx-auto px-3 sm:px-6 py-4 flex items-center justify-center">
-          {currentUser ? (
-            <WorkspaceDashboard
-              user={currentUser}
-              onLogout={() => {
-                setCurrentUser(null);
-                showToast('已安全退出登录');
-              }}
-              onShowToast={showToast}
-            />
-          ) : (
-            <AuthCard
-              onOpenForgotModal={() => setIsForgotModalOpen(true)}
-              onShowToast={showToast}
-              viewDevice={viewDevice}
-            />
-          )}
+          <AuthCard
+            onOpenForgotModal={() => setIsForgotModalOpen(true)}
+            onShowToast={showToast}
+            viewDevice={viewDevice}
+          />
         </main>
       </div>
 
@@ -99,6 +78,6 @@ const Auth: React.FC = () => { // 修正点 1：将 ( 改为 {
       </footer>
     </div>
   );
-}; // 修正点 2：将结尾处的 ); 修正为正常的结束花括号 };
+};
 
 export default Auth;

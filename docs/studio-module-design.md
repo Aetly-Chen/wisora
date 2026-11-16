@@ -5,7 +5,7 @@
 > **每个模块都是「一个人做完前端 + 后端」的粒度**：先讲前端要达成什么交互，再讲后端怎么配合
 > （接口、字段、权限、错误码），最后讲联调时两边怎么对齐状态、哪些边界必须处理。
 >
-> 盘点时间：2026-11-13。所有字段名、模型名都对照过 `prisma/schema.prisma` 与现有代码。
+> 盘点时间：2026-11-17。所有字段名、模型名、拦截器行为均对照过 `prisma/schema.prisma` 与现有前后端代码。
 
 ---
 
@@ -23,13 +23,15 @@
 
 | # | 模块 | 前端落点 | 后端落点 | 核心接口 | 依赖 |
 |---|---|---|---|---|---|
-| A | 笔记树与阅读 | `pages/studio` · `components/studio/NoteBody.tsx` | `src/notes/` | `GET /notes`、`GET /notes/:id` | — |
-| B | 编辑与保存 | `NoteBody.tsx` + 顶栏保存态 | `src/notes/`（`PATCH`） | `PATCH /notes/:id` | A |
-| C | 附件与预览 | 左栏「文件」· `FilePreview.tsx` | `src/attachments/` | 上传 / 列表 / 签名 / 直链 | A |
-| D | AI 对话 | 右栏 Agent · `AgentPanel.tsx` | `src/ai/` | 会话 CRUD + `POST /ai/chat` | A |
+| A | 笔记树与阅读 | `pages/studio` · `pages/studio/components/NoteBody.tsx` | `src/notes/` | `GET /notes`、`GET /notes/:id` | — |
+| B | 编辑与保存 | `pages/studio/components/NoteBody.tsx` + 顶栏保存态 | `src/notes/`（`PATCH`） | `PATCH /notes/:id` | A |
+| C | 附件与预览 | 左栏「文件」· `pages/studio/components/FilePreview.tsx` | `src/attachments/` | 上传 / 列表 / 签名 / 直链 | A |
+| D | AI 对话 | 右栏 Agent · `pages/studio/components/AgentPanel.tsx` | `src/ai/` | 会话 CRUD + `POST /ai/chat` | A |
 | E | Agent 操作笔记 | 右栏工具卡片 + 确认条 | `src/ai/tools/` | 复用 D 的流 + `PATCH` | A, D |
 | F | 他人主页 | `/profile?u=` | `src/user/` | `GET /user/:id` | — |
 | G | 检索（可选） | 左栏搜索框 | `src/rag/` | `GET /notes?keyword=` 升级 | A |
+
+> 注：当前前端所有视图均位于 `pages/studio/index.tsx` 单文件内；按模块推进时拆到 `pages/studio/components/` 下（与 `studio-handoff.md` 一致）。
 
 **推荐顺序**：`A → B → F → C → D → E → G`
 （F 最短，插在 B 后面是为了尽早拿到一次「整条链路都通」的信心。）
@@ -44,7 +46,7 @@
 所以前端 `request.get<T>()` 直接拿到 `data`，**不要再 `.data` 一次**。
 
 ```ts
-{ code: 200 | 201 | 4xx | 5xx, message: string, data: T }
+{ code: 200 | 201 | 4xx | 5xx, msg: string, data: T }
 ```
 
 - `code` 镜像 HTTP 状态码：GET 200，**未写 `@HttpCode` 的 POST 是 201**。
@@ -55,6 +57,7 @@
 - 所有业务接口挂 `JwtAuthGuard`，用 `@CurrentUser()` 取 `userId`。
 - **userId 一律取自令牌**，任何接口都不接受前端传 userId —— 否则等于开放越权。
 - 前端已有 `request` 实例自动带 `Authorization`；401/403 由拦截器统一清令牌 + 跳 `/auth`。
+- 退出登录（`frontend/src/lib/logout.ts`）时，除了清令牌与 `useChatStore`，**必须一并 `reset()` 新增的 Studio 相关 store / 内存缓存**，防止切账号后看到上一位用户的笔记树或 AI 会话。
 
 ### 2.3 权限口径
 
@@ -68,22 +71,23 @@
 
 ### 2.4 错误码表（全模块共用）
 
-| 场景 | HTTP | message（直接给用户看） |
+| 场景 | HTTP | msg（异常入参传 `message` 字符串，Filter 出参包装为 `msg`） |
 |---|---|---|
 | 未登录 / 令牌过期 | 401 | 登录已过期，请重新登录 |
 | 笔记/附件不存在或不属于你 | 404 | 笔记不存在 / 附件不存在 |
 | 父页面不存在 | 404 | 父页面不存在 |
 | 移动成环（挂到自己子孙下） | 400 | 不能移动到自己的子页面下 |
+| 超出两层限制（挂在二级页面下） | 400 | 最多支持两层页面 |
 | 标题过长（>200） | 400 | 标题最多 200 字 |
 | 正文超限（>1MB） | 400 | 正文过长 |
 | 版本冲突（并发保存） | 409 | 这篇笔记已被修改，请刷新后重试 |
-| 文件过大 | 413 | 单个文件不能超过 20MB |
+| 文件过大 | 400（`assertUploadable`） / 413（multer 兜底） | 单个文件不能超过 20 MB |
 | 类型不支持 | 400 | 不支持的文件类型 |
 | 签名过期/无效 | 404 | 链接已失效 |
 | 模型服务失败 | 502 | 模型服务暂时不可用，请稍后重试 |
 
 ⚠️ 异常只用 Nest 标准形态（`throw new NotFoundException('笔记不存在')`）。
-现有 filter 只读 `body.message || body.error`，传 `{code,msg}` 会**静默丢文案**。
+现有 filter 只读 `body.message || body.error`，传 `{code,msg}` 会**静默丢文案**；最终响应体统一由 `HttpExceptionFilter` 包装成 `{ code, msg, data: null }`。
 
 ### 2.5 时间、ID、分页
 
@@ -100,6 +104,7 @@
 
 - 中栏默认是知识树（已实现），节点来自真实笔记；点叶子 → 中栏切到正文。
 - 左栏「笔记」tab 是同一份数据的嵌套列表（已实现样式）。
+- 左栏顶部公共「＋」按钮按当前 tab 分派行为：`notes` → 新建顶层笔记；`chat` → 新建 AI 会话；`files` → 触发文件上传。
 - 状态栏 `N · M`（笔记数 · 顶层数）、面包屑标题都读同一份数据。
 - 空库（0 篇）才显示星海动画。
 
@@ -139,6 +144,7 @@ interface NoteDetail extends NoteSummary {
 
 - 所有查询带 `userId = @CurrentUser()` 且 `deletedAt: null`。
 - `POST` 的 `parentId` 要为当前用户可见的笔记，否则 404（不能把笔记挂到别人页下）。
+- **最多两层页面**：前端 `KnowledgeTree.tsx`（极坐标两圈 `depth: 1 | 2`）与左栏列表均只渲染两层，后端 `POST /notes` 传了 `parentId` 时，目标父节点自身的 `parentId` 必须为 `null`，否则返回 400「最多支持两层页面」。
 - `DELETE` 是**软删除整棵子树**：先 BFS 收集 `subtreeIds`，再 `updateMany({ deletedAt })`。
   单条 `update` 只会删一层，子页面会变成孤儿。
 
@@ -190,7 +196,7 @@ curl -s -X DELETE -H "Authorization: Bearer $T" localhost:3000/notes/<父id>
 | `title` | 去首尾空白；空 → 存「无标题」；>200 字 → 400 |
 | `content` | 上限 1MB（防误粘贴二进制）；不校验格式 |
 | `pinned` | 布尔 |
-| `parentId` | 允许 `null`（提到顶层）；非空时校验归属 + **禁止成环** |
+| `parentId` | 允许 `null`（提到顶层）；非空时校验归属 + **禁止成环** + **最多两层**（目标父节点自身的 `parentId` 必须为 `null`，否则 400「最多支持两层页面」） |
 | `baseUpdatedAt` | 可选。传了就做乐观锁（见 B4） |
 
 ### B4 并发：必须定一个策略
@@ -226,6 +232,7 @@ curl -s -X DELETE -H "Authorization: Bearer $T" localhost:3000/notes/<父id>
 ### C1 前端交互目标
 
 - 左栏「文件」列出当前用户全部附件（含未挂到笔记的）。
+- 上传入口：左栏切到「文件」tab 时，点击左栏顶部公共「＋」按钮（或在文件列表底部提供「＋ 上传文件」按钮）唤起隐藏 `<input type="file">`。
 - 点击 → 中栏只读预览：图片 `<img>` / PDF `<iframe>` / 文本 `<pre>` / 其它给下载。
 - 顶部 `readonly` 标识保留（沿用现有 UI）。
 
@@ -260,9 +267,10 @@ interface AttachmentMeta {
 `<img src>` / `<iframe src>` **带不了 `Authorization` 头**。所以：
 
 1. 前端先 `POST /attachments/sign` 换短时直链（建议 1 小时）。
-2. 直链形如 `/attachments/<id>/content?exp=<ts>&sig=<hmac>`，`sig` 绑定 `id + exp`。
+2. 直链形如 `/attachments/<id>/content?exp=<ts>&sig=<hmac>`，`sig` 对 `${id}.${exp}` 做 HMAC-SHA256 签名（密钥直接复用 `process.env.JWT_ACCESS_SECRET`，无需新增环境变量），校验时用 `crypto.timingSafeEqual` 比对。
 3. `/content` **不挂守卫**，只校验签名；无效/过期 → **404**（不是 401，避免暴露接口存在）。
 4. 返回**相对路径**：前端自己拼 `VITE_BASE_API`。返回绝对 URL 在换域/代理时会全炸。
+5. 后端复用已有的 `StorageService`、`file-guard.ts`（`assertUploadable` / `decodeFilename`）与 `@SkipResponse()`。
 
 ⚠️ 这个坑已经踩过：直链是相对路径时若直接 `fetch('/attachments/...')`，请求会打到 dev server 被
 SPA fallback 接走，预览区渲染出一整页 HTML。
@@ -273,9 +281,10 @@ SPA fallback 接走，预览区渲染出一整页 HTML。
 |---|---|
 | 上传中 | 列表先插占位行（进度/灰度），成功替换成真 meta；失败移除并提示 |
 | 上传与笔记保存的先后 | `noteId` 可空：先传文件拿到 id，笔记保存后再 `PATCH` 关联。**不要**等笔记存在才允许上传 |
+| 文本类预览（`.md` / `.txt`） | 图片/PDF 直接把签名直链赋给 `<img>` / `<iframe>`；文本类由于 `/attachments/:id/content` 挂了 `@SkipResponse()` 直接返回原始字节流，前端必须用原生 `fetch(直链).then(r => r.text())` 读取，**不要**走会自动解包 `{code,msg,data}` 的 `request.get` |
 | 签名过期 | 预览 404 时**自动重新签一次**再重试（只重试一次，避免循环） |
 | 删除附件 | 同时删库 + 磁盘；若正文里还有 `attachment:<id>` 引用，前端预览时显示「附件已删除」占位 |
-| 大文件 | 前端上传前先按 `size` 拦（20MB），比等后端 413 体验好 |
+| 大文件 | 前端上传前先按 `size` 拦（20MB），比等后端返回 400（`assertUploadable`） / 413 体验好 |
 | 同名文件 | 允许并存（`storageKey` 不同），列表靠 `createdAt` 区分 |
 
 ### C6 验证
@@ -304,9 +313,11 @@ curl -s -o /dev/null -w '%{http_code}\n' "localhost:3000/attachments/<aid>/conte
 |---|---|---|---|
 | GET | `/ai/conversations` | — | `{ id, title, updatedAt }[]` |
 | POST | `/ai/conversations` | `{ title? }` | `{ id, title }`（201） |
-| GET | `/ai/conversations/:id/messages` | `?limit=` | `{ id, role, content, createdAt }[]` |
+| GET | `/ai/conversations/:id/messages` | `?limit=` | `{ id, role, content, toolCalls?, createdAt }[]` |
 | DELETE | `/ai/conversations/:id` | — | `{ id }`（软删） |
-| POST | `/ai/chat` | `{ conversationId, content, context? }` | **SSE / chunked stream** |
+| POST | `/ai/chat` | `{ conversationId, content, context?, allowWrite? }` | **SSE / chunked stream** |
+
+> 历史消息只返回 `user` / `assistant`，当轮工具调用卡片与待确认 `proposal` 记在 `assistant` 消息的 `toolCalls` Json 字段中一并返回，保证刷新或切会话后工具卡与提议不丢失。
 
 模型已存在：`Conversation`（`userId/title?/model?/deletedAt`）、`Message`（`role/content/toolCalls?/usage?`）。
 
@@ -334,17 +345,20 @@ context?: { noteId?: string; selection?: string }
 ```
 - `noteId` 由后端**自己查库**取正文（不信前端传来的正文），按 token 预算截断（建议 6k 字符）。
 - `selection` 是用户选中的片段，只做提示补充，长度上限 2k。
+- 前端采集：`view === 'note'` 时默认挂当前笔记 chip（可点 `×` 移除）；监听正文区鼠标/键盘选区填入 `selection`（上限 2k 字符）。
 
 ### D5 权限与取消
 
 - 会话归属校验：`conversation.userId === @CurrentUser()`，否则 404。
-- 前端「停止」用 `AbortController`；后端监听连接关闭（`req.on('close')`）→ 停止生成并落库半截。
+- 前端「停止」用 `AbortController`；后端监听 `res.on('close')`（配合 `!res.writableEnded` 判断客户端是否中途断开）→ 停止生成并落库半截。
 - 落库的 assistant 消息标记 `usage` 里的 `aborted: true`，方便以后区分。
+- 后端已移除 `@langchain/*`，直接用 Node 原生 `fetch` 调用 OpenAI 兼容流式接口，零额外依赖。
 
 ### D6 联调：状态同步与边界
 
 | 情况 | 约定 |
 |---|---|
+| 首次发消息还没建会话 | 若右栏当前未选中任何 `conversationId`，前端发送前先调 `POST /ai/conversations` 创建会话拿到 `id`，再发起 `POST /ai/chat` |
 | 用户连点发送 | 前端流式中禁用输入；后端对同会话加**单飞锁**（Redis），并发请求返回 409 |
 | 停止 | 立刻断开 + 落库半截；前端把半截文本固定在气泡里，不重发 |
 | 刷新中途 | 历史里应有 user + 半截 assistant；前端不做「续写」 |
@@ -413,7 +427,7 @@ data: {"type":"proposal","patch":{"noteId":"n1","content":"..."},"summary":"把�
 - **只对好友开放**：查 `ChatFriendship({ userId: 我, friendId: 对方 })`，没有 → **404**。
 - **不返回 email**：现有 `USER_PUBLIC_SELECT` 含 `email`，注释也写着「只有本人资料接口返回」。
   他人主页另建一个 `USER_OTHER_SELECT`，只含 `id/nickname/handle/bio/createdAt`。
-- 查自己（`id === 我`）走 `/user/profile`，那份**要**带 email。
+- 查自己（`id === 当前用户`）：前端若识别到 `?u=<我的id>` 直接 `navigate('/profile', { replace: true })` 切回本人资料页；后端 `GET /user/:id` 若收到 `id === 当前用户` 也直接复用 `getProfile` 逻辑（不因查不到好友关系而误返 404）。本人 `/user/profile` 那份**要**带 email。
 - ⚠️ 路由顺序：`@Get('profile')` 必须写在 `@Get(':id')` **之前**，否则 `/user/profile` 会被当 id 匹配。
 
 ### F4 联调边界
@@ -480,25 +494,17 @@ A 笔记树与阅读  ──→ B 编辑保存 ──→ F 他人主页（短，
 7. **headless Chrome 两次 shell 调用之间会被回收**（`ECONNREFUSED 9222`）：启动 + 交互 + 截图放同一次调用；窗口宽度下限约 500px。
 8. **`rm -rf` / `shutil.rmtree` 会被 safe-delete 拦**：用 `find <dir> -type f -delete`。
 9. **POST 默认 201**：前端按 2xx 判成功，别写死 `code === 200`。
+10. **退出登录必须清空 Studio 状态**：`frontend/src/lib/logout.ts` 目前只清了 Token 与 `useChatStore`；新增的笔记/附件/AI 状态若放进 zustand store 或内存缓存，必须在 `logout.ts` 一并 `reset()`，避免换账号看到上一个人的数据。
 
 ---
 
-## 12. 仓库里哪些文档已经作废
+## 12. 仓库里现有的文档清单
 
-`docs/` 下有几份是**拆迁前**写的，讲的模块已经不存在（`2472d15` 删除）。读之前先对一眼这张表，
-别照着旧文档去写已经不存在的代码：
+已作废的旧模块文档（`agent-notes-workbench-plan.md`、`ai-notes-agent-plan.md`、`ai-rag-retrieval.md`、`notes-editor-redesign.md`、`wisora-modules-guide.*`、`wisora-代码逐文件详解.md`、`workbench-design-options.html` 及 `backend/docs/` 下旧文档）均已清理；`docs/` 下现存文档如下：
 
 | 文档 | 状态 | 说明 |
 |---|---|---|
 | `studio-module-design.md`（本文） | ✅ 现行 | 补逻辑按它对 |
 | `studio-handoff.md` | ✅ 现行 | studio 的 UI 结构、MOCK 位置、样式令牌、分栏/移动端约定 |
 | `chat-module-design.md` · `chat-backend-implementation.md` | ✅ 现行 | 聊天模块还在用 |
-| `agent-notes-workbench-plan.md` | ❌ 作废 | 描述的是已删除的 agent + notes + workbench |
-| `ai-notes-agent-plan.md` | ❌ 作废 | 同上，且基于旧目录结构 |
-| `ai-rag-retrieval.md` | ❌ 作废 | RAG 模块已删；要看检索设计请用本文第 9 节 |
-| `notes-editor-redesign.md` | ❌ 作废 | milkdown 编辑器已从依赖里移除 |
-| `wisora-modules-guide.md` · `wisora-代码逐文件详解.md` | ⚠️ 部分失效 | 逐文件部分包含已删文件；架构结论仍可参考 |
 | `homo-伪代码实现详解.md` · `olct-伪代码实现详解.md` | ✅ 无关但有效 | 另外两个项目，与本仓库无关 |
-
-要不要物理删除这几份作废文档由你决定 —— 我没动，因为里面有些决策记录（为什么当初那么设计）
-可能还有参考价值。

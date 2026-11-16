@@ -4,24 +4,13 @@ import type { ChatEvent } from '@/types/chat';
 
 const BASE = import.meta.env.VITE_BASE_API ?? '';
 
-/**
- * 笔记侧的实时事件（与服务端 `notes/types/note-events.ts` 对应）。
- *
- * 和聊天事件共用一个通道、一个连接 —— 前端只挂一次 `socket.on('event')`，
- * 按载荷里的 `type` 分派。
- */
-export type NoteEvent =
-  | { type: 'note.created'; noteId: string; updatedAt: string }
-  | { type: 'note.updated'; noteId: string; updatedAt: string }
-  | { type: 'note.removed'; noteId: string };
-
-export type RealtimeEvent = ChatEvent | NoteEvent;
+export type RealtimeEvent = ChatEvent;
 
 /**
- * 订阅服务端推送（聊天 + 笔记共用）。
+ * 订阅服务端推送（聊天事件）。
  *
  * 令牌通过握手载荷（auth）传递，**不放 query string** —— query 会进访问日志
- * 与代理记录。这一点与 ai 模块当初为 SSE 引入一次性 ticket 是同一个理由。
+ * 与代理记录。
  *
  * `auth` 传函数形式：socket.io 每次重连都会重新调用它，
  * 这样访问令牌过期刷新后，重连拿到的是新令牌而不是握手时的旧值。

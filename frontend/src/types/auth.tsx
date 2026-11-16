@@ -3,23 +3,6 @@ export type LoginMethod = 'password' | 'code'; // 登录方式：密码 / 邮箱
 export type ViewDevice = 'auto' | 'desktop' | 'h5'; // 预览用的视口形态，auto 交给 CSS 断点
 
 /**
- * 前端展示用的用户模型（`WorkspaceDashboard` 这类仪表盘组件消费它）。
- *
- * ⚠️ **注意它和后端 `/user/profile` 返回的 `AuthUser` 不是同一形状**：
- * 后端给的是 `id / email / nickname / handle / bio / createdAt`，
- * 这里的 `name / avatar / role / tokenBalance` 是早期仪表盘自己的字段。
- * 真要接后端数据时先核对，别直接互相赋值。
- */
-export interface UserProfile {
-  id: string; // 用户主键
-  name: string; // 展示名（对应后端的 nickname，但字段名不同）
-  email: string; // 邮箱
-  avatar: string; // 头像地址；空串表示用首字母兜底
-  role: string; // 角色标识，仪表盘上用来区分身份标签
-  tokenBalance: number; // token 余额（展示用数字）
-}
-
-/**
  * 注册接口参数
  */
 export interface RegisterParams {

@@ -21,8 +21,6 @@ import type {
   Friend,
   Message,
   SendMessagePayload,
-  ShareNotePayload,
-  ShareNoteResult,
 } from '@/types/chat';
 import { CHAT_FILE_MAX_BYTES } from '@/lib/chat-utils';
 
@@ -213,17 +211,15 @@ export function uploadAttachment(
 /**
  * POST /chat/conversations/:id/messages
  *
- * body: { text?, attachmentId?, noteId? } 三者至少有一个。
+ * body: { text?, attachmentId? } 二者至少有一个。
  *
- * 注意这里要做**字段拍平**：store 传的是完整的 attachment / note 对象，
- * 而后端只接受 id。笔记的标题等快照由服务端自己按 noteId 查 ——
- * 让客户端传标题意味着可以伪造标题把别人的笔记发出去。
+ * 注意这里要做**字段拍平**：store 传的是完整的 attachment 对象，
+ * 而后端只接受 attachmentId。
  */
 export async function sendMessage(payload: SendMessagePayload): Promise<Message> {
-  const body: { text?: string; attachmentId?: string; noteId?: string } = {};
+  const body: { text?: string; attachmentId?: string } = {};
   if (payload.text) body.text = payload.text;
   if (payload.attachment) body.attachmentId = payload.attachment.id;
-  if (payload.note) body.noteId = payload.note.noteId;
 
   const saved = await request.post<Message>(
     `/chat/conversations/${payload.conversationId}/messages`,
@@ -242,24 +238,6 @@ export async function sendMessage(payload: SendMessagePayload): Promise<Message>
     return { ...saved, attachment: { ...saved.attachment, objectUrl: localUrl } };
   }
   return saved;
-}
-
-/**
- * POST /chat/notes/share { noteId, toFriendIds[], comment? }
- *
- * 服务端为每个好友复用或新建单聊，各写一条 kind=note 的消息。
- * 部分失败时照常返回成功的那部分（前端提示「N 位好友已收到」）。
- */
-export function shareNote(payload: ShareNotePayload): Promise<ShareNoteResult> {
-  return request.post<ShareNoteResult>(
-    '/chat/notes/share',
-    {
-      noteId: payload.noteId,
-      toFriendIds: payload.toFriendIds,
-      comment: payload.comment,
-    },
-    { loading: false },
-  );
 }
 
 /* ------------------------------ 带鉴权的文件读取 ------------------------------ */

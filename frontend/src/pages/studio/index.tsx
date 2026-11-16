@@ -82,13 +82,6 @@ type View = 'tree' | 'note' | 'file';
 /*
  * 配色：冷白系。
  *
- * 之前用的是暖米（#f3f0e9）+ 土赭（#8a5a2b），在显示器上整体发闷偏脏。
- * 现在换成近白底 + 冷灰描边 + 钢蓝强调：亮度上去了，文字对比度反而更高，
- * 也不会像紫蓝渐变那样有「AI 生成」的味道。
- */
-/*
- * 配色：冷白系。
- *
  * 之前是暖米（#f3f0e9）+ 土赭（#8a5a2b），整体发闷偏脏。现在换成近白底 +
  * 冷灰描边 + 钢蓝强调：亮度上去了，文字对比度反而更高，也没有紫蓝渐变那种
  * 「AI 生成」的味道。
@@ -209,20 +202,6 @@ export const StudioPage: React.FC = () => {
       window.localStorage.removeItem('studio:right');
     }
   };
-
-  /* 窗口缩小后可能撑破中间栏：把两侧宽度收敛回允许范围（VS Code 也这么做） */
-  useEffect(() => {
-    const onResize = () => {
-      if (window.matchMedia('(max-width: 767px)').matches) return;
-      const lMax = maxFor('left', rightW);
-      const rMax = maxFor('right', leftW);
-      setLeftW((w) => (w > lMax ? lMax : w));
-      setRightW((w) => (w > rMax ? rMax : w));
-    };
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [leftW, rightW]);
 
   /* 窗口缩小后可能撑破中间栏：把两侧宽度收敛回允许范围（VS Code 也这么做） */
   useEffect(() => {

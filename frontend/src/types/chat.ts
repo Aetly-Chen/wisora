@@ -150,30 +150,11 @@ export type ChatEvent =
 /* 请求载荷                                                            */
 /* ------------------------------------------------------------------ */
 
-/** 发送消息的请求体；text / attachment / note 三者按 kind 取其一 */
+/** 发送消息的请求体；text / attachment 按 kind 取其一 */
 export interface SendMessagePayload {
   conversationId: string; // 发到哪个会话
   text?: string; // 文本内容（text 消息必填）
   attachment?: ChatAttachment; // 已上传的附件（image / file 消息用）
-  note?: SharedNotePayload; // 分享的笔记卡片（note 消息用）
-}
-
-export interface ShareNotePayload {
-  noteId: string; // 要分享的笔记
-  title: string; // 分享时展示的标题
-  kind: 'note' | 'folder'; // 单篇还是整个目录
-  childCount: number; // 目录分享时的子页面数（单篇为 0）
-  /** 要分享给哪些好友；每人生成（或复用）一个单聊会话 */
-  toFriendIds: string[];
-  /** 附加的一句说明 */
-  comment?: string;
-}
-
-export interface ShareNoteResult {
-  /** 实际送达的会话数 */
-  conversationCount: number;
-  /** 实际生成的消息数 */
-  messageCount: number;
 }
 
 /** 创建群聊的请求体 */

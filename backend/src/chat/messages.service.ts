@@ -93,10 +93,10 @@ export class MessagesService {
     return toMessage(created);
   }
 
-  /* ------------------------------ 三种消息写入 ------------------------------ */
+  /* ------------------------------ 消息写入 ------------------------------ */
 
   /**
-   * 文本 / 附件 / 笔记消息的统一落库点。
+   * 文本 / 附件消息的统一落库点。
    *
    * unread 的累加对象排除了发送者自己 —— 给自己加未读会让列表上
    * 出现一个自己发完消息就冒出来的红点。
@@ -104,14 +104,8 @@ export class MessagesService {
   private async insertMessage(data: {
     conversationId: string;
     senderId: string;
-    kind: 'TEXT' | 'IMAGE' | 'FILE' | 'NOTE';
+    kind: 'TEXT' | 'IMAGE' | 'FILE';
     text: string | null;
-    noteSnapshot?: {
-      noteId: string;
-      title: string;
-      kind: 'note' | 'folder';
-      childCount: number;
-    };
     attachmentId?: string;
   }) {
     const [created] = await this.prisma.$transaction([
@@ -121,14 +115,6 @@ export class MessagesService {
           senderId: data.senderId,
           kind: data.kind,
           text: data.text,
-          ...(data.noteSnapshot
-            ? {
-                noteId: data.noteSnapshot.noteId,
-                noteTitle: data.noteSnapshot.title,
-                noteKind: data.noteSnapshot.kind,
-                noteChildCount: data.noteSnapshot.childCount,
-              }
-            : {}),
           ...(data.attachmentId
             ? { attachment: { connect: { id: data.attachmentId } } }
             : {}),

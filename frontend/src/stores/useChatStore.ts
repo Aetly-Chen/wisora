@@ -19,7 +19,6 @@ import type {
   Conversation,
   Friend,
   Message,
-  ShareNotePayload,
 } from '@/types/chat';
 import {
   addFriend as apiAddFriend,
@@ -32,7 +31,6 @@ import {
   searchUsers,
   sendMessage,
   setCurrentUser,
-  shareNote as apiShareNote,
   updateConversationFlags,
   uploadAttachment,
 } from '@/request/chat';
@@ -141,7 +139,7 @@ interface ChatState {
   setDraft: (conversationId: string, text: string) => void; // 存草稿，切会话后回来还在
 
   openConversation: (id: string) => Promise<void>; // 打开会话：加载消息 + 清未读
-  send: (payload: { text?: string; note?: Message['note'] }) => Promise<void>; // 发文本 / 笔记卡片
+  send: (payload: { text?: string }) => Promise<void>; // 发文本消息
   attachAndSend: (file: File) => Promise<void>; // 上传附件并作为消息发出
   retryMessage: (messageId: string) => Promise<void>; // 重发失败的消息
 
@@ -154,7 +152,6 @@ interface ChatState {
 
   togglePin: (conversationId: string) => Promise<void>; // 会话置顶 / 取消
   toggleMute: (conversationId: string) => Promise<void>; // 免打扰开关
-  shareNote: (payload: ShareNotePayload) => Promise<number>; // 分享笔记到若干好友，返回送达的会话数
 
   clearError: () => void; // 关掉错误提示
   clearNotice: () => void; // 关掉成功提示
@@ -247,9 +244,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
      */
     unsubscribe?.();
     unsubscribe = subscribeRealtimeEvents((event) => {
-      // 同一条连接也推笔记事件（见 request/realtime.ts），这边先滤掉
-      if (event.type.startsWith('note.')) return;
-
       const { activeId, meId } = get();
 
       switch (event.type) {
@@ -396,13 +390,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  send: async ({ text, note }) => {
+  send: async ({ text }) => {
     const { activeId, meId } = get();
     if (!activeId) return;
 
     const conversationId = activeId;
     const trimmed = text?.trim() ?? '';
-    if (!trimmed && !note) return;
+    if (!trimmed) return;
 
     /*
      * 乐观插入：先按「发送中」把气泡画出来，再等接口返回替换。
@@ -414,10 +408,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       id: tempId,
       conversationId,
       senderId: meId,
-      kind: note ? 'note' : 'text',
-      text: trimmed || null,
+      kind: 'text',
+      text: trimmed,
       attachment: null,
-      note: note ?? null,
+      note: null,
       createdAt: new Date().toISOString(),
       status: 'sending',
     };
@@ -432,7 +426,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }));
 
     try {
-      const saved = await sendMessage({ conversationId, text: trimmed, note: note ?? undefined });
+      const saved = await sendMessage({ conversationId, text: trimmed });
       set((state) => ({
         messagesByConversation: {
           ...state.messagesByConversation,
@@ -543,7 +537,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       },
     }));
 
-    await get().send({ text: target.text ?? undefined, note: target.note ?? undefined });
+    await get().send({ text: target.text ?? undefined });
   },
 
   startDirect: async (friendId) => {
@@ -649,21 +643,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
           c.id === conversationId ? { ...c, muted: !muted } : c,
         ),
       }));
-    }
-  },
-
-  shareNote: async (payload) => {
-    try {
-      const result = await apiShareNote(payload);
-
-      // 分享等于给每位好友发了一条消息：把新会话与消息并进本地状态，
-      // 否则切到聊天页看不到刚分享的内容，用户会以为没发出去
-      const conversations = await listConversations();
-      set({ conversations, notice: `已分享给 ${result.conversationCount} 位好友` });
-      return result.conversationCount;
-    } catch {
-      // 返回值表示「发给了几个会话」，失败即 0；文案由 toast 负责
-      return 0;
     }
   },
 

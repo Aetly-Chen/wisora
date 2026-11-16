@@ -342,7 +342,7 @@ export const MessageList: React.FC<MessageListProps> = ({
               还没有消息
             </p>
             <p className="mt-1 text-[13px] tg-wallpaper-text">
-              发一条消息，或者把笔记分享过来
+              发一条消息开始对话吧
             </p>
           </div>
         ) : (
